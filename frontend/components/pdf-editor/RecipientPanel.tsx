@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Edit2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -37,31 +37,53 @@ export function RecipientPanel({
   const [signingOrder, setSigningOrder] = useState(1);
   const [workflowType, setWorkflowType] = useState<WorkflowType>(document.workflow_type);
   const [loading, setLoading] = useState(false);
+  const [editingRecipientId, setEditingRecipientId] = useState<string | null>(null);
 
-  async function addRecipient(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
     try {
-      const recipient = await apiFetch<RecipientRecord>(`/api/documents/${document.id}/recipients`, {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          email,
-          role_name: roleName || null,
-          signing_order: signingOrder
-        })
-      });
+      if (editingRecipientId) {
+        await apiFetch(`/api/documents/${document.id}/recipients/${editingRecipientId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name,
+            email,
+            role_name: roleName || null,
+            signing_order: signingOrder
+          })
+        });
+        setEditingRecipientId(null);
+      } else {
+        const recipient = await apiFetch<RecipientRecord>(`/api/documents/${document.id}/recipients`, {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            email,
+            role_name: roleName || null,
+            signing_order: signingOrder
+          })
+        });
+        onSelectedRecipientChange(recipient.id);
+      }
       setName("");
       setEmail("");
       setRoleName("");
       setSigningOrder(1);
-      onSelectedRecipientChange(recipient.id);
       await onReload();
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Could not add recipient");
+      onError(err instanceof Error ? err.message : "Could not save recipient");
     } finally {
       setLoading(false);
     }
+  }
+
+  function cancelEdit() {
+    setEditingRecipientId(null);
+    setName("");
+    setEmail("");
+    setRoleName("");
+    setSigningOrder(1);
   }
 
   async function updateWorkflow(next: WorkflowType) {
@@ -97,7 +119,8 @@ export function RecipientPanel({
         </Select>
       </label>
 
-      <form onSubmit={addRecipient} className="space-y-3 rounded-md border border-border p-3">
+      <form onSubmit={handleSubmit} className="space-y-3 rounded-md border border-border p-3">
+        <div className="font-semibold text-sm mb-1">{editingRecipientId ? "Edit Recipient" : "New Recipient"}</div>
         <Input placeholder="Recipient name" value={name} onChange={(event) => setName(event.target.value)} required />
         <Input placeholder="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
         <Input placeholder="Role" value={roleName} onChange={(event) => setRoleName(event.target.value)} />
@@ -108,10 +131,17 @@ export function RecipientPanel({
           onChange={(event) => setSigningOrder(Number(event.target.value))}
           aria-label="Signing order"
         />
-        <Button type="submit" loading={loading} className="w-full">
-          <Plus className="h-4 w-4" />
-          Add recipient
-        </Button>
+        <div className="flex gap-2">
+          <Button type="submit" loading={loading} className="w-full">
+            {!editingRecipientId && <Plus className="h-4 w-4" />}
+            {editingRecipientId ? "Save Changes" : "Add recipient"}
+          </Button>
+          {editingRecipientId && (
+            <Button type="button" variant="ghost" onClick={cancelEdit}>
+              Cancel
+            </Button>
+          )}
+        </div>
       </form>
 
       <div className="space-y-2">
@@ -133,8 +163,23 @@ export function RecipientPanel({
                 <div className="truncate text-mutedForeground">{recipient.email}</div>
                 <div className="mt-1 text-xs text-mutedForeground">Order {recipient.signing_order}</div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
                 <StatusBadge status={recipient.status} />
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="rounded-md p-1 hover:bg-slate-100"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setEditingRecipientId(recipient.id);
+                    setName(recipient.name);
+                    setEmail(recipient.email);
+                    setRoleName(recipient.role_name || "");
+                    setSigningOrder(recipient.signing_order);
+                  }}
+                >
+                  <Edit2 className="h-4 w-4 text-slate-500" />
+                </span>
                 <span
                   role="button"
                   tabIndex={0}
