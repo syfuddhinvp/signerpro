@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     signing_token_expire_days: int = Field(default=14, alias="SIGNING_TOKEN_EXPIRE_DAYS")
     environment: str = Field(default="development", alias="ENVIRONMENT")
     max_upload_bytes: int = 25 * 1024 * 1024
+    cors_origins: str = Field(default="http://localhost:3000,http://frontend:3000", alias="CORS_ORIGINS")
 
     # Twilio SMS Configuration
     twilio_account_sid: str | None = Field(default=None, alias="TWILIO_ACCOUNT_SID")
