@@ -89,16 +89,11 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             {user?.role === "admin" && (
               <Button variant="secondary" asChild className="border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-800">
-                <Link href="/dashboard/saas">
-                  SaaS Control
+                <Link href="/dashboard/admin">
+                  Admin Panel
                 </Link>
               </Button>
             )}
-            <Button variant="secondary" asChild>
-              <Link href="/dashboard/settings">
-                Gateway Settings
-              </Link>
-            </Button>
             <Button asChild className="bg-indigo-600 text-white hover:bg-indigo-700">
               <Link href="/documents/new">
                 <Plus className="h-4 w-4" />

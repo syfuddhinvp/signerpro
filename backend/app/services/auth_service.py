@@ -24,7 +24,7 @@ class AuthService:
             name=payload.name,
             email=payload.email.lower(),
             password_hash=hash_password(payload.password),
-            role=UserRole.admin,
+            role=UserRole.sender,
         )
         db.add(user)
         db.commit()
