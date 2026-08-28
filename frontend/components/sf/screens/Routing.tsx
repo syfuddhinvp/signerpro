@@ -2,10 +2,12 @@
 
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
 import { btn, pill, inputStyle, lbl, railHead, TONE_NEUTRAL } from '@/lib/sf/ui';
 
 export default function Routing() {
   const { s, set, accent, recips, reorder } = useSF();
+  const { go } = useNav();
   const A = accent();
 
   const list = recips();
@@ -110,7 +112,7 @@ export default function Routing() {
           <label style={lbl}>Email message
             <textarea onChange={(e) => set({ message: e.target.value })} value={s.message} rows={4} style={textarea} />
           </label>
-          <button type="button" onClick={() => set({ screen: 'sign' })} style={primaryBtnWide}>Send envelope &amp; preview signer view</button>
+          <button type="button" onClick={() => go('sign')} style={primaryBtnWide}>Send envelope &amp; preview signer view</button>
         </div>
         <div style={{ background: '#0f172a', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ fontSize: '11px', letterSpacing: '.08em', color: '#94a3b8', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>DELIVERY SIMULATION</div>

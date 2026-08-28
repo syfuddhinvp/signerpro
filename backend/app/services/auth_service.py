@@ -15,6 +15,7 @@ class AuthService:
         if existing:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email is already registered")
 
+        # The user who creates a brand-new organization administers it.
         organization = Organization(name=payload.organization_name)
         db.add(organization)
         db.flush()
@@ -24,7 +25,7 @@ class AuthService:
             name=payload.name,
             email=payload.email.lower(),
             password_hash=hash_password(payload.password),
-            role=UserRole.sender,
+            role=UserRole.admin,
         )
         db.add(user)
         db.commit()

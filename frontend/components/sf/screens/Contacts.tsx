@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
 import { GROUP_LABELS, ROLE_WORDS, SRC_TONE } from '@/lib/sf/data';
 import { btn, jsonBoxStyle, pill, railHead } from '@/lib/sf/ui';
 
@@ -15,6 +16,7 @@ const CT_HISTORY_ROWS: [string, string, string, string][] = [
 
 export default function Contacts() {
   const { s, set, flash, accent, initials, recips, contactCounts, contactsFiltered } = useSF();
+  const { go } = useNav();
   const A = accent();
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
@@ -78,7 +80,7 @@ export default function Contacts() {
     set({ recipients: list.concat([{ id:'r' + (list.length + 1), name:ct.name, email:ct.email, role:ct.role, color:ct.color, order:list.length + 1, status:'Pending' } as any]) });
     flash(ct.name + ' added as recipient ' + (list.length + 1) + ' · assign fields in the builder');
   };
-  const ctSendEnvelope = () => set({ screen: 'routing' });
+  const ctSendEnvelope = () => go('routing');
   const openNewContact = () => set({ modal: 'contact' });
   const syncContacts = () => flash('CRM sync queued · 412 contacts scanned, 3 updated');
   const contactScopeLabel = 'Address book · ' + ctList.length + ' of ' + s.contacts.length;

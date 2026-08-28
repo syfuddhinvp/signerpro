@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.api.deps import get_current_user
+from app.api.deps import require_platform_admin
 from app.core.database import get_db
 from app.models.user import User
 from app.models.organization import Organization
@@ -18,22 +18,10 @@ from app.schemas.saas import (
 router = APIRouter(prefix="/api/saas", tags=["saas"])
 
 
-def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
-    """
-    Enforce that the current user must have the super-admin (admin) role to manage SaaS-level data.
-    """
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Requires SaaS Super Admin permissions.",
-        )
-    return current_user
-
-
 @router.get("/metrics", response_model=SaaSMetrics)
 def get_saas_metrics(
     db: Session = Depends(get_db),
-    admin: User = Depends(require_super_admin),
+    admin: User = Depends(require_platform_admin),
 ) -> SaaSMetrics:
     """
     Retrieve global metrics across the entire SaaS environment.
@@ -61,7 +49,7 @@ def get_saas_metrics(
 @router.get("/organizations", response_model=list[SaaSOrganizationResponse])
 def list_organizations(
     db: Session = Depends(get_db),
-    admin: User = Depends(require_super_admin),
+    admin: User = Depends(require_platform_admin),
 ) -> list[SaaSOrganizationResponse]:
     """
     List all tenants/organizations in the system with their subscription details.
@@ -92,7 +80,7 @@ def update_organization_subscription(
     org_id: str,
     payload: SaaSOrganizationUpdate,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_super_admin),
+    admin: User = Depends(require_platform_admin),
 ) -> SaaSOrganizationResponse:
     """
     Modify subscription plan tier, status, and expiration for an organization.
@@ -130,7 +118,7 @@ def update_organization_subscription(
 @router.get("/users", response_model=list[SaaSUserResponse])
 def list_users(
     db: Session = Depends(get_db),
-    admin: User = Depends(require_super_admin),
+    admin: User = Depends(require_platform_admin),
 ) -> list[SaaSUserResponse]:
     """
     List all registered users globally with their organization associations.
@@ -157,7 +145,7 @@ def update_user_role(
     user_id: str,
     payload: SaaSUserUpdate,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_super_admin),
+    admin: User = Depends(require_platform_admin),
 ) -> SaaSUserResponse:
     """
     Update role (e.g. promoting to admin, or demoting to sender) for a user globally.

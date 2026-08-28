@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from 'react';
 import { useSF, ticketsScoped } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
 import {
   AGENTS, TICKET_FILTERS, TK_STATUS_TONE, TK_STATUS_LABEL, TK_PRIO_TONE, TK_PRIO_LABEL,
   TICKET_STATS_PLATFORM, TICKET_STATS_TENANT, TICKET_QUICK_REPLIES_PLATFORM, TICKET_QUICK_REPLIES_TENANT
@@ -10,6 +11,7 @@ import { btn, pill, inputStyle, lbl, railHead } from '@/lib/sf/ui';
 
 export default function Support() {
   const { s, set, flash, accent, initials, isPlat: isPlatFn, ticketCounts, ticketsFiltered } = useSF();
+  const { go } = useNav();
   const A = accent();
   const isPlat = isPlatFn();
 
@@ -211,7 +213,7 @@ export default function Support() {
           <div style={{ display:'flex', gap:'7px', flexWrap:'wrap' }}>
             {tkTags.map((g, i) => (<span key={g.label + i} style={g.style}>{g.label}</span>))}
             {tk.envelope ? (
-              <button type="button" onClick={() => set({ workspace: 'tenant', screen: 'audit' })} style={tkEnvelopeStyle}>{'Envelope ' + tk.envelope + ' ›'}</button>
+              <button type="button" onClick={() => go('audit', { workspace: 'tenant' })} style={tkEnvelopeStyle}>{'Envelope ' + tk.envelope + ' ›'}</button>
             ) : null}
           </div>
         </div>

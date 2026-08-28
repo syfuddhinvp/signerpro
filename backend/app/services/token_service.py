@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -18,6 +18,15 @@ def _as_aware_utc(value: datetime) -> datetime:
 class TokenService:
     def create_for_recipient(self, db: Session, *, document_id: str, recipient_id: str) -> tuple[str, SigningToken]:
         settings = get_settings()
+        # Supersede any live link previously issued to this recipient so a reminder
+        # does not leave an extra valid signing URL in an inbox.
+        now = datetime.now(timezone.utc)
+        db.execute(
+            update(SigningToken)
+            .where(SigningToken.recipient_id == recipient_id, SigningToken.revoked_at.is_(None))
+            .values(revoked_at=now)
+            .execution_options(synchronize_session="fetch")
+        )
         raw_token = generate_signing_token()
         signing_token = SigningToken(
             document_id=document_id,

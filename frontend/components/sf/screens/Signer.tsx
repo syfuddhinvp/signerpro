@@ -3,11 +3,13 @@
 import type { CSSProperties } from 'react';
 import { useRef } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
 import type { SFField } from '@/lib/sf/state';
 import { btn } from '@/lib/sf/ui';
 
 export default function Signer() {
   const { s, set, flash, accent, recip, meta, signable, isDone } = useSF();
+  const { go } = useNav();
   const A = accent();
 
   const signEls = useRef<Record<string, HTMLDivElement | null>>({});
@@ -32,7 +34,7 @@ export default function Signer() {
 
   const finish = () => {
     if (pct < 100) { flash('Complete all required fields first'); nextField(); }
-    else { set({ screen: 'audit' }); flash('Envelope completed · certificate sealed'); }
+    else { go('audit'); flash('Envelope completed · certificate sealed'); }
   };
 
   const primaryBtn = btn(A, '#fff', A);
@@ -156,7 +158,7 @@ export default function Signer() {
           </div>
           <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '14px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
             <div style={{ fontSize: '12px', color: '#64748b', maxWidth: '520px', lineHeight: 1.5 }}>Adopting a signature is your electronic representation. Once applied, it is bound to this envelope with a SHA-256 hash and a tamper-evident audit trail.</div>
-            <button type="button" onClick={() => set({ screen: 'audit' })} style={ghostBtn}>Download unsigned PDF</button>
+            <button type="button" onClick={() => go('audit')} style={ghostBtn}>Download unsigned PDF</button>
           </div>
         </div>
       </div>

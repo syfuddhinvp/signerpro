@@ -2,11 +2,13 @@
 
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
 import { btn, pill, railHead, lbl, inputStyle } from '@/lib/sf/ui';
 import { PM_DEFS, UPCOMING_LINES, CHARGES } from '@/lib/sf/data';
 
 export default function Billing() {
   const { s, set, flash, accent } = useSF();
+  const { go } = useNav();
   const A = accent();
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
@@ -51,7 +53,7 @@ export default function Billing() {
   const openCardModal = () => set({ modal: 'card' });
   const openCheckout = () => set({ modal: 'seats' });
   const openPlanChange = () => set({ modal: 'plan' });
-  const goInvoices = () => set({ screen: 'invoices' });
+  const goInvoices = () => go('invoices');
 
   return (
     <section data-screen-label="Billing" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.5fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>

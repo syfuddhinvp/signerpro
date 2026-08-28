@@ -14,12 +14,18 @@ class Recipient(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_recipients_document_id", "document_id"),
         Index("ix_recipients_email", "email"),
         Index("ix_recipients_status", "status"),
+        Index("ix_recipients_contact_id", "contact_id"),
     )
 
     document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     role_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Typed role alongside the free-text role_name (RTE-3).
+    # sign | approve | copy | inperson
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="sign", server_default="sign")
+    color: Mapped[str | None] = mapped_column(String(9), nullable=True)
+    contact_id: Mapped[str | None] = mapped_column(ForeignKey("contacts.id"), nullable=True)
     signing_order: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     status: Mapped[RecipientStatus] = mapped_column(Enum(RecipientStatus), nullable=False, default=RecipientStatus.waiting)
     viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -29,7 +35,9 @@ class Recipient(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     phone_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     otp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    otp_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    otp_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    otp_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    otp_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     otp_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     consent_accepted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

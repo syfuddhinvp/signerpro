@@ -2,11 +2,14 @@
 
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
+import type { ScreenKey } from '@/lib/sf/routes';
 import { ORG_STATS, ORG_SERIES, ORG_ATTENTION, ORG_SPEND_LINES, ORG_TEAM, TOUR, ACCENT_DEFAULT } from '@/lib/sf/data';
 import { btn, railHead } from '@/lib/sf/ui';
 
 export default function TenantHome() {
   const { accent, set, initials } = useSF();
+  const { go } = useNav();
   const A = accent();
 
   const orgStats = ORG_STATS.map(x => ({
@@ -23,7 +26,7 @@ export default function TenantHome() {
 
   const orgAttention = ORG_ATTENTION.map(([label, meta, target, color]) => ({
     label, meta,
-    onClick: () => set({ screen: target, workspace: target === 'platform' ? 'platform' : 'tenant' }),
+    onClick: () => go(target as ScreenKey, { workspace: target === 'platform' ? 'platform' : 'tenant' }),
     rowStyle: { display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', border: '1px solid #eef1f6', borderRadius: '11px', background: '#fbfcfd', cursor: 'pointer', width: '100%' } as CSSProperties,
     dot: { width: '8px', height: '8px', borderRadius: '99px', background: color === ACCENT_DEFAULT ? A : color, flex: '0 0 8px' } as CSSProperties,
   }));
@@ -38,10 +41,10 @@ export default function TenantHome() {
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn = btn(A, '#fff', A);
 
-  const startTour = () => { const st0 = TOUR[0]; set({ tourStep: 0, helpOpen: false, accountOpen: false, workspace: st0.ws, screen: st0.screen }); };
-  const goBilling = () => set({ workspace: 'tenant', screen: 'billing' });
-  const goInvoices = () => set({ screen: 'invoices' });
-  const goBuilder = () => set({ screen: 'builder' });
+  const startTour = () => { const st0 = TOUR[0]; set({ tourStep: 0, helpOpen: false }); go(st0.screen as ScreenKey, { workspace: st0.ws }); };
+  const goBilling = () => go('billing', { workspace: 'tenant' });
+  const goInvoices = () => go('invoices');
+  const goBuilder = () => go('builder');
 
   return (
     <section data-screen-label="Tenant overview" style={{ padding: '22px 22px 40px', display: 'flex', flexDirection: 'column', gap: '16px' }}>

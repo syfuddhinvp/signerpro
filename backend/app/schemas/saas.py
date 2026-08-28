@@ -1,6 +1,8 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+from app.models.enums import UserRole
+
 
 class SaaSOrganizationUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
@@ -46,3 +48,7 @@ class SaaSUserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OrganizationMemberRoleUpdate(BaseModel):
+    role: UserRole

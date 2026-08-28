@@ -96,14 +96,14 @@ def test_otp_and_consent_signing_flow(client: TestClient, pdf_bytes: bytes) -> N
     assert complete_response.status_code == 200
     assert complete_response.json()["document_status"] == "completed"
     
-    # 11. Verify that CRM audit logs were written
+    # 11. Verify the genuine compliance audit trail was written.
+    # The old simulated CRM audit rows (crm_loan_milestone_updated, ...) are gone:
+    # lifecycle events are now emitted as real outbound webhooks instead.
     audit = client.get(f"/api/documents/{document_id}/audit-logs", headers=headers)
     assert audit.status_code == 200
     event_types = [log["event_type"] for log in audit.json()]
     assert "signer_otp_sent" in event_types
     assert "signer_otp_verified" in event_types
     assert "consent_accepted" in event_types
-    assert "crm_internal_task_triggered" in event_types
-    assert "crm_document_attached" in event_types
-    assert "crm_loan_milestone_updated" in event_types
-    assert "crm_realtor_pipeline_updated" in event_types
+    assert "recipient_completed" in event_types
+    assert not [item for item in event_types if item.startswith("crm_")]

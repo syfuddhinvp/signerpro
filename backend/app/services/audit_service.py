@@ -1,11 +1,30 @@
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 
 
+AuditSubscriber = Callable[[Session, AuditLog], None]
+
+
 class AuditService:
+    def __init__(self) -> None:
+        # Additive, opt-in hook. Anything registered here is invoked after the
+        # AuditLog row is added to the session. Subscribers must never raise —
+        # any exception is swallowed so audit logging (and the transaction it
+        # belongs to) can never be broken by a listener.
+        self._subscribers: list[AuditSubscriber] = []
+
+    def subscribe(self, subscriber: AuditSubscriber) -> AuditSubscriber:
+        """Register a listener invoked for every audit event that is logged."""
+        self._subscribers.append(subscriber)
+        return subscriber
+
+    def unsubscribe(self, subscriber: AuditSubscriber) -> None:
+        if subscriber in self._subscribers:
+            self._subscribers.remove(subscriber)
+
     def log(
         self,
         db: Session,
@@ -30,8 +49,12 @@ class AuditService:
             log_metadata=metadata,
         )
         db.add(audit_log)
+        for subscriber in list(self._subscribers):
+            try:
+                subscriber(db, audit_log)
+            except Exception:
+                pass
         return audit_log
 
 
 audit_service = AuditService()
-

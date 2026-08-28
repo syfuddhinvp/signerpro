@@ -23,6 +23,12 @@ def test_saas_metrics_and_permissions(client: TestClient) -> None:
     admin_token = resp.json()["access_token"]
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
 
+    # /api/saas/* is platform-scoped: a tenant admin is not enough.
+    db = next(client.app.dependency_overrides[get_db]())
+    platform_admin = db.get(User, resp.json()["user"]["id"])
+    platform_admin.is_platform_admin = True
+    db.commit()
+
     # 2. Get the database session to create a sender (non-admin) manually
     db = next(client.app.dependency_overrides[get_db]())
     org = db.query(Organization).filter_by(name="SaaS Admin Test Org").first()
@@ -75,6 +81,12 @@ def test_saas_subscription_and_user_management(client: TestClient) -> None:
     assert resp.status_code == status.HTTP_201_CREATED
     admin_token = resp.json()["access_token"]
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # /api/saas/* is platform-scoped: a tenant admin is not enough.
+    db = next(client.app.dependency_overrides[get_db]())
+    platform_admin = db.get(User, resp.json()["user"]["id"])
+    platform_admin.is_platform_admin = True
+    db.commit()
 
     # 2. Get list of organizations
     resp = client.get("/api/saas/organizations", headers=admin_headers)

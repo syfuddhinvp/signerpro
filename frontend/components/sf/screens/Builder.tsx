@@ -2,6 +2,7 @@
 /* SignForge — PREPARE / BUILDER screen (isBuilder), ported verbatim from the prototype. */
 import React, { type CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
 import { TYPES } from '@/lib/sf/data';
 import { btn, inputStyle, lbl, railHead, linkBtn } from '@/lib/sf/ui';
 import { useBuilderInteractions } from '@/lib/sf/builderInteractions';
@@ -18,6 +19,7 @@ const COND_OP_LABEL: { [k: string]: string } = { checked:'is checked', equals:'e
 
 export default function Builder() {
   const { s, set, flash, accent, recips, recip, meta, initials, sel, setField, reorder } = useSF();
+  const { go } = useNav();
   const A = accent();
   const I = useBuilderInteractions();
 
@@ -31,7 +33,7 @@ export default function Builder() {
   const goStep1 = () => set({ wizardStep: 1 });
   const goStep2 = () => set({ wizardStep: 2 });
   const wizardNext = () => { if (s.wizardStep === 1) set({ wizardStep: 2 }); else set({ modal: 'send' }); };
-  const saveClose = () => { set({ screen: 'dashboard' }); flash('Draft saved · returned to documents'); };
+  const saveClose = () => { go('dashboard'); flash('Draft saved · returned to documents'); };
   const prepareRowStyle: CSSProperties = { flex:'1', minHeight:0, display: s.wizardStep === 1 ? 'flex' : 'none' };
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');

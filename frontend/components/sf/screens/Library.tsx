@@ -4,6 +4,8 @@
 
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
+import type { ScreenKey } from '@/lib/sf/routes';
 import { btn, pill, linkBtn } from '@/lib/sf/ui';
 import {
   QUICK_ACCESS, LIB_FOLDERS, LIB_FILTER_DEFS, LIB_SORT_OPTIONS, ROW_ACTIONS,
@@ -12,6 +14,7 @@ import {
 
 export default function Library() {
   const { s, set, flash, accent, libDocsFiltered } = useSF();
+  const { go } = useNav();
   const A = accent();
 
   const primaryBtn = btn(A, '#fff', A);
@@ -80,9 +83,9 @@ export default function Library() {
       line2: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '82%' } as CSSProperties,
       line3: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '64%' } as CSSProperties,
       line4: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '74%' } as CSSProperties,
-      onOpen: () => set({ screen: 'builder', wizardStep: 1 }),
+      onOpen: () => { set({ wizardStep: 1 }); go('builder'); },
       primaryLabel: isTpl ? 'Use template' : (d.status === 'draft' ? 'Prepare and send' : 'Invite to sign'),
-      onPrimary: () => set({ screen: 'builder', wizardStep: 1 }),
+      onPrimary: () => { set({ wizardStep: 1 }); go('builder'); },
       onTemplate: () => flash(isTpl ? 'Template duplicated' : d.title + ' saved as a template'),
       menuOpen: s.menuDoc === d.id,
       onMenu: (e: React.MouseEvent) => {
@@ -97,8 +100,9 @@ export default function Library() {
       actions: ROW_ACTIONS.map(([label, target]) => ({
         label,
         onClick: () => {
-          set({ menuDoc: null, screen: target || s.screen, wizardStep: 1 });
-          if (!target) flash(label + ' — ' + d.title);
+          set({ menuDoc: null, wizardStep: 1 });
+          if (target) go(target as ScreenKey);
+          else flash(label + ' — ' + d.title);
         },
         style: {
           display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
@@ -140,7 +144,7 @@ export default function Library() {
           </div>
           <div style={{ display: 'flex', gap: '7px', flex: '0 0 auto' }}>
             <button type="button" onClick={() => flash('Folder created in ' + libFolderLabel)} style={ghostBtn}>New folder</button>
-            <button type="button" onClick={() => set({ screen: 'builder' })} style={primaryBtn}>Upload &amp; prepare</button>
+            <button type="button" onClick={() => go('builder')} style={primaryBtn}>Upload &amp; prepare</button>
           </div>
         </div>
 

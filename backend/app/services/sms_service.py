@@ -1,5 +1,9 @@
 import httpx
 from app.core.config import get_settings
+from app.core.logging import get_logger
+
+
+logger = get_logger("signflow.sms")
 
 
 class SmsService:
@@ -27,7 +31,7 @@ class SmsService:
         if provider == "telnyx" and telnyx_key and telnyx_from:
             try:
                 source_label = f"Organization settings ({organization.name})" if organization else "Global settings"
-                print(f"[SMS Gateway] Dispatched via Telnyx [{source_label}] to {to_phone}...")
+                logger.info(f"[SMS Gateway] Dispatched via Telnyx [{source_label}] to {to_phone}...")
                 
                 url = "https://api.telnyx.com/v2/messages"
                 headers = {
@@ -43,18 +47,18 @@ class SmsService:
                 response = httpx.post(url, headers=headers, json=payload, timeout=10.0)
                 
                 if response.status_code in (200, 201, 202):
-                    print(f"[SMS Gateway] Telnyx SMS successfully queued! Message ID: {response.json().get('data', {}).get('id')}")
+                    logger.info(f"[SMS Gateway] Telnyx SMS successfully queued! Message ID: {response.json().get('data', {}).get('id')}")
                     return
                 else:
-                    print(f"[SMS Gateway Error] Telnyx responded with status {response.status_code}: {response.text}")
+                    logger.warning(f"[SMS Gateway Error] Telnyx responded with status {response.status_code}: {response.text}")
             except Exception as e:
-                print(f"[SMS Gateway Error] Telnyx REST connection failed: {e}")
+                logger.warning(f"[SMS Gateway Error] Telnyx REST connection failed: {e}")
 
         # 3. Dispatch via Twilio Provider
         elif twilio_sid and twilio_token and twilio_from:
             try:
                 source_label = f"Organization settings ({organization.name})" if organization else "Global settings"
-                print(f"[SMS Gateway] Dispatched via Twilio [{source_label}] to {to_phone}...")
+                logger.info(f"[SMS Gateway] Dispatched via Twilio [{source_label}] to {to_phone}...")
                 
                 url = f"https://api.twilio.com/2010-04-01/Accounts/{twilio_sid}/Messages.json"
                 auth = (twilio_sid, twilio_token)
@@ -67,12 +71,12 @@ class SmsService:
                 response = httpx.post(url, auth=auth, data=data, timeout=10.0)
                 
                 if response.status_code in (200, 201):
-                    print(f"[SMS Gateway] Twilio SMS successfully delivered! SID: {response.json().get('sid')}")
+                    logger.info(f"[SMS Gateway] Twilio SMS successfully delivered! SID: {response.json().get('sid')}")
                     return
                 else:
-                    print(f"[SMS Gateway Error] Twilio responded with status {response.status_code}: {response.text}")
+                    logger.warning(f"[SMS Gateway Error] Twilio responded with status {response.status_code}: {response.text}")
             except Exception as e:
-                print(f"[SMS Gateway Error] Twilio REST connection failed: {e}")
+                logger.warning(f"[SMS Gateway Error] Twilio REST connection failed: {e}")
 
         # 4. Development Fallback Logger
         print("\n--- SignFlow CRM development SMS ---")

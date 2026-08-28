@@ -48,6 +48,12 @@ class FieldType(StrEnum):
     currency = "currency"
     number = "number"
     radio = "radio"
+    # FLD-1: prototype palette additions. The prototype's `name` type maps to
+    # `full_name` in the client mapper.
+    stamp = "stamp"
+    attachment = "attachment"
+    formula = "formula"
+    datetime = "datetime"
 
 
 class SignatureType(StrEnum):

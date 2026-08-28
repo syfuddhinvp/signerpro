@@ -3,38 +3,41 @@
    Ported verbatim from the prototype template (lines 1–214, 2337–2352) and app.js renderVals(). */
 import type { CSSProperties } from 'react';
 import React from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
+import type { ScreenKey } from '@/lib/sf/routes';
+import { useSession, signOut as endSession } from '@/components/sf/SessionProvider';
 import { AUDIT, INVOICES, LOGS, TEMPLATES, TENANTS, TOUR } from '@/lib/sf/data';
 import { btn, railHead, linkBtn, TITLES, subTitleFor } from '@/lib/sf/ui';
 
 type NavRow = {
-  label: string; count?: string; onClick: () => void;
+  label: string; count?: string; href: string;
   style: CSSProperties; dot?: CSSProperties; glyph?: CSSProperties; countStyle?: CSSProperties;
-};
-
-const screenRail: { [k: string]: string } = {
-  tenantHome:'documents', dashboard:'documents', builder:'documents', routing:'documents', sign:'documents', audit:'documents',
-  contacts:'contacts', reports:'reports', billing:'billing', invoices:'billing',
-  api:'developer', logs:'developer', sandbox:'developer', guides:'developer', support:'support',
-  platformHome:'platform', platform:'platform', revenue:'platform'
 };
 
 export default function Shell({ children }: { children?: React.ReactNode }) {
   const sf = useSF();
   const { s, set, flash, initials } = sf;
   const A = sf.accent();
-  const isPlat = sf.isPlat();
-  const screen = s.screen;
-  const railActive = screenRail[screen] || 'documents';
+  const nav = useNav();
+  const { screen, href, go, switchWorkspace } = nav;
+  const isPlat = nav.isPlat;
+  const session = useSession();
+  const router = useRouter();
+  const railActive = nav.rail;
+  const userName = session.name || s.user.name;
+  const userRole = session.role || s.user.role;
+  const orgName = s.org || session.organizationName;
 
   /* ── icon rail ── */
-  const railDefs: [string, string, string, string][] = isPlat
+  const railDefs: [string, string, string, ScreenKey][] = isPlat
     ? [['platform','Platform','⌘','platformHome'], ['billing','Revenue','◈','revenue'], ['support','Support','☎','support'], ['developer','Developer','‹›','api'], ['reports','Reports','▥','reports']]
     : [['documents','Documents','▤','tenantHome'], ['contacts','Contacts','◍','contacts'], ['reports','Reports','▥','reports'], ['billing','Billing','◈','billing'], ['developer','Developer','‹›','api'], ['support','Support','☎','support']];
   const rail = railDefs.map(([id, label, icon, target]) => {
     const on = railActive === id;
-    return { id, label, icon,
-      onClick: () => set({ screen: target, menuDoc: null }),
+    return { id, label, icon, href: href(target),
       style: { display:'flex', flexDirection:'column', alignItems:'center', gap:'4px', width:'100%', padding:'9px 4px', borderRadius:'11px',
         border:'none', cursor:'pointer', background: on ? 'rgba(99,102,241,.2)' : 'transparent', color: on ? '#e0e7ff' : '#8ea0b8' } as CSSProperties,
       glyph: { width:'22px', height:'22px', display:'grid', placeItems:'center', fontSize:'14px', lineHeight:1 } as CSSProperties,
@@ -43,10 +46,9 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
 
   const subTitle = subTitleFor(railActive, isPlat);
 
-  const subItem = (id: string, label: string, count?: string | number): NavRow => {
+  const subItem = (id: ScreenKey, label: string, count?: string | number): NavRow => {
     const on = screen === id;
-    return { label, count: count === undefined ? '' : String(count),
-      onClick: () => set({ screen: id, menuDoc: null }),
+    return { label, count: count === undefined ? '' : String(count), href: href(id),
       style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'8px 10px', borderRadius:'9px', border:'none', cursor:'pointer', textAlign:'left',
         background: on ? '#eef2ff' : 'transparent', color: on ? '#0f172a' : '#475569', fontSize:'12.5px', fontWeight: on ? 600 : 500 },
       dot: { width:'7px', height:'7px', borderRadius:'99px', background: on ? A : '#cbd5e1', flex:'0 0 7px' },
@@ -120,7 +122,7 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
   /* ── developer sidebar ── */
   const apiSideNav = ([['overview','Overview'],['apps','Apps & keys'],['endpoints','Endpoints'],['webhooks','Webhooks'],['usage','Plan usage']] as [string, string][]).map(([id, label]) => {
     const on = s.apiSection === id && screen === 'api';
-    return { key: id, label, onClick: () => set({ screen: 'api', apiSection: id }),
+    return { key: id, label, onClick: () => { set({ apiSection: id }); go('api'); },
       style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'8px 10px', borderRadius:'9px', border:'none', cursor:'pointer', textAlign:'left',
         background: on ? '#eef2ff' : 'transparent', color: on ? '#0f172a' : '#475569', fontSize:'12.5px', fontWeight: on ? 600 : 500 } as CSSProperties,
       dot: { width:'7px', height:'7px', borderRadius:'99px', background: on ? A : '#cbd5e1', flex:'0 0 7px' } as CSSProperties };
@@ -129,7 +131,7 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
   /* ── platform admin sidebar ── */
   const platformSideNav = ([['tenants','Tenants'],['users','Users & roles'],['flags','Feature flags'],['billing','Plans & usage'],['security','Security & compliance']] as [string, string][]).map(([id, label]) => {
     const on = s.platformTab === id && screen === 'platform';
-    return { key: id, label, onClick: () => set({ screen: 'platform', platformTab: id }),
+    return { key: id, label, onClick: () => { set({ platformTab: id }); go('platform'); },
       style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'8px 10px', borderRadius:'9px', border:'none', cursor:'pointer', textAlign:'left',
         background: on ? '#eef2ff' : 'transparent', color: on ? '#0f172a' : '#475569', fontSize:'12.5px', fontWeight: on ? 600 : 500 } as CSSProperties,
       dot: { width:'7px', height:'7px', borderRadius:'99px', background: on ? A : '#cbd5e1', flex:'0 0 7px' } as CSSProperties };
@@ -151,8 +153,9 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
     ['Guides & docs', 'guides'], ['API sandbox', 'sandbox'], ['Keyboard shortcuts', null]
   ] as [string, string | null][]).map(([label, target]) => ({ label,
     onClick: () => {
-      if (target === 'tour') { const st0 = TOUR[0]; set({ tourStep: 0, helpOpen: false, workspace: st0.ws, screen: st0.screen }); return; }
-      set({ helpOpen: false, screen: target || s.screen });
+      if (target === 'tour') { const st0 = TOUR[0]; set({ tourStep: 0, helpOpen: false }); go(st0.screen as ScreenKey, { workspace: st0.ws }); return; }
+      set({ helpOpen: false });
+      if (target) go(target as ScreenKey);
       if (!target) flash(label + ' opened');
     },
     style: { display:'block', width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:'8px', border:'none', background:'transparent', cursor:'pointer', fontSize:'12.5px', color:'#334155' } as CSSProperties }));
@@ -208,18 +211,16 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
     fontSize:'11px', fontWeight:600, color:'#0f172a', pointerEvents:'none', zIndex:70 } : {};
 
   /* ── handlers ── */
-  const openAccount = () => set({ accountOpen: true });
-  const signOut = () => set({ authed: false, authMode: 'signin', authPassword: '', mfaCode: '' });
-  const setTenantWs = () => set({ workspace: 'tenant', screen: 'tenantHome', menuDoc: null });
-  const setPlatformWs = () => set({ workspace: 'platform', screen: 'platformHome', menuDoc: null });
+  const signOut = async () => { await endSession(); router.replace('/login'); };
+  const setTenantWs = () => { set({ menuDoc: null }); switchWorkspace('tenant'); };
+  const setPlatformWs = () => { set({ menuDoc: null }); switchWorkspace('platform'); };
   const toggleOrg = () => set({ orgOpen: !s.orgOpen });
   const toggleNotif = () => set({ notifOpen: !s.notifOpen, helpOpen: false });
   const toggleHelp = () => set({ helpOpen: !s.helpOpen, notifOpen: false });
-  const goBuilder = () => set({ screen: 'builder' });
   const openSend = () => set({ modal: 'send' });
   const dismissTrial = () => set({ trialBanner: false });
-  const startTrial = () => { set({ accountOpen: true, accountSection: 'subscription' }); flash('Trial upgrade — subscription opened'); };
-  const embedReturn = () => { set({ embedSession: null, screen: 'api' }); flash('Returned to ' + s.embedReturnUrl); };
+  const startTrial = () => { router.push('/account/subscription'); flash('Trial upgrade — subscription opened'); };
+  const embedReturn = () => { set({ embedSession: null }); go('api'); flash('Returned to ' + s.embedReturnUrl); };
   const embedEnd = () => set({ embedSession: null });
 
   return (
@@ -229,14 +230,14 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
         <div style={logoStyle}>SF</div>
         <nav aria-label="Sections" style={{ display:'flex', flexDirection:'column', gap:'4px', width:'100%' }}>
           {rail.map(r => (
-            <button key={r.id} type="button" onClick={r.onClick} style={r.style}>
+            <Link key={r.id} href={r.href} style={{ ...r.style, textDecoration:'none' }}>
               <span style={r.glyph}>{r.icon}</span>
               <span style={r.labelStyle}>{r.label}</span>
-            </button>
+            </Link>
           ))}
         </nav>
         <div style={{ marginTop:'auto', display:'flex', flexDirection:'column', gap:'6px', width:'100%', alignItems:'center' }}>
-          <button type="button" onClick={openAccount} aria-label="My account" style={{ width:'32px', height:'32px', borderRadius:'99px', background:'#334155', color:'#e2e8f0', display:'grid', placeItems:'center', fontSize:'11px', fontWeight:700, border:'none', cursor:'pointer' }}>{initials(s.user.name)}</button>
+          <Link href="/account/profile" aria-label="My account" style={{ width:'32px', height:'32px', borderRadius:'99px', background:'#334155', color:'#e2e8f0', display:'grid', placeItems:'center', fontSize:'11px', fontWeight:700, border:'none', cursor:'pointer', textDecoration:'none' }}>{initials(userName)}</Link>
           <button type="button" onClick={signOut} aria-label="Sign out" style={signOutStyle}>⏎</button>
         </div>
       </aside>
@@ -245,12 +246,14 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
         <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
           <div style={{ display:'flex', gap:'3px', background:'#f1f3f7', padding:'3px', borderRadius:'9px' }}>
             <button type="button" onClick={setTenantWs} style={wsTenantStyle}>Tenant</button>
-            <button type="button" onClick={setPlatformWs} style={wsPlatformStyle}>Platform</button>
+            {session.isPlatformAdmin ? (
+              <button type="button" onClick={setPlatformWs} style={wsPlatformStyle}>Platform</button>
+            ) : null}
           </div>
           <button type="button" onClick={toggleOrg} aria-expanded={s.orgOpen} style={orgRowStyle}>
             <span style={orgChipStyle}>AC</span>
             <span style={{ display:'flex', flexDirection:'column', minWidth:0, lineHeight:1.2, textAlign:'left' }}>
-              <span style={{ fontSize:'12px', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.org}</span>
+              <span style={{ fontSize:'12px', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{orgName}</span>
               <span style={{ fontSize:'10px', color:'#94a3b8' }}>{wsScopeLabel}</span>
             </span>
             <span style={{ marginLeft:'auto', color:'#94a3b8', fontSize:'9px' }}>▾</span>
@@ -267,10 +270,10 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
         <div style={{ display:'flex', flexDirection:'column', gap:'5px' }}>
           <span style={railHead}>{subTitle}</span>
           {subScreens.map((n, i) => (
-            <button key={n.label + i} type="button" onClick={n.onClick} style={n.style}>
+            <Link key={n.label + i} href={n.href} style={{ ...n.style, textDecoration:'none' }}>
               <span style={n.dot}></span><span style={{ flex:'1 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{n.label}</span>
               <span style={n.countStyle}>{n.count}</span>
-            </button>
+            </Link>
           ))}
         </div>
 
@@ -352,12 +355,12 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:'9px' }}>
-            <span style={{ width:'26px', height:'26px', borderRadius:'99px', background:'#eef1f6', color:'#475569', display:'grid', placeItems:'center', fontSize:'10px', fontWeight:700, flex:'0 0 26px' }}>{initials(s.user.name)}</span>
+            <span style={{ width:'26px', height:'26px', borderRadius:'99px', background:'#eef1f6', color:'#475569', display:'grid', placeItems:'center', fontSize:'10px', fontWeight:700, flex:'0 0 26px' }}>{initials(userName)}</span>
             <div style={{ display:'flex', flexDirection:'column', lineHeight:1.25, minWidth:0 }}>
-              <span style={{ color:'#0f172a', fontSize:'12px', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.user.name}</span>
-              <span style={{ color:'#94a3b8', fontSize:'10.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.user.role}</span>
+              <span style={{ color:'#0f172a', fontSize:'12px', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{userName}</span>
+              <span style={{ color:'#94a3b8', fontSize:'10.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{userRole}</span>
             </div>
-            <button type="button" onClick={openAccount} aria-label="Account settings" style={iconBtn}>⚙</button>
+            <Link href="/account/profile" aria-label="Account settings" style={{ ...iconBtn, display:'grid', placeItems:'center', textDecoration:'none' }}>⚙</Link>
           </div>
         </div>
       </aside>
@@ -374,7 +377,7 @@ export default function Shell({ children }: { children?: React.ReactNode }) {
             <div style={compliancePillStyle}>
               <span style={{ width:'7px', height:'7px', borderRadius:'99px', background:'#10b981' }}></span>SOC 2 · 21 CFR 11
             </div>
-            <button type="button" onClick={goBuilder} style={openBuilderBtn}>Open builder</button>
+            <Link href={href('builder')} style={{ ...openBuilderBtn, textDecoration:'none' }}>Open builder</Link>
             <button type="button" onClick={openSend} style={primaryBtn}>Send for signature</button>
             <div style={{ position:'relative', display:'flex', gap:'6px', alignItems:'center' }}>
               <button type="button" aria-label="Notifications" aria-expanded={s.notifOpen} onClick={toggleNotif} style={bellStyle}>◔<span style={bellDot}></span></button>

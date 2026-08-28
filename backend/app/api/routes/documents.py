@@ -8,7 +8,14 @@ from app.core.storage import storage
 from app.models.enums import DocumentStatus, RecipientStatus
 from app.models.user import User
 from app.schemas.document import DocumentCreate, DocumentResponse, DocumentUpdate, SendDocumentResponse, UploadPdfResponse
+from app.models.plan import (
+    ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH,
+    ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT,
+    ENTITLEMENT_MAX_STORAGE_BYTES,
+)
+from app.models.usage_event import UsageEventType
 from app.services.audit_service import audit_service
+from app.services.entitlement_service import entitlement_service
 from app.services.document_service import document_response, document_service
 from app.services.email_service import signflow_email_service
 from app.services.pdf_service import pdf_service
@@ -20,7 +27,20 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 @router.post("", response_model=DocumentResponse, status_code=201)
 def create_document(payload: DocumentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentResponse:
+    # Templates are scaffolding, not billable output; only real documents count.
+    if not payload.is_template:
+        entitlement_service.check_entitlement(
+            db, user.organization_id, ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH, amount=1
+        )
     document = document_service.create(db, user=user, payload=payload)
+    if not document.is_template:
+        entitlement_service.record_usage(
+            db,
+            organization_id=user.organization_id,
+            event_type=UsageEventType.document_created,
+            document_id=document.id,
+        )
+        db.commit()
     return document_response(document)
 
 
@@ -40,7 +60,17 @@ def list_templates(db: Session = Depends(get_db), user: User = Depends(get_curre
 
 @router.post("/templates/{template_id}/use", response_model=DocumentResponse)
 def use_template(template_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentResponse:
+    entitlement_service.check_entitlement(
+        db, user.organization_id, ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH, amount=1
+    )
     new_doc = document_service.use_template(db, template_id=template_id, user=user)
+    entitlement_service.record_usage(
+        db,
+        organization_id=user.organization_id,
+        event_type=UsageEventType.document_created,
+        document_id=new_doc.id,
+    )
+    db.commit()
     return document_response(new_doc)
 
 
@@ -69,12 +99,33 @@ def delete_document(document_id: str, db: Session = Depends(get_db), user: User 
 @router.post("/{document_id}/upload-pdf", response_model=UploadPdfResponse)
 async def upload_pdf(
     document_id: str,
+    request: Request,
     upload: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> UploadPdfResponse:
     document = document_service.get_for_user(db, document_id=document_id, user=user)
+    # Pre-flight against the declared body size so we reject before writing to
+    # disk; the exact byte count is metered after the write.
+    declared_size = int(request.headers.get("content-length") or 0)
+    entitlement_service.check_entitlement(
+        db, user.organization_id, ENTITLEMENT_MAX_STORAGE_BYTES, amount=max(declared_size, 1)
+    )
     uploaded = await document_service.upload_pdf(db, document=document, user=user, upload=upload)
+    if uploaded.original_file_path:
+        try:
+            stored_bytes = storage.path(uploaded.original_file_path).stat().st_size
+        except Exception:  # storage backend may not expose a local path
+            stored_bytes = declared_size
+        entitlement_service.record_usage(
+            db,
+            organization_id=user.organization_id,
+            event_type=UsageEventType.storage_bytes_added,
+            quantity=stored_bytes,
+            document_id=uploaded.id,
+            metadata={"path": uploaded.original_file_path},
+        )
+        db.commit()
     return UploadPdfResponse(document=document_response(uploaded), sha256=uploaded.original_sha256 or "", page_count=uploaded.page_count)
 
 
@@ -102,13 +153,28 @@ def send_document(
     user: User = Depends(get_current_user),
 ) -> SendDocumentResponse:
     document = document_service.get_for_user(db, document_id=document_id, user=user)
-    return document_service.send(
+    entitlement_service.check_entitlement(
+        db,
+        user.organization_id,
+        ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT,
+        amount=len(document.recipients or []) or 1,
+    )
+    result = document_service.send(
         db,
         document=document,
         user=user,
         ip_address=request_ip(request),
         user_agent=request_user_agent(request),
     )
+    entitlement_service.record_usage(
+        db,
+        organization_id=user.organization_id,
+        event_type=UsageEventType.document_sent,
+        document_id=document.id,
+        metadata={"recipients": len(document.recipients or [])},
+    )
+    db.commit()
+    return result
 
 
 @router.post("/{document_id}/void", response_model=DocumentResponse)
@@ -124,6 +190,7 @@ def void_document(
 
 @router.post("/{document_id}/remind")
 def remind_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, list[dict[str, str]]]:
+    entitlement_service.ensure_active(db, user.organization_id)
     document = document_service.get_for_user(db, document_id=document_id, user=user)
     if document.status not in {DocumentStatus.sent, DocumentStatus.viewed, DocumentStatus.partially_completed}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only active documents can receive reminders")

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import request_ip, request_user_agent
 from app.core.database import get_db
+from app.core.ratelimit import otp_send_limiter, otp_verify_limiter, signing_session_limiter
 from app.core.storage import storage
 from app.schemas.field import FieldResponse
 from app.schemas.signer import (
@@ -20,7 +21,7 @@ from app.services.signing_service import signing_service
 router = APIRouter(prefix="/api/sign", tags=["signing"])
 
 
-@router.get("/{token}", response_model=SigningSessionResponse)
+@router.get("/{token}", response_model=SigningSessionResponse, dependencies=[Depends(signing_session_limiter)])
 def get_signing_session(token: str, db: Session = Depends(get_db)) -> SigningSessionResponse:
     signing_token, document, recipient = signing_service.load_session(db, raw_token=token)
     return signing_service.session_response(raw_token=token, signing_token=signing_token, document=document, recipient=recipient)
@@ -105,12 +106,12 @@ def decline(token: str, payload: DeclineRequest, request: Request, db: Session =
     )
 
 
-@router.post("/{token}/otp/send", status_code=204)
+@router.post("/{token}/otp/send", status_code=204, dependencies=[Depends(otp_send_limiter)])
 def send_otp(token: str, db: Session = Depends(get_db)) -> None:
     signing_service.send_otp(db, raw_token=token)
 
 
-@router.post("/{token}/otp/verify", response_model=SigningSessionResponse)
+@router.post("/{token}/otp/verify", response_model=SigningSessionResponse, dependencies=[Depends(otp_verify_limiter)])
 def verify_otp(token: str, payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> SigningSessionResponse:
     signing_service.verify_otp(db, raw_token=token, code=payload.code)
     signing_token, document, recipient = signing_service.load_session(db, raw_token=token)

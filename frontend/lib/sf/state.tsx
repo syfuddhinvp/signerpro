@@ -1,4 +1,7 @@
 'use client';
+
+import { usePathname } from 'next/navigation';
+import { workspaceForPath } from './routes';
 /* SignForge state container — ported from the prototype app.js `state` object and helper methods. */
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import {
@@ -38,8 +41,6 @@ export type SFState = {
   sbResponse: string | null;
   sbSending: boolean;
   sbHistory: { method: string; path: string; status: number; ms: number; env: string; body: string }[];
-  accountOpen: boolean;
-  accountSection: string;
   libFolder: string;
   libView: string;
   libSelected: string[];
@@ -61,7 +62,6 @@ export type SFState = {
   orgOpen: boolean;
   trialBanner: boolean;
   org: string;
-  authed: boolean;
   authMode: string;
   authEmail: string;
   authPassword: string;
@@ -70,8 +70,6 @@ export type SFState = {
   mfaCode: string;
   reg: { name: string; company: string; email: string; password: string; size: string; terms: boolean };
   user: { name: string; role: string };
-  workspace: string;
-  screen: string;
   invoiceFilter: string;
   openInvoice: string;
   logSource: string;
@@ -159,8 +157,6 @@ export const INITIAL_STATE: SFState =
     sbResponse: null,
     sbSending: false,
     sbHistory: [],
-    accountOpen: false,
-    accountSection: 'profile',
     libFolder: 'documents',
     libView: 'list',
     libSelected: [],
@@ -182,7 +178,6 @@ export const INITIAL_STATE: SFState =
     orgOpen: false,
     trialBanner: true,
     org: 'Acme Corporation',
-    authed: false,
     authMode: 'signin',
     authEmail: 'priya@acme.io',
     authPassword: '',
@@ -191,8 +186,6 @@ export const INITIAL_STATE: SFState =
     mfaCode: '',
     reg: { name:'', company:'', email:'', password:'', size:'501-5000', terms:false },
     user: { name:'Jordan Mehta', role:'Legal Ops · Admin' },
-    workspace: 'tenant',
-    screen: 'tenantHome',
     invoiceFilter: 'all',
     openInvoice: 'INV-2026-0841',
     logSource: 'all',
@@ -505,6 +498,7 @@ export type SFContextValue = {
 const SFContext = createContext<SFContextValue | null>(null);
 
 export function SFProvider({ children, accent }: { children: React.ReactNode; accent?: string }) {
+  const pathname = usePathname() || '/';
   const [s, setS] = useState<SFState>(INITIAL_STATE);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef<SFState>(s);
@@ -521,7 +515,7 @@ export function SFProvider({ children, accent }: { children: React.ReactNode; ac
   }, []);
 
   const value = useMemo<SFContextValue>(() => {
-    const isPlat = () => s.workspace === 'platform';
+    const isPlat = () => workspaceForPath(pathname) === 'platform';
     return {
       s,
       set,

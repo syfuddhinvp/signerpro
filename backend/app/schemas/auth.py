@@ -25,6 +25,17 @@ class UserResponse(BaseModel):
     role: UserRole
 
 
+class CurrentUserResponse(UserResponse):
+    """The caller's own account.
+
+    ``is_platform_admin`` lives here and NOT on the shared ``UserResponse``:
+    the tenant-facing member listing reuses that schema, and it must not reveal
+    which colleagues hold cross-tenant platform access.
+    """
+
+    is_platform_admin: bool = False
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

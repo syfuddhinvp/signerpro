@@ -2,11 +2,14 @@
 
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
+import type { ScreenKey } from '@/lib/sf/routes';
 import { TOUR } from '@/lib/sf/data';
 import { btn, linkBtn as linkBtnOf } from '@/lib/sf/ui';
 
 export default function Tour() {
   const { s, set, flash, accent } = useSF();
+  const { go } = useNav();
   const A = accent();
 
   const tourActive = s.tourStep >= 0 && s.tourStep < TOUR.length;
@@ -41,12 +44,14 @@ export default function Tour() {
     const n = s.tourStep + 1;
     if (n >= TOUR.length) { set({ tourStep: -1 }); flash('Tour complete — reopen it any time from the help menu'); return; }
     const st1 = TOUR[n];
-    set({ tourStep: n, workspace: st1.ws, screen: st1.screen });
+    set({ tourStep: n });
+    go(st1.screen as ScreenKey, { workspace: st1.ws });
   };
   const tourBack = () => {
     const p = Math.max(0, s.tourStep - 1);
     const st2 = TOUR[p];
-    set({ tourStep: p, workspace: st2.ws, screen: st2.screen });
+    set({ tourStep: p });
+    go(st2.screen as ScreenKey, { workspace: st2.ws });
   };
   const tourSkip = () => set({ tourStep: -1 });
 

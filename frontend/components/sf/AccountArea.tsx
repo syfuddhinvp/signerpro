@@ -3,7 +3,12 @@
 /* SignForge — ACCOUNT AREA (template 2633–2926) ported verbatim from the prototype. */
 
 import type { CSSProperties } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
+import { useSession } from '@/components/sf/SessionProvider';
+import type { AccountSection } from '@/lib/sf/routes';
 import {
   ACCOUNT_NAV, ACCOUNT_TITLES, AUDIT, CLOUD_TARGETS, DEVICES, INTEGRATIONS,
   INVITE_DEFAULTS, NOTIF_PREFS, ORGS, TEAMS,
@@ -19,9 +24,13 @@ const PLAN_USAGE: [string, string, number][] = [
   ['Storage', '1.16 TB of 2 TB', 58],
 ];
 
-export default function AccountArea() {
-  const { s, set, flash, accent, initials } = useSF();
-  if (!s.accountOpen) return null;
+const accountHref = (section: AccountSection) => `/account/${section}`;
+
+export default function AccountArea({ section }: { section: AccountSection }) {
+  const { set, flash, accent, initials } = useSF();
+  const { go } = useNav();
+  const router = useRouter();
+  const session = useSession();
 
   const A = accent();
 
@@ -32,42 +41,46 @@ export default function AccountArea() {
   const autoDangerBtn: CSSProperties = { ...btn('#fff', '#b91c1c', '#fecaca'), marginLeft:'auto', flex:'0 0 auto' };
   const mono: CSSProperties = { ...inputStyle, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'11.5px' };
 
-  const userName = s.user.name;
-  const userRole = s.user.role;
-  const userInitials = initials(s.user.name);
+  const userName = session.name;
+  const userRole = session.role;
+  const userInitials = initials(session.name);
+  const orgName = session.organizationName;
 
-  const closeAccount = () => set({ accountOpen: false });
+  const closeAccount = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+    else router.push('/overview');
+  };
   const addEmail = () => flash('Verification sent to the new address');
   const toggle2fa = () => flash('Two-factor authentication is enforced by your organisation');
-  const manageNotifications = () => set({ accountSection: 'notifications' });
-  const goBilling = () => set({ workspace: 'tenant', screen: 'billing' });
+  const manageNotifications = () => router.push(accountHref('notifications'));
+  const goBilling = () => go('billing', { workspace: 'tenant' });
   const openPlanChange = () => set({ modal: 'plan' });
 
   const accountNav = ACCOUNT_NAV.map(([id, label]) => {
-    const on = s.accountSection === id;
+    const on = section === id;
     return {
       id, label,
-      onClick: () => set({ accountSection: id }),
-      style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'9px 11px', borderRadius:'9px', border:'none', cursor:'pointer', textAlign:'left',
+      href: accountHref(id as AccountSection),
+      style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'9px 11px', borderRadius:'9px', border:'none', cursor:'pointer', textAlign:'left', textDecoration:'none',
         background: on ? '#eef2ff' : 'transparent', color: on ? '#0f172a' : '#475569', fontSize:'12.5px', fontWeight: on ? 600 : 500 } as CSSProperties,
       dot: { width:'7px', height:'7px', borderRadius:'99px', background: on ? A : '#cbd5e1', flex:'0 0 7px' } as CSSProperties,
     };
   });
 
-  const accountTitle = ACCOUNT_TITLES[s.accountSection][0];
-  const accountSub = ACCOUNT_TITLES[s.accountSection][1];
+  const accountTitle = ACCOUNT_TITLES[section][0];
+  const accountSub = ACCOUNT_TITLES[section][1];
 
-  const acProfile = s.accountSection === 'profile';
-  const acSubscription = s.accountSection === 'subscription';
-  const acSecurity = s.accountSection === 'security';
-  const acPayment = s.accountSection === 'payment';
-  const acNotifications = s.accountSection === 'notifications';
-  const acEmail = s.accountSection === 'email';
-  const acIntegrations = s.accountSection === 'integrations';
-  const acCloud = s.accountSection === 'cloud';
-  const acTeams = s.accountSection === 'teams';
-  const acOrgs = s.accountSection === 'orgs';
-  const acAudit = s.accountSection === 'audit';
+  const acProfile = section === 'profile';
+  const acSubscription = section === 'subscription';
+  const acSecurity = section === 'security';
+  const acPayment = section === 'payment';
+  const acNotifications = section === 'notifications';
+  const acEmail = section === 'email';
+  const acIntegrations = section === 'integrations';
+  const acCloud = section === 'cloud';
+  const acTeams = section === 'teams';
+  const acOrgs = section === 'orgs';
+  const acAudit = section === 'audit';
 
   const devices = DEVICES.map(([label, when, ip, geo]) => ({
     label, meta: when + ' · ' + ip + ' · ' + geo,
@@ -118,15 +131,15 @@ export default function AccountArea() {
       <header style={{ height:'56px', flex:'0 0 56px', background:'#fff', borderBottom:'1px solid #e3e7ee', display:'flex', alignItems:'center', gap:'12px', padding:'0 20px' }}>
         <span style={{ fontSize:'14px', fontWeight:700, letterSpacing:'-.2px' }}>My Account</span>
         <span style={{ width:'1px', height:'18px', background:'#e3e7ee' }}></span>
-        <span style={{ fontSize:'12px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{userRole} · {s.org}</span>
+        <span style={{ fontSize:'12px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{userRole} · {orgName}</span>
         <button type="button" aria-label="Close account" onClick={closeAccount} style={closeAccountBtn}>✕</button>
       </header>
       <div style={{ flex:1, minHeight:0, display:'flex' }}>
         <div data-sf-scroll="1" style={{ width:'246px', flex:'0 0 246px', background:'#fff', borderRight:'1px solid #e3e7ee', padding:'14px', display:'flex', flexDirection:'column', gap:'3px', overflow:'auto' }}>
           {accountNav.map(n => (
-            <button key={n.id} type="button" onClick={n.onClick} style={n.style}>
+            <Link key={n.id} href={n.href} style={n.style}>
               <span style={n.dot}></span><span>{n.label}</span>
-            </button>
+            </Link>
           ))}
         </div>
 

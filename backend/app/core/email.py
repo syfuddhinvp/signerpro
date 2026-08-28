@@ -4,6 +4,10 @@ from email.mime.text import MIMEText
 from dataclasses import dataclass
 import httpx
 from app.core.config import get_settings
+from app.core.logging import get_logger
+
+
+logger = get_logger("signflow.email")
 
 
 @dataclass(frozen=True)
@@ -34,7 +38,7 @@ class EmailService:
         # 1. Try Resend HTTP API (if enabled globally)
         if resend_api_key and not (organization and organization.smtp_host):
             try:
-                print(f"[Email Gateway] Sending via Resend API to {message.to_email}...")
+                logger.info(f"[Email Gateway] Sending via Resend API to {message.to_email}...")
                 response = httpx.post(
                     "https://api.resend.com/emails",
                     headers={
@@ -50,18 +54,18 @@ class EmailService:
                     timeout=10.0,
                 )
                 if response.status_code in (200, 201):
-                    print(f"[Email Gateway] Resend email sent successfully! Message ID: {response.json().get('id')}")
+                    logger.info(f"[Email Gateway] Resend email sent successfully! Message ID: {response.json().get('id')}")
                     return
                 else:
-                    print(f"[Email Gateway Error] Resend responded with status {response.status_code}: {response.text}")
+                    logger.warning(f"[Email Gateway Error] Resend responded with status {response.status_code}: {response.text}")
             except Exception as e:
-                print(f"[Email Gateway Error] Resend API call failed: {e}")
+                logger.warning(f"[Email Gateway Error] Resend API call failed: {e}")
 
         # 2. Try SMTP Client (Dynamic tenant or global)
         elif smtp_host:
             try:
                 source_label = f"Organization settings ({organization.name})" if organization and organization.smtp_host else "Global settings"
-                print(f"[Email Gateway] Sending via SMTP [{source_label}] ({smtp_host}:{smtp_port or 587}) to {message.to_email}...")
+                logger.info(f"[Email Gateway] Sending via SMTP [{source_label}] ({smtp_host}:{smtp_port or 587}) to {message.to_email}...")
                 
                 mime_msg = MIMEMultipart()
                 mime_msg["From"] = smtp_from_email
@@ -75,10 +79,10 @@ class EmailService:
                         server.starttls()
                         server.login(smtp_username, smtp_password)
                     server.send_message(mime_msg)
-                print(f"[Email Gateway] SMTP email sent successfully to {message.to_email}!")
+                logger.info(f"[Email Gateway] SMTP email sent successfully to {message.to_email}!")
                 return
             except Exception as e:
-                print(f"[Email Gateway Error] SMTP delivery failed: {e}")
+                logger.warning(f"[Email Gateway Error] SMTP delivery failed: {e}")
 
         # 3. Development Fallback Print Console
         print("\n--- SignFlow CRM development email ---")

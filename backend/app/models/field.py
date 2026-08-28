@@ -31,6 +31,16 @@ class Field(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     options: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Field logic (FLD-2). ``read_only`` is authoring intent; ``is_locked``
+    # stays the post-send lock.
+    # none | email | date | numeric | custom
+    validation: Mapped[str] = mapped_column(String(20), nullable=False, default="none", server_default="none")
+    validation_pattern: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # {"field_id": ..., "op": "checked"|"equals"|"notEmpty", "value": ...}
+    condition: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    merge_tag: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    read_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
+
     document: Mapped["Document"] = relationship(back_populates="fields")
     recipient: Mapped["Recipient"] = relationship(back_populates="fields")
     signatures: Mapped[list["Signature"]] = relationship(back_populates="field", cascade="all, delete-orphan")

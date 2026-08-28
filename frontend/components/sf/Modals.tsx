@@ -3,6 +3,7 @@
 import React, { useCallback, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { useSF, invoicesScoped } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
 import {
   SIG_TABS, TYPE_FACES, SAVED_SIGS, INKS, MODAL_COPY_STATIC, PAY_TITLES,
   PLAN_PRICES, GROUP_LABELS, TK_PRIO_LABEL, INVOICES
@@ -40,6 +41,7 @@ const iconBtn: CSSProperties = {
 
 export default function Modals() {
   const { s, set, flash, accent, recips, money, isPlat, signable } = useSF();
+  const { go } = useNav();
   const A = accent();
   const plat = isPlat();
 
@@ -344,9 +346,9 @@ export default function Modals() {
   const confirmModal = () => {
     const m = s.modal;
     set({ modal: null });
-    if (m === 'decline') { flash('Signing declined · sender notified and audit trail updated'); set({ screen: 'audit' }); }
+    if (m === 'decline') { flash('Signing declined · sender notified and audit trail updated'); go('audit'); }
     else if (m === 'reassign') flash('Envelope reassigned · original invitation revoked');
-    else if (m === 'send') { set({ screen: 'sign' }); flash('Envelope sent · signer view opened'); }
+    else if (m === 'send') { go('sign'); flash('Envelope sent · signer view opened'); }
     else flash('Disclosure accepted · consent recorded');
   };
 

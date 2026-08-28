@@ -1,81 +1,118 @@
+"""Lifecycle event adapter.
+
+This module used to *simulate* a Salesforce-shaped CRM by writing fictional audit
+rows ("loan milestone advanced", "realtor pipeline moved"). That hardcoded one
+vertical's vocabulary into the core signing engine.
+
+It is now a thin adapter over :mod:`app.services.webhook_service`: it emits
+neutral platform events and lets each customer integration map them onto its own
+domain. The public method names and signatures are unchanged so existing call
+sites in the signing service keep working.
+"""
+
+from typing import Any
+
 from sqlalchemy.orm import Session
+
 from app.models.document import Document
 from app.models.recipient import Recipient
-from app.services.audit_service import audit_service
+from app.services.webhook_service import webhook_service
+
+
+def document_payload(document: Document) -> dict[str, Any]:
+    return {
+        "id": document.id,
+        "title": document.title,
+        "status": str(document.status),
+        "workflow_type": str(document.workflow_type) if document.workflow_type else None,
+        "organization_id": document.organization_id,
+        "sender_id": document.sender_id,
+        "original_sha256": getattr(document, "original_sha256", None),
+        "final_sha256": getattr(document, "final_sha256", None),
+        "recipient_count": len(document.recipients or []),
+    }
+
+
+def recipient_payload(recipient: Recipient) -> dict[str, Any]:
+    return {
+        "id": recipient.id,
+        "name": recipient.name,
+        "email": recipient.email,
+        "role_name": recipient.role_name,
+        "signing_order": recipient.signing_order,
+        "status": str(recipient.status),
+        "completed_at": recipient.completed_at.isoformat() if recipient.completed_at else None,
+    }
 
 
 class CRMIntegrationService:
+    """Emits neutral lifecycle events to the organization's webhook endpoints."""
+
     def trigger_signer_completed(self, db: Session, *, document: Document, recipient: Recipient) -> None:
-        """
-        Triggered when an individual recipient finishes signing.
-        """
-        print(f"\n[CRM Integration] Signer completed: {recipient.email}")
-        
-        # 1. Internal Task Trigger: Notify processing/admin team
-        audit_service.log(
+        """An individual recipient finished signing -> ``recipient.signed``."""
+        webhook_service.emit(
             db,
+            organization_id=document.organization_id,
+            event_type="recipient.signed",
             document_id=document.id,
-            recipient_id=recipient.id,
-            event_type="crm_internal_task_triggered",
-            event_message=f"Processing team notified: {recipient.name} ({recipient.role_name or 'Signer'}) has signed the document.",
-            metadata={"recipient_role": recipient.role_name, "recipient_name": recipient.name}
+            data={"document": document_payload(document), "recipient": recipient_payload(recipient)},
         )
 
     def trigger_document_completed(self, db: Session, *, document: Document) -> None:
-        """
-        Triggered when all parties have signed and the document is fully finalized.
-        """
-        print(f"\n[CRM Integration] Document fully completed: {document.title}")
-
-        # 1. Attach Signed Docs to CRM (Auto-save to contact/deal)
-        audit_service.log(
+        """All parties signed and the final PDF is sealed -> ``document.completed``."""
+        webhook_service.emit(
             db,
+            organization_id=document.organization_id,
+            event_type="document.completed",
             document_id=document.id,
-            event_type="crm_document_attached",
-            event_message=f"Final signed copy of '{document.title}' auto-saved to CRM Contact/Deal records.",
-            metadata={"final_sha256": document.final_sha256}
+            data={
+                "document": document_payload(document),
+                "recipients": [recipient_payload(item) for item in (document.recipients or [])],
+                "final_pdf_url": f"/api/documents/{document.id}/final-pdf",
+            },
         )
 
-        # 2. Loan Milestone Trigger (Auto-trigger after signing)
-        audit_service.log(
+    def trigger_document_declined(self, db: Session, *, document: Document, recipient: Recipient) -> None:
+        """A recipient declined -> ``recipient.declined`` and ``document.declined``."""
+        payload = {"document": document_payload(document), "recipient": recipient_payload(recipient)}
+        webhook_service.emit(
             db,
+            organization_id=document.organization_id,
+            event_type="recipient.declined",
             document_id=document.id,
-            event_type="crm_loan_milestone_updated",
-            event_message="Loan Milestone Trigger: Status advanced to 'Underwriting Review' / 'Documents Signed'.",
-            metadata={"document_title": document.title}
+            data=payload,
+        )
+        webhook_service.emit(
+            db,
+            organization_id=document.organization_id,
+            event_type="document.declined",
+            document_id=document.id,
+            data=payload,
         )
 
-        # 3. Realtor Transaction Trigger (Move pipeline stages)
-        audit_service.log(
+    def trigger_document_sent(self, db: Session, *, document: Document) -> None:
+        webhook_service.emit(
             db,
+            organization_id=document.organization_id,
+            event_type="document.sent",
             document_id=document.id,
-            event_type="crm_realtor_pipeline_updated",
-            event_message="Realtor Pipeline Trigger: Deal stage auto-moved to 'Pending/Under Contract'.",
-            metadata={"pipeline_stage": "Pending"}
-        )
-
-        # 4. Notification Engine (Email/SMS alerts)
-        audit_service.log(
-            db,
-            document_id=document.id,
-            event_type="crm_notification_sent",
-            event_message="Notification Engine: Completion alerts and final signed PDF sent to all parties.",
-            metadata={"recipient_count": len(document.recipients)}
+            data={
+                "document": document_payload(document),
+                "recipients": [recipient_payload(item) for item in (document.recipients or [])],
+            },
         )
 
     def trigger_reminders(self, db: Session, *, document: Document) -> None:
-        """
-        Simulate automated reminder sending for pending signers.
-        """
-        pending_recipients = [r for r in document.recipients if r.status in ["sent", "viewed"]]
-        for recipient in pending_recipients:
-            audit_service.log(
+        """One ``recipient.reminded`` event per still-pending recipient."""
+        for recipient in document.recipients or []:
+            if recipient.status not in ("sent", "viewed"):
+                continue
+            webhook_service.emit(
                 db,
+                organization_id=document.organization_id,
+                event_type="recipient.reminded",
                 document_id=document.id,
-                recipient_id=recipient.id,
-                event_type="crm_reminder_sent",
-                event_message=f"Reminder Automation: Secure follow-up alert sent to pending signer {recipient.email}.",
-                metadata={"reminder_recipient": recipient.email}
+                data={"document": document_payload(document), "recipient": recipient_payload(recipient)},
             )
 
 

@@ -3,11 +3,13 @@
 import React from 'react';
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
+import { useNav } from '@/lib/sf/nav';
 import { API_DEFS, API_STATS_META, API_TABS, EMBED_SNIPPET } from '@/lib/sf/data';
 import { btn, inputStyle, jsonBoxStyle, lbl, pill, railHead, TONE_BAD, TONE_GOOD, TONE_WARN } from '@/lib/sf/ui';
 
 export default function ApiScreen() {
   const { s, set, flash, accent } = useSF();
+  const { go } = useNav();
   const A = accent();
 
   const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
@@ -22,9 +24,9 @@ export default function ApiScreen() {
     set({
       embedSession: { id:'es_7d10c2e4', host:'HostCRM', title:'Master Services Agreement — Acme Corp',
         externalId:'hostcrm:deal_8842', contacts: picked.map(c => c.name) },
-      screen: 'builder',
       recipients: picked.map((c, i) => ({ id:'r' + (i + 1), name:c.name, email:c.email, role:c.role, color:c.color, order:i + 1, status:'Pending' }))
     });
+    go('builder');
     flash('Embed session es_7d10c2e4 opened · document and 2 contacts injected');
   };
 
@@ -87,7 +89,7 @@ export default function ApiScreen() {
     ['SDKs & sample apps', 'TypeScript, Python, PHP, Go, Java', 'sdks'],
     ['Migration guide', 'Move templates, contacts and archives', 'migration']
   ] as [string, string, string][]).map(([label, meta, target]) => ({ label, meta,
-    onClick: () => { if (target === 'sandbox') set({ screen: 'sandbox' }); else set({ screen: 'guides', docsPage: target }); },
+    onClick: () => { if (target === 'sandbox') go('sandbox'); else { set({ docsPage: target }); go('guides'); } },
     style: { display:'flex', flexDirection:'column', gap:'4px', alignItems:'flex-start', textAlign:'left', padding:'13px', borderRadius:'12px',
       border:'1px solid #e3e7ee', background:'#fbfcfd', cursor:'pointer' } as CSSProperties }));
 

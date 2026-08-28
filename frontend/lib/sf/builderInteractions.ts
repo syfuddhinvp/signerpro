@@ -4,6 +4,7 @@
     deleteSel / duplicateSel / alignLeft / alignCenterX / distribute). */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useSF, type SFField, type SFState } from './state';
+import { useNav } from './nav';
 import { TYPES } from './data';
 
 type Drag =
@@ -16,6 +17,9 @@ const snapWith = (grid: boolean, v: number) => (grid ? Math.round(v / 8) * 8 : M
 
 export function useBuilderInteractions() {
   const { s, set, flash, recip } = useSF();
+  const { screen, go } = useNav();
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
   const sRef = useRef<SFState>(s);
   sRef.current = s;
   const dragRef = useRef<Drag | null>(null);
@@ -26,8 +30,9 @@ export function useBuilderInteractions() {
   /* ── drag / place ── */
   const onToolDown = useCallback((typeId: string, e: React.PointerEvent) => {
     e.preventDefault();
-    set({ dragTool: typeId, ghost: { x: e.clientX, y: e.clientY }, screen: 'builder' });
-  }, [set]);
+    set({ dragTool: typeId, ghost: { x: e.clientX, y: e.clientY } });
+    if (screenRef.current !== 'builder') go('builder');
+  }, [set, go]);
 
   const onFieldDown = useCallback((id: string, e: React.PointerEvent) => {
     e.stopPropagation();
@@ -180,7 +185,7 @@ export function useBuilderInteractions() {
     const tag = ((e.target as HTMLElement) && (e.target as HTMLElement).tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     const st = sRef.current;
-    if (st.screen !== 'builder' || !st.selected.length) return;
+    if (screenRef.current !== 'builder' || !st.selected.length) return;
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSel(); }
     else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSel(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {

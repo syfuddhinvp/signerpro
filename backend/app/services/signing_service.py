@@ -1,10 +1,13 @@
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.hashing import sha256_bytes
+from app.core.ratelimit import OTP_LOCKOUT_SECONDS, OTP_MAX_ATTEMPTS
 from app.models.document import Document
 from app.models.enums import DocumentStatus, FieldType, RecipientStatus, SignatureType, WorkflowType
 from app.models.field import Field
@@ -16,6 +19,17 @@ from app.services.audit_service import audit_service
 from app.services.email_service import signflow_email_service
 from app.services.pdf_service import pdf_service
 from app.services.token_service import token_service
+
+
+def _as_aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _hash_otp(recipient_id: str, code: str) -> str:
+    """Salted hash of an OTP code; only the digest is persisted."""
+    return sha256_bytes(f"{recipient_id}:{code.strip()}".encode("utf-8"))
 
 
 class SigningService:
@@ -204,6 +218,15 @@ class SigningService:
         )
 
         from app.services.crm_service import crm_integration_service
+        from app.models.usage_event import UsageEventType
+        from app.services.entitlement_service import entitlement_service
+
+        entitlement_service.record_usage(
+            db,
+            organization_id=document.organization_id,
+            event_type=UsageEventType.recipient_signed,
+            document_id=document.id,
+        )
         crm_integration_service.trigger_signer_completed(db, document=document, recipient=recipient)
 
         if all(item.status == RecipientStatus.completed for item in document.recipients):
@@ -297,17 +320,32 @@ class SigningService:
             return str(field.value).lower() == "true"
         return bool(field.value and str(field.value).strip())
 
+    def _ensure_otp_not_locked(self, recipient: Recipient) -> None:
+        if recipient.otp_locked_until is None:
+            return
+        locked_until = _as_aware_utc(recipient.otp_locked_until)
+        now = datetime.now(timezone.utc)
+        if locked_until > now:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Verification is temporarily locked after too many failed attempts. Please try again later.",
+                headers={"Retry-After": str(max(1, int((locked_until - now).total_seconds())))},
+            )
+        recipient.otp_locked_until = None
+        recipient.otp_attempts = 0
+
     def send_otp(self, db: Session, *, raw_token: str) -> None:
         signing_token, document, recipient = self.load_session(db, raw_token=raw_token)
         if recipient.status == RecipientStatus.completed or document.status == DocumentStatus.completed:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot send OTP for completed sessions")
-
-        import secrets
-        from datetime import timedelta
+        self._ensure_otp_not_locked(recipient)
 
         otp_code = "".join(secrets.choice("0123456789") for _ in range(6))
-        recipient.otp_code = otp_code
+        recipient.otp_code_hash = _hash_otp(recipient.id, otp_code)
         recipient.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+        # A newly issued code resets the attempt counter, but never clears an
+        # active lockout (a resend must not be a way out of a lockout).
+        recipient.otp_attempts = 0
 
         # Load organization settings for gateway dispatch
         from app.models.organization import Organization
@@ -348,16 +386,41 @@ class SigningService:
         if recipient.otp_verified:
             return
 
-        if not recipient.otp_code or not recipient.otp_expires_at:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No OTP has been sent")
-        
-        expires_naive = recipient.otp_expires_at.replace(tzinfo=None) if recipient.otp_expires_at.tzinfo else recipient.otp_expires_at
-        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
-        if now_naive > expires_naive:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP code has expired. Please request a new one.")
-        if recipient.otp_code != code.strip():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OTP code. Please try again.")
+        self._ensure_otp_not_locked(recipient)
 
+        if not recipient.otp_code_hash or not recipient.otp_expires_at:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No OTP has been sent")
+
+        if datetime.now(timezone.utc) > _as_aware_utc(recipient.otp_expires_at):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP code has expired. Please request a new one.")
+
+        if not secrets.compare_digest(recipient.otp_code_hash, _hash_otp(recipient.id, code)):
+            recipient.otp_attempts = (recipient.otp_attempts or 0) + 1
+            remaining = OTP_MAX_ATTEMPTS - recipient.otp_attempts
+            if remaining <= 0:
+                recipient.otp_locked_until = datetime.now(timezone.utc) + timedelta(seconds=OTP_LOCKOUT_SECONDS)
+                recipient.otp_code_hash = None
+                audit_service.log(
+                    db,
+                    document_id=document.id,
+                    recipient_id=recipient.id,
+                    event_type="signer_otp_locked",
+                    event_message=f"OTP verification locked for {recipient.email} after {OTP_MAX_ATTEMPTS} failed attempts.",
+                )
+                db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many incorrect verification codes. Verification is locked, please try again later.",
+                    headers={"Retry-After": str(OTP_LOCKOUT_SECONDS)},
+                )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid OTP code. Please try again. {remaining} attempt(s) remaining.",
+            )
+
+        recipient.otp_attempts = 0
+        recipient.otp_locked_until = None
         recipient.otp_verified = True
         audit_service.log(
             db,

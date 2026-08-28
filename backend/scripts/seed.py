@@ -16,21 +16,34 @@ from app.models.enums import UserRole, WorkflowType
 from app.models.organization import Organization
 from app.models.recipient import Recipient
 from app.models.user import User
+from app.services.billing_service import billing_service
 
 
 def main() -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
+        # Plan catalogue + a subscription for every organization (idempotent).
+        created_plans = billing_service.ensure_default_plans(db)
+        if created_plans:
+            print(f"Seeded {len(created_plans)} plan(s): {', '.join(p.code for p in created_plans)}")
+        for org in db.scalars(select(Organization)):
+            billing_service.get_or_create_subscription(db, org.id)
+
         # Check and migrate old local email if it exists
         old_admin = db.scalar(select(User).where(User.email == "admin@signflow.local"))
         if old_admin:
             old_admin.email = "admin@signflow.com"
+            old_admin.is_platform_admin = True
             db.commit()
             print("Migrated admin@signflow.local to admin@signflow.com")
 
         existing = db.scalar(select(User).where(User.email == "admin@signflow.com"))
         if existing:
+            if not existing.is_platform_admin:
+                existing.is_platform_admin = True
+                db.commit()
+                print("Promoted admin@signflow.com to platform admin.")
             print("Seed data already exists.")
             return
         organization = Organization(name="SignFlow Demo Realty")
@@ -42,6 +55,7 @@ def main() -> None:
             email="admin@signflow.com",
             password_hash=hash_password("password123"),
             role=UserRole.admin,
+            is_platform_admin=True,
         )
         db.add(admin)
         db.flush()
