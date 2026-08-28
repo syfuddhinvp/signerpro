@@ -120,6 +120,94 @@ export function initialsOf(name: string): string {
   return name.split(' ').map(part => part[0] ?? '').join('').slice(0, 2).toUpperCase();
 }
 
+/** `2026-08-14T09:02:11Z` → `14 Aug 09:02:11 UTC`, the audit row's time format. */
+export function formatAuditTime(iso: string | null | undefined): string {
+  if (!iso) return EMPTY;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return EMPTY;
+  const day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const time = date.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' });
+  return `${day} ${time} UTC`;
+}
+
+/** `14 Aug 2026 11:18:52 UTC` — the certificate's "Sealed at" row. */
+export function formatSealedAt(iso: string | null | undefined): string {
+  if (!iso) return EMPTY;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return EMPTY;
+  return `${formatDate(iso)} ${date.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' })} UTC`;
+}
+
+/** `28 Aug 12:04` — the ticket/message timestamp wording the design prints. */
+export function formatDateTimeShort(iso: string | null | undefined): string {
+  if (!iso) return EMPTY;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return EMPTY;
+  const day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${day} ${time}`;
+}
+
+/** `11:42:08.412` — the log-row timestamp the console renders. */
+export function formatLogTime(iso: string | null | undefined): string {
+  if (!iso) return EMPTY;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return EMPTY;
+  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
+/** Minutes → the design's `22m` / `5h 40m` duration wording. */
+export function formatMinutes(minutes: number | null | undefined): string {
+  if (minutes === null || minutes === undefined || Number.isNaN(minutes)) return EMPTY;
+  const total = Math.max(0, Math.round(minutes));
+  if (total < 60) return `${total}m`;
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  if (hours < 24) return rest ? `${hours}h ${rest}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+/** `1102` → `1,102`, the thousands format the overview tiles print. */
+export function formatCount(value: number): string {
+  return new Intl.NumberFormat('en-US').format(Math.round(value || 0));
+}
+
+/** `128.4k` / `4.1M` — the compact counts the developer tiles print. */
+export function formatCompact(value: number | null | undefined): string {
+  const n = value ?? 0;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+/** Seconds → `6m 12s`, the embed-duration wording in the design. */
+export function formatSeconds(seconds: number | null | undefined): string {
+  const total = Math.max(0, Math.round(seconds ?? 0));
+  const minutes = Math.floor(total / 60);
+  return minutes ? `${minutes}m ${total % 60}s` : `${total}s`;
+}
+
+/** `1 Sep 2026` → `1 Sep`, the short due-date form the invoice table prints. */
+export function formatDayMonth(iso: string | null | undefined): string {
+  if (!iso) return EMPTY;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return EMPTY;
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+/** `$74.7k` — the prototype's compact money label. Input is cents. */
+export function formatCentsK(cents: number): string {
+  return '$' + ((cents || 0) / 100000).toFixed(1) + 'k';
+}
+
+/** `+4.2%` — a signed percentage, as the stat tiles print deltas. */
+export function formatSignedPct(value: number, digits = 1): string {
+  const v = value || 0;
+  return (v > 0 ? '+' : '') + v.toFixed(digits) + '%';
+}
+
 /* ── contacts ───────────────────────────────────────────────────────────── */
 
 /**
@@ -468,10 +556,6 @@ export function libraryFolderLabel(
 
 /* ── builder: fields, recipients, routing ───────────────────────────────── */
 
-/* This block's own imports are declared here (rather than merged into the
-   header) so that concurrent appends to this shared file merge cleanly. Names
-   the header already brings in (Recipient, SFField, FieldResponse,
-   RecipientResponse) are not repeated. */
 /**
  * The builder canvas is a US-Letter sheet drawn at 96 dpi (816 × 1056 CSS px);
  * the API stores field geometry in PDF points (72 dpi — 612 × 792 for Letter).
@@ -842,23 +926,6 @@ export function toRoutingUpdate(patch: Partial<BuilderRouting>): RoutingUpdate {
 
 /* ── signer session + audit trail (appended: SIGN screens) ──────────────── */
 
-/** `2026-08-14T09:02:11Z` → `14 Aug 09:02:11 UTC`, the audit row's time format. */
-export function formatAuditTime(iso: string | null | undefined): string {
-  if (!iso) return EMPTY;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return EMPTY;
-  const day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-  const time = date.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' });
-  return `${day} ${time} UTC`;
-}
-
-/** `14 Aug 2026 11:18:52 UTC` — the certificate's "Sealed at" row. */
-export function formatSealedAt(iso: string | null | undefined): string {
-  if (!iso) return EMPTY;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return EMPTY;
-  return `${formatDate(iso)} ${date.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' })} UTC`;
-}
 
 /**
  * `RecipientResponse` → the prototype's `Recipient`.
@@ -1117,36 +1184,6 @@ export function toCertificateCard(
 
 /* ── support tickets ────────────────────────────────────────────────────── */
 
-/** `28 Aug 12:04` — the ticket/message timestamp wording the design prints. */
-export function formatDateTimeShort(iso: string | null | undefined): string {
-  if (!iso) return EMPTY;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return EMPTY;
-  const day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${day} ${time}`;
-}
-
-/** `11:42:08.412` — the log-row timestamp the console renders. */
-export function formatLogTime(iso: string | null | undefined): string {
-  if (!iso) return EMPTY;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return EMPTY;
-  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
-}
-
-/** Minutes → the design's `22m` / `5h 40m` duration wording. */
-export function formatMinutes(minutes: number | null | undefined): string {
-  if (minutes === null || minutes === undefined || Number.isNaN(minutes)) return EMPTY;
-  const total = Math.max(0, Math.round(minutes));
-  if (total < 60) return `${total}m`;
-  const hours = Math.floor(total / 60);
-  const rest = total % 60;
-  if (hours < 24) return rest ? `${hours}h ${rest}m` : `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
-}
 
 /** One message in the thread `Support.tsx` renders. */
 export type SupportMessageRow = {
@@ -1374,20 +1411,6 @@ export function toLogLevelFilters(levels: string[]): [string, string][] {
 
 /* ── developer: api keys, usage, embed ──────────────────────────────────── */
 
-/** `128.4k` / `4.1M` — the compact counts the developer tiles print. */
-export function formatCompact(value: number | null | undefined): string {
-  const n = value ?? 0;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
-
-/** Seconds → `6m 12s`, the embed-duration wording in the design. */
-export function formatSeconds(seconds: number | null | undefined): string {
-  const total = Math.max(0, Math.round(seconds ?? 0));
-  const minutes = Math.floor(total / 60);
-  return minutes ? `${minutes}m ${total % 60}s` : `${total}s`;
-}
 
 /** The four developer stat tiles, from `GET /api/api-keys/usage`. */
 export function toApiUsageTiles(usage: ApiKeyUsageResponse | null): StatTile[] {
@@ -1482,36 +1505,16 @@ export function fromOriginsField(value: string): string[] {
 /* ══════════════════════════════════════════════════════════════════════════
  * Tenant overview (ORG-2) — `GET /api/organizations/me/overview`
  *
- * `lib/api/types.ts` does not mirror `OrganizationOverview` yet and this file
- * may not edit `lib/api/*`, so the response shape is declared here, verbatim
- * from `backend/app/schemas/organization.py`.
+ * The response shapes live in `lib/api/types.ts` (mirroring
+ * `backend/app/schemas/organization.py`); these aliases keep the names the
+ * screens already import.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-export type OverviewStatsApi = {
-  action_required: number;
-  out_for_signature: number;
-  seats_activated: number;
-  seats_licensed: number;
-  completion_rate: number;
-};
-
-export type OverviewAttentionApi = { title: string; detail: string; screen: string; tone: string };
-export type OverviewSpendLineApi = { label: string; amount_cents: number };
-export type OverviewTeamRowApi = {
-  name: string;
-  role_label: string;
-  last_active_at: string | null;
-  sent_count: number;
-};
-
-export type OrganizationOverviewResponse = {
-  range: string;
-  stats: OverviewStatsApi;
-  series: number[];
-  attention: OverviewAttentionApi[];
-  spend_lines: OverviewSpendLineApi[];
-  team: OverviewTeamRowApi[];
-};
+export type OverviewStatsApi = OrganizationOverview['stats'];
+export type OverviewAttentionApi = OrganizationOverview['attention'][number];
+export type OverviewSpendLineApi = OrganizationOverview['spend_lines'][number];
+export type OverviewTeamRowApi = OrganizationOverview['team'][number];
+export type OrganizationOverviewResponse = OrganizationOverview;
 
 /** What a fresh tenant (or a failed call) renders as. Twelve empty buckets. */
 export const EMPTY_ORG_OVERVIEW: OrganizationOverviewResponse = {
@@ -1523,10 +1526,6 @@ export const EMPTY_ORG_OVERVIEW: OrganizationOverviewResponse = {
   team: [],
 };
 
-/** `1102` → `1,102`, the thousands format the overview tiles print. */
-export function formatCount(value: number): string {
-  return new Intl.NumberFormat('en-US').format(Math.round(value || 0));
-}
 
 function clampPct(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -1682,17 +1681,13 @@ export function toOverviewTeam(rows: OverviewTeamRowApi[]): OverviewTeamRow[] {
 }
 
 /* ── overview banner ───────────────────────────────────────────────────────
- * `GET /api/organizations/me` gained `slug` / `region` on the backend but the
- * frontend mirror in `lib/api/types.ts` has not caught up, so the extra fields
- * are described here and read defensively.
+ * `GET /api/organizations/me` — `slug` / `region` / `seats_licensed` are part
+ * of `OrganizationResponse` in `lib/api/types.ts`; this alias keeps the name
+ * the overview screen already imported, and the fields are still read
+ * defensively so a partial payload cannot throw.
  */
-export type OrganizationProfileExtras = {
-  id: string;
-  name: string;
-  slug?: string | null;
-  region?: string | null;
-  seats_licensed?: number | null;
-};
+export type OrganizationProfileExtras = Pick<OrganizationResponse, 'id' | 'name'>
+  & Partial<Pick<OrganizationResponse, 'slug' | 'region' | 'seats_licensed'>>;
 
 export type OverviewBanner = { name: string; initials: string; meta: string };
 
@@ -1972,13 +1967,6 @@ export function toCustomReportCells(row: Record<string, unknown>, fields: string
 
 /* ══ billing & invoices (BIL screens) ══════════════════════════════════ */
 
-/** `1 Sep 2026` → `1 Sep`, the short due-date form the invoice table prints. */
-export function formatDayMonth(iso: string | null | undefined): string {
-  if (!iso) return EMPTY;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return EMPTY;
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-}
 
 function titleCase(value: string): string {
   return value ? value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, ' ') : EMPTY;
@@ -2328,16 +2316,6 @@ export function declineNotice(
 /** The prototype's neutral pill tone, for a plan or status the design never named. */
 const PLATFORM_TONE_NEUTRAL: Tone = { bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' };
 
-/** `$74.7k` — the prototype's compact money label. Input is cents. */
-export function formatCentsK(cents: number): string {
-  return '$' + ((cents || 0) / 100000).toFixed(1) + 'k';
-}
-
-/** `+4.2%` — a signed percentage, as the stat tiles print deltas. */
-export function formatSignedPct(value: number, digits = 1): string {
-  const v = value || 0;
-  return (v > 0 ? '+' : '') + v.toFixed(digits) + '%';
-}
 
 /** A stat tile as `PlatformHome` / `Platform` / `Revenue` render it. */
 export type PlatformStatTile = { label: string; value: string; meta: string; good: boolean };

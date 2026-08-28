@@ -191,9 +191,13 @@ def test_design_documents_recipients_and_fields(seeded: Session) -> None:
     acme = seeded.scalar(select(Organization).where(Organization.slug == "acme"))
 
     for spec in seed_signforge.DOCS:
+        # The design reuses titles across kinds ("Data Processing Addendum — EU"
+        # is a template *and* an envelope), so the kind is part of the lookup.
         document = seeded.scalar(
             select(Document).where(
-                Document.organization_id == acme.id, Document.title == spec["title"]
+                Document.organization_id == acme.id,
+                Document.title == spec["title"],
+                Document.is_template.is_(False),
             )
         )
         assert document is not None, spec["title"]
@@ -208,7 +212,10 @@ def test_design_documents_recipients_and_fields(seeded: Session) -> None:
         assert len(completed) == min(spec["signed"], len(expected))
 
     primary = seeded.scalar(
-        select(Document).where(Document.title == "Master Services Agreement — Acme Corp")
+        select(Document).where(
+            Document.title == "Master Services Agreement — Acme Corp",
+            Document.is_template.is_(False),
+        )
     )
     fields = list(seeded.scalars(select(Field).where(Field.document_id == primary.id)))
     assert len(fields) == len(seed_signforge.PROTO_FIELDS)
@@ -236,7 +243,10 @@ def test_audit_chain_verifies_for_every_document(seeded: Session) -> None:
     assert documents
 
     primary = seeded.scalar(
-        select(Document).where(Document.title == "Master Services Agreement — Acme Corp")
+        select(Document).where(
+            Document.title == "Master Services Agreement — Acme Corp",
+            Document.is_template.is_(False),
+        )
     )
     entries = list(seeded.scalars(select(AuditLog).where(AuditLog.document_id == primary.id)))
     assert len(entries) == len(seed_signforge.AUDIT)
