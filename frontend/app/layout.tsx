@@ -1,20 +1,18 @@
-import type { Metadata } from "next";
-import { Toaster } from "sonner";
-import "./globals.css";
+import type { Metadata } from 'next';
+import './globals.css';
+import { SFProvider } from '@/lib/sf/state';
 
 export const metadata: Metadata = {
-  title: "SignFlow CRM",
-  description: "Real estate and mortgage e-signature workflows"
+  title: 'SignForge',
+  description: 'SignForge — e-signature platform'
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        {children}
-        <Toaster richColors position="top-right" closeButton />
+        <SFProvider>{children}</SFProvider>
       </body>
     </html>
   );
 }
-
