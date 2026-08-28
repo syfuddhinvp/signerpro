@@ -117,7 +117,7 @@ def test_saas_subscription_and_user_management(client: TestClient) -> None:
     # 4. List users in system
     resp = client.get("/api/saas/users", headers=admin_headers)
     assert resp.status_code == status.HTTP_200_OK
-    users = resp.json()
+    users = resp.json()["items"]
     assert len(users) >= 1
     
     # 5. Create a non-admin sender manually

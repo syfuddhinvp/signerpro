@@ -2,7 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import audit, auth, billing, documents, fields, invitations, recipients, signing, organizations, saas, webhooks
-from app.api.routes import activity, invoices, revenue, support
+from app.api.routes import account, activity, invoices, revenue, support
+from app.api.routes import contacts, folders, templates
+from app.api.routes import api_keys, embed, public_api, reports
+from app.api.routes import flags, logs, tenants
 from app.core.config import get_settings
 from app.core.logging import RequestLoggingMiddleware, configure_logging
 from app import models  # noqa: F401
@@ -38,6 +41,21 @@ app.include_router(revenue.router)
 app.include_router(webhooks.router)
 app.include_router(invitations.router)
 app.include_router(billing.router)
+app.include_router(tenants.router)
+app.include_router(flags.platform_router)
+app.include_router(flags.tenant_router)
+app.include_router(logs.tenant_router)
+app.include_router(logs.platform_router)
+app.include_router(api_keys.router)
+app.include_router(api_keys.settings_router)
+app.include_router(embed.router)
+app.include_router(public_api.router)
+app.include_router(reports.router)
+app.include_router(audit.certificate_router)
+app.include_router(account.router)
+app.include_router(contacts.router)
+app.include_router(templates.router)
+app.include_router(folders.router)
 
 
 @app.on_event("startup")

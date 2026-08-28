@@ -1,0 +1,527 @@
+"""Platform-administration domain logic.
+
+Everything that is *not* a request concern for the platform surface lives
+here: the administrative audit trail, the system-log writer, tenant metric
+derivation, feature-flag resolution and impersonation tokens.
+
+The audit trail matters more than it looks: suspension, impersonation and
+flag flips are the actions an auditor asks about, so every one of them writes
+a ``PlatformAuditEntry`` **in the same transaction as the change itself**.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from typing import Any, Iterable
+
+from jose import jwt
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.core.security import JWT_ALGORITHM
+from app.models.document import Document
+from app.models.feature_flag import FeatureFlag, FeatureFlagOverride
+from app.models.impersonation import ImpersonationSession
+from app.models.mixins import now_utc
+from app.models.organization import Organization
+from app.models.plan import Plan
+from app.models.platform_audit import PlatformAuditEntry
+from app.models.subscription import Subscription, SubscriptionStatus
+from app.models.system_log import SystemLog
+from app.models.user import User
+
+# Role keys used by the permission matrix and the directory (ORG-10).
+ROLE_COLUMNS = ["super", "orgadmin", "sender", "viewer"]
+ROLE_COLUMN_LABELS = ["Platform super admin", "Organization admin", "Sender", "Viewer"]
+ROLE_LABELS = {
+    "super": "Platform super admin",
+    "orgadmin": "Organization admin",
+    "sender": "Sender",
+    "viewer": "Viewer",
+}
+
+#: Mirrors the actual dependency checks in ``app.api.deps`` and the routers, so
+#: the matrix the UI renders cannot drift from what the API enforces.
+PERMISSION_MATRIX: list[tuple[str, list[bool]]] = [
+    ("Manage tenants and suspensions", [True, False, False, False]),
+    ("Impersonate a tenant", [True, False, False, False]),
+    ("Toggle feature flags and security posture", [True, False, False, False]),
+    ("Read platform-wide logs and audit", [True, False, False, False]),
+    ("Assign platform roles", [True, False, False, False]),
+    ("Manage organization settings and branding", [True, True, False, False]),
+    ("Invite and deprovision members", [True, True, False, False]),
+    ("Assign roles inside the organization", [True, True, False, False]),
+    ("Manage billing and invoices", [True, True, False, False]),
+    ("Change ticket priority and assignee", [True, False, False, False]),
+    ("Send envelopes for signature", [True, True, True, False]),
+    ("Create and edit templates", [True, True, True, False]),
+    ("Void or delete own envelopes", [True, True, True, False]),
+    ("Open support tickets", [True, True, True, True]),
+    ("View organization documents and reports", [True, True, True, True]),
+]
+
+#: Security-posture rows the platform ships with (FLG-5) — the prototype's SEC_DEFS.
+SECURITY_POSTURE_DEFAULTS: list[dict[str, Any]] = [
+    {"key": "sso", "label": "SAML 2.0 / OIDC single sign-on", "detail": "Okta · enforced for enterprise tenants", "enabled": True},
+    {"key": "scim", "label": "SCIM 2.0 provisioning", "detail": "deprovision within 60s of IdP removal", "enabled": True},
+    {"key": "ipAllow", "label": "IP allowlist for admin console", "detail": "currently open to all egress ranges", "enabled": False},
+    {"key": "residency", "label": "Regional data residency pinning", "detail": "us-east-1 · eu-central-1 · ap-southeast-2", "enabled": True},
+    {"key": "keyRotation", "label": "HSM key rotation (90 days)", "detail": "rotated automatically", "enabled": True},
+    {"key": "dlp", "label": "DLP scanning on uploaded documents", "detail": "blocks PII patterns before send", "enabled": False},
+]
+
+CERTIFICATION_DEFAULTS: list[dict[str, Any]] = [
+    {"name": "SOC 2 Type II", "status": "certified", "sort_order": 0},
+    {"name": "ISO 27001", "status": "certified", "sort_order": 1},
+    {"name": "ISO 27018", "status": "certified", "sort_order": 2},
+    {"name": "HIPAA", "status": "certified", "sort_order": 3},
+    {"name": "21 CFR Part 11", "status": "certified", "sort_order": 4},
+    {"name": "eIDAS QES", "status": "certified", "sort_order": 5},
+    {"name": "GDPR", "status": "certified", "sort_order": 6},
+    {"name": "FedRAMP", "status": "in_process", "sort_order": 7},
+]
+
+#: Feature-flag catalogue (FLG-1) — the prototype's FLAG_META.
+FEATURE_FLAG_DEFAULTS: list[dict[str, Any]] = [
+    {
+        "key": "signing.passkey_reuse",
+        "environment": "prod",
+        "description": "One-click re-use of a device-bound signature for authenticated signers.",
+        "enabled": True,
+        "rollout_pct": 100,
+    },
+    {
+        "key": "builder.conditional_logic_v2",
+        "environment": "prod",
+        "description": "Nested conditional rules with multi-trigger AND/OR groups in the field inspector.",
+        "enabled": True,
+        "rollout_pct": 100,
+    },
+    {
+        "key": "api.bulk_send_v3",
+        "environment": "staging",
+        "description": "Bulk send endpoint accepting 10k-row CSV merges with per-row merge tags.",
+        "enabled": False,
+        "rollout_pct": 10,
+    },
+    {
+        "key": "audit.ledger_anchoring",
+        "environment": "prod",
+        "description": "Hourly anchoring of document hashes to the append-only verification ledger.",
+        "enabled": True,
+        "rollout_pct": 100,
+    },
+    {
+        "key": "signing.ai_clause_summary",
+        "environment": "canary",
+        "description": "Plain-language clause summary shown to signers before execution.",
+        "enabled": False,
+        "rollout_pct": 5,
+    },
+]
+
+KEY_ROTATION_INTERVAL_DAYS = 90
+
+#: First-response SLA per priority, in minutes (SUP-2).
+SLA_TARGET_MINUTES = {"urgent": 60, "high": 240, "normal": 24 * 60, "low": 72 * 60}
+
+
+# --- Audit / logs ----------------------------------------------------------
+
+
+def record_platform_audit(
+    db: Session,
+    *,
+    action: str,
+    actor: User | None = None,
+    organization_id: str | None = None,
+    detail: str | None = None,
+    ip_address: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> PlatformAuditEntry:
+    entry = PlatformAuditEntry(
+        action=action,
+        actor_user_id=actor.id if actor else None,
+        actor_email=actor.email if actor else None,
+        organization_id=organization_id,
+        detail=detail,
+        ip_address=ip_address,
+        entry_metadata=metadata,
+    )
+    db.add(entry)
+    return entry
+
+
+def record_system_log(
+    db: Session,
+    *,
+    message: str,
+    source: str = "admin",
+    level: str = "info",
+    organization_id: str | None = None,
+    actor_email: str | None = None,
+    ip_address: str | None = None,
+    status_code: int | None = None,
+    latency_ms: int | None = None,
+    request_id: str | None = None,
+    payload: dict | list | None = None,
+) -> SystemLog:
+    row = SystemLog(
+        organization_id=organization_id,
+        level=level,
+        source=source,
+        message=message,
+        status_code=status_code,
+        latency_ms=latency_ms,
+        request_id=request_id,
+        actor_email=actor_email,
+        ip_address=ip_address,
+        payload=payload,
+    )
+    db.add(row)
+    return row
+
+
+# --- Tenant metrics --------------------------------------------------------
+
+
+def _monthly_cents(plan: Plan) -> int:
+    if plan.billing_interval == "year":
+        return round(plan.price_cents / 12)
+    return plan.price_cents
+
+
+def tenant_mrr_cents(org: Organization, subscription: Subscription | None, plan: Plan | None) -> int:
+    """MRR is derived, never stored — see ``/api/saas/revenue``.
+
+    A suspended tenant or a trial bills nothing yet, so both contribute zero.
+    """
+    if org.suspended_at is not None:
+        return 0
+    status = subscription.status if subscription else org.subscription_status
+    if status in {SubscriptionStatus.trialing, SubscriptionStatus.canceled, SubscriptionStatus.expired}:
+        return 0
+    if plan is None:
+        return 0
+    if plan.is_seat_based and plan.seat_price_cents:
+        return plan.seat_price_cents * max(org.seats_licensed or 0, 0)
+    return _monthly_cents(plan)
+
+
+def tenant_status(org: Organization, subscription: Subscription | None) -> str:
+    if org.suspended_at is not None:
+        return "suspended"
+    return subscription.status if subscription else org.subscription_status
+
+
+def seats_activated_map(db: Session, org_ids: Iterable[str]) -> dict[str, int]:
+    ids = list(org_ids)
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(User.organization_id, func.count(User.id))
+        .where(User.organization_id.in_(ids), User.status == "active")
+        .group_by(User.organization_id)
+    ).all()
+    return {org_id: count for org_id, count in rows}
+
+
+def users_count_map(db: Session, org_ids: Iterable[str]) -> dict[str, int]:
+    ids = list(org_ids)
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(User.organization_id, func.count(User.id))
+        .where(User.organization_id.in_(ids))
+        .group_by(User.organization_id)
+    ).all()
+    return {org_id: count for org_id, count in rows}
+
+
+def documents_count_map(db: Session, org_ids: Iterable[str], *, since: datetime | None = None) -> dict[str, int]:
+    ids = list(org_ids)
+    if not ids:
+        return {}
+    query = select(Document.organization_id, func.count(Document.id)).where(
+        Document.organization_id.in_(ids)
+    )
+    if since is not None:
+        query = query.where(Document.created_at >= since)
+    rows = db.execute(query.group_by(Document.organization_id)).all()
+    return {org_id: count for org_id, count in rows}
+
+
+def subscription_map(db: Session, org_ids: Iterable[str]) -> dict[str, tuple[Subscription, Plan]]:
+    ids = list(org_ids)
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(Subscription, Plan)
+        .join(Plan, Plan.id == Subscription.plan_id)
+        .where(Subscription.organization_id.in_(ids))
+    ).all()
+    return {subscription.organization_id: (subscription, plan) for subscription, plan in rows}
+
+
+def owner_map(db: Session, orgs: Iterable[Organization]) -> dict[str, User]:
+    """The named owner, falling back to the earliest admin of the tenant."""
+    orgs = list(orgs)
+    owner_ids = {org.owner_user_id for org in orgs if org.owner_user_id}
+    by_id: dict[str, User] = {}
+    if owner_ids:
+        by_id = {
+            user.id: user for user in db.scalars(select(User).where(User.id.in_(owner_ids))).all()
+        }
+    result: dict[str, User] = {}
+    missing: list[str] = []
+    for org in orgs:
+        owner = by_id.get(org.owner_user_id) if org.owner_user_id else None
+        if owner is not None:
+            result[org.id] = owner
+        else:
+            missing.append(org.id)
+    if missing:
+        candidates = db.scalars(
+            select(User).where(User.organization_id.in_(missing)).order_by(User.created_at)
+        ).all()
+        for user in candidates:
+            current = result.get(user.organization_id)
+            if current is None or (current.role != "admin" and user.role == "admin"):
+                result.setdefault(user.organization_id, user)
+    return result
+
+
+def plan_display_name(org: Organization, plan: Plan | None) -> str:
+    if plan is not None:
+        return plan.name
+    return (org.subscription_tier or "free").replace("_", " ").title()
+
+
+# --- Feature flags ---------------------------------------------------------
+
+
+def _bucket(organization_id: str, key: str) -> int:
+    """Stable 0-99 bucket so a rollout percentage is deterministic per tenant."""
+    digest = sha256(f"{key}:{organization_id}".encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % 100
+
+
+def resolve_flags(db: Session, organization_id: str) -> dict[str, bool]:
+    """The flag map for one tenant: enabled ∧ rollout, then override wins."""
+    flags = db.scalars(select(FeatureFlag)).all()
+    overrides = {
+        row.flag_id: row.enabled
+        for row in db.scalars(
+            select(FeatureFlagOverride).where(FeatureFlagOverride.organization_id == organization_id)
+        ).all()
+    }
+    resolved: dict[str, bool] = {}
+    for flag in flags:
+        if flag.id in overrides:
+            resolved[flag.key] = overrides[flag.id]
+            continue
+        value = bool(flag.enabled)
+        if value and flag.rollout_pct < 100:
+            value = _bucket(organization_id, flag.key) < flag.rollout_pct
+        resolved[flag.key] = value
+    return resolved
+
+
+def ensure_security_posture(db: Session) -> list:
+    """Seed the posture rows on first read so the UI is never empty."""
+    from app.models.platform_setting import SecurityPosture
+
+    existing = {row.key for row in db.scalars(select(SecurityPosture)).all()}
+    created = False
+    for spec in SECURITY_POSTURE_DEFAULTS:
+        if spec["key"] not in existing:
+            db.add(SecurityPosture(**spec))
+            created = True
+    if created:
+        db.commit()
+    return list(
+        db.scalars(select(SecurityPosture)).all()
+    )
+
+
+def ensure_certifications(db: Session) -> list:
+    from app.models.platform_setting import Certification
+
+    existing = {row.name for row in db.scalars(select(Certification)).all()}
+    created = False
+    for spec in CERTIFICATION_DEFAULTS:
+        if spec["name"] not in existing:
+            db.add(Certification(**spec))
+            created = True
+    if created:
+        db.commit()
+    return list(db.scalars(select(Certification).order_by(Certification.sort_order)).all())
+
+
+# --- Impersonation ---------------------------------------------------------
+
+
+def _hash_token(raw: str) -> str:
+    return sha256(raw.encode("utf-8")).hexdigest()
+
+
+def start_impersonation(
+    db: Session,
+    *,
+    admin: User,
+    org: Organization,
+    target: User,
+    justification: str,
+    ttl_seconds: int,
+    scopes: list[str] | None,
+    ip_address: str | None = None,
+) -> tuple[ImpersonationSession, str]:
+    settings = get_settings()
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    token = jwt.encode(
+        {
+            "sub": target.id,
+            "exp": expires_at,
+            "imp": admin.id,
+            "org": org.id,
+        },
+        settings.jwt_secret,
+        algorithm=JWT_ALGORITHM,
+    )
+    session = ImpersonationSession(
+        admin_user_id=admin.id,
+        organization_id=org.id,
+        justification=justification,
+        scopes=scopes or ["read"],
+        token_hash=_hash_token(token),
+        expires_at=expires_at,
+    )
+    db.add(session)
+    record_platform_audit(
+        db,
+        action="impersonation.started",
+        actor=admin,
+        organization_id=org.id,
+        detail=f"Impersonating {target.email}: {justification}",
+        ip_address=ip_address,
+        metadata={"target_user_id": target.id, "ttl_seconds": ttl_seconds, "scopes": scopes or ["read"]},
+    )
+    record_system_log(
+        db,
+        message=f"Impersonation started for {org.name}",
+        source="admin",
+        level="warn",
+        organization_id=org.id,
+        actor_email=admin.email,
+        ip_address=ip_address,
+        payload={"target_user_id": target.id, "justification": justification},
+    )
+    return session, token
+
+
+def end_impersonation(db: Session, *, admin: User, ip_address: str | None = None) -> int:
+    sessions = db.scalars(
+        select(ImpersonationSession).where(
+            ImpersonationSession.admin_user_id == admin.id,
+            ImpersonationSession.ended_at.is_(None),
+        )
+    ).all()
+    for session in sessions:
+        session.ended_at = now_utc()
+        db.add(session)
+        record_platform_audit(
+            db,
+            action="impersonation.ended",
+            actor=admin,
+            organization_id=session.organization_id,
+            detail="Impersonation session ended",
+            ip_address=ip_address,
+            metadata={"session_id": session.id},
+        )
+    return len(sessions)
+
+
+def sla_due_at(priority: str, *, created_at: datetime | None = None) -> datetime:
+    minutes = SLA_TARGET_MINUTES.get(priority, SLA_TARGET_MINUTES["normal"])
+    return (created_at or now_utc()) + timedelta(minutes=minutes)
+
+
+def as_aware(value: datetime | None) -> datetime | None:
+    """SQLite hands back naive datetimes; every comparison here needs UTC."""
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def sla_label(due_at: datetime | None, *, resolved: bool = False) -> str | None:
+    """Human wording for the ticket list ("2h left", "Breached 30m")."""
+    reference = as_aware(due_at)
+    if reference is None:
+        return None
+    if resolved:
+        return "Met" if reference >= now_utc() else "Breached"
+    delta = reference - now_utc()
+    minutes = int(abs(delta).total_seconds() // 60)
+    wording = f"{minutes}m" if minutes < 60 else f"{minutes // 60}h {minutes % 60}m"
+    return f"{wording} left" if delta.total_seconds() >= 0 else f"Breached {wording}"
+
+
+# --- Tenant row assembly ---------------------------------------------------
+
+
+def build_tenant_rows(db: Session, orgs: list[Organization]) -> list[dict[str, Any]]:
+    """Assemble the platform tenant table rows in a fixed number of queries."""
+    org_ids = [org.id for org in orgs]
+    subs = subscription_map(db, org_ids)
+    owners = owner_map(db, orgs)
+    activated = seats_activated_map(db, org_ids)
+    members = users_count_map(db, org_ids)
+    docs_total = documents_count_map(db, org_ids)
+    docs_30d = documents_count_map(db, org_ids, since=now_utc() - timedelta(days=30))
+
+    rows: list[dict[str, Any]] = []
+    for org in orgs:
+        subscription, plan = subs.get(org.id, (None, None))
+        owner = owners.get(org.id)
+        rows.append(
+            {
+                "id": org.id,
+                "name": org.name,
+                "slug": org.slug,
+                "region": org.region,
+                "company_size": org.company_size,
+                "owner_email": owner.email if owner else None,
+                "owner_name": owner.name if owner else None,
+                "plan_code": plan.code if plan else None,
+                "plan_name": plan_display_name(org, plan),
+                "subscription_tier": org.subscription_tier,
+                "subscription_status": subscription.status if subscription else org.subscription_status,
+                "status": tenant_status(org, subscription),
+                "suspended_at": org.suspended_at,
+                "suspension_reason": org.suspension_reason,
+                "seats_licensed": org.seats_licensed or 0,
+                "seats_activated": activated.get(org.id, 0),
+                "envelope_volume_30d": docs_30d.get(org.id, 0),
+                "documents_count": docs_total.get(org.id, 0),
+                "users_count": members.get(org.id, 0),
+                "mrr_cents": tenant_mrr_cents(org, subscription, plan),
+                "subscription_expires_at": org.subscription_expires_at,
+                "created_at": org.created_at,
+            }
+        )
+    return rows
+
+
+def ensure_feature_flags(db: Session) -> list[FeatureFlag]:
+    """Seed the flag catalogue on first read so the console is never empty."""
+    existing = {flag.key for flag in db.scalars(select(FeatureFlag)).all()}
+    created = False
+    for spec in FEATURE_FLAG_DEFAULTS:
+        if spec["key"] not in existing:
+            db.add(FeatureFlag(**spec))
+            created = True
+    if created:
+        db.commit()
+    return list(db.scalars(select(FeatureFlag).order_by(FeatureFlag.key)).all())

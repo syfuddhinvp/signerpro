@@ -1,4 +1,5 @@
-from decimal import Decimal
+import re
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
 from fastapi import HTTPException, status
@@ -9,7 +10,7 @@ from app.core.storage import storage
 from app.models.document import Document
 from app.models.field import Field
 from app.models.user import User
-from app.schemas.field import FieldCreate, FieldUpdate
+from app.schemas.field import FieldBulkSaveRequest, FieldCreate, FieldUpdate
 from app.services.audit_service import audit_service
 from app.services.document_service import document_service
 
@@ -19,7 +20,12 @@ class FieldService:
         document_service.ensure_editable(document)
         self._validate_recipient(document, payload.recipient_id)
         self._validate_coordinates(document, payload.page_number, payload.x, payload.y, payload.width, payload.height)
-        field = Field(document_id=document.id, **payload.model_dump())
+        data = payload.model_dump()
+        condition = data.get("condition")
+        data["condition"] = condition
+        self._validate_condition(document, condition, field_id=None)
+        self._validate_validation(data.get("validation"), data.get("validation_pattern"))
+        field = Field(document_id=document.id, **data)
         db.add(field)
         db.flush()
         audit_service.log(
@@ -53,6 +59,14 @@ class FieldService:
         width = updates.get("width", field.width)
         height = updates.get("height", field.height)
         self._validate_coordinates(document, page_number, Decimal(x), Decimal(y), Decimal(width), Decimal(height))
+        if "condition" in updates:
+            updates["condition"] = updates["condition"]
+            self._validate_condition(document, updates["condition"], field_id=field.id)
+        if "validation" in updates or "validation_pattern" in updates:
+            self._validate_validation(
+                updates.get("validation", field.validation),
+                updates.get("validation_pattern", field.validation_pattern),
+            )
         for key, value in updates.items():
             setattr(field, key, value)
         audit_service.log(
@@ -83,6 +97,178 @@ class FieldService:
         db.delete(field)
         db.commit()
 
+    # ------------------------------------------------------------------
+    # Bulk save (FLD-3)
+    # ------------------------------------------------------------------
+
+    def bulk_save(self, db: Session, *, document: Document, user: User, payload: FieldBulkSaveRequest) -> list[Field]:
+        """Replace the document's whole field set in one transaction.
+
+        Items carrying an ``id`` that already belongs to this document are
+        updated in place (keeping any captured ``value``); everything else is
+        created, and any existing field not named in the payload is removed.
+        """
+        document_service.ensure_editable(document)
+        existing = {field.id: field for field in document.fields}
+        seen: set[str] = set()
+        result: list[Field] = []
+        page_cache: dict[int, tuple[Decimal, Decimal]] = {}
+
+        for item in payload.fields:
+            data = item.model_dump()
+            field_id = data.pop("id", None)
+            self._validate_recipient(document, data["recipient_id"])
+            self._validate_coordinates(
+                document,
+                data["page_number"],
+                data["x"],
+                data["y"],
+                data["width"],
+                data["height"],
+                page_cache=page_cache,
+            )
+            self._validate_validation(data.get("validation"), data.get("validation_pattern"))
+            if field_id and field_id in existing:
+                field = existing[field_id]
+                data.pop("value", None)
+                for key, value in data.items():
+                    setattr(field, key, value)
+                seen.add(field_id)
+            else:
+                if field_id and field_id not in existing:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Field {field_id} does not belong to this document",
+                    )
+                field = Field(document_id=document.id, **data)
+                db.add(field)
+                db.flush()
+                seen.add(field.id)
+            result.append(field)
+
+        # Conditions can reference fields created in this same call, so they are
+        # validated once every id exists.
+        for field in result:
+            self._validate_condition_ids(
+                field.condition, allowed_ids=seen, field_id=field.id
+            )
+
+        removed = 0
+        for field_id, field in existing.items():
+            if field_id not in seen:
+                db.delete(field)
+                removed += 1
+
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="field_updated",
+            event_message=f"Field set saved ({len(result)} field(s), {removed} removed).",
+            metadata={"saved": len(result), "removed": removed},
+        )
+        db.commit()
+        db.refresh(document)
+        return sorted(document.fields, key=lambda item: (item.page_number, float(item.y), float(item.x)))
+
+    # ------------------------------------------------------------------
+    # Field logic (FLD-2)
+    # ------------------------------------------------------------------
+
+    def _validate_validation(self, validation: str | None, pattern: str | None) -> None:
+        if validation == "custom":
+            if not pattern:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A validation_pattern is required when validation is 'custom'",
+                )
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail="validation_pattern is not a valid regular expression"
+                ) from exc
+
+    def _validate_condition(self, document: Document, condition: dict | None, *, field_id: str | None) -> None:
+        allowed = {item.id for item in document.fields}
+        self._validate_condition_ids(condition, allowed_ids=allowed, field_id=field_id)
+
+    def _validate_condition_ids(self, condition: dict | None, *, allowed_ids: set[str], field_id: str | None) -> None:
+        if not condition:
+            return
+        target = condition.get("field_id")
+        if target == field_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A field cannot depend on itself")
+        if target not in allowed_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="condition.field_id must reference another field on this document",
+            )
+
+    def condition_is_met(self, document: Document, field: Field) -> bool:
+        """Server-side evaluation of a field's conditional-visibility rule."""
+        condition = field.condition or None
+        if not condition:
+            return True
+        source = next((item for item in document.fields if item.id == condition.get("field_id")), None)
+        if source is None:
+            return True
+        value = (source.value or "").strip()
+        op = condition.get("op")
+        if op == "checked":
+            return value.lower() in {"true", "1", "yes", "on"}
+        if op == "notEmpty":
+            return bool(value)
+        if op == "equals":
+            return value == str(condition.get("value") or "")
+        return True
+
+    def validate_value(self, document: Document, field: Field, value: str | None) -> None:
+        """Enforce authoring intent when a signer submits a value."""
+        if field.read_only:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' is read-only")
+        if not self.condition_is_met(document, field):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Field '{field.label}' is hidden by its conditional rule",
+            )
+        text = (value or "").strip()
+        if not text:
+            return
+        kind = field.validation or "none"
+        if kind == "email":
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must be an email address")
+        elif kind == "numeric":
+            try:
+                Decimal(text.replace(",", ""))
+            except (InvalidOperation, ValueError) as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must be numeric") from exc
+        elif kind == "date":
+            from datetime import date
+
+            ok = False
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+                try:
+                    from datetime import datetime as _dt
+
+                    _dt.strptime(text, fmt)
+                    ok = True
+                    break
+                except ValueError:
+                    continue
+            if not ok:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must be a date")
+        elif kind == "custom" and field.validation_pattern:
+            try:
+                matched = re.fullmatch(field.validation_pattern, text) is not None
+            except re.error:
+                matched = True
+            if not matched:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' does not match its required format"
+                )
+
     def _validate_recipient(self, document: Document, recipient_id: str) -> None:
         if not any(recipient.id == recipient_id for recipient in document.recipients):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field recipient must belong to this document")
@@ -95,6 +281,7 @@ class FieldService:
         y: Decimal,
         width: Decimal,
         height: Decimal,
+        page_cache: dict[int, tuple[Decimal, Decimal]] | None = None,
     ) -> None:
         if not document.original_file_path:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload a PDF before placing fields")
@@ -102,10 +289,15 @@ class FieldService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid field page number")
         if x < 0 or y < 0 or width <= 0 or height <= 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid field coordinates")
-        reader = PdfReader(BytesIO(storage.read_bytes(document.original_file_path)))
-        page = reader.pages[page_number - 1]
-        page_width = Decimal(str(float(page.mediabox.width)))
-        page_height = Decimal(str(float(page.mediabox.height)))
+        if page_cache is not None and page_number in page_cache:
+            page_width, page_height = page_cache[page_number]
+        else:
+            reader = PdfReader(BytesIO(storage.read_bytes(document.original_file_path)))
+            page = reader.pages[page_number - 1]
+            page_width = Decimal(str(float(page.mediabox.width)))
+            page_height = Decimal(str(float(page.mediabox.height)))
+            if page_cache is not None:
+                page_cache[page_number] = (page_width, page_height)
         if x + width > page_width or y + height > page_height:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field must fit inside the PDF page")
 

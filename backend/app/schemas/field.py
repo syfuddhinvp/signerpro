@@ -1,10 +1,19 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field as PydanticField, field_validator
 
 from app.models.enums import FieldType
+
+
+ValidationKind = Literal["none", "email", "date", "numeric", "custom"]
+
+
+class FieldCondition(BaseModel):
+    field_id: str
+    op: Literal["checked", "equals", "notEmpty"]
+    value: Any | None = None
 
 
 class FieldCreate(BaseModel):
@@ -21,6 +30,11 @@ class FieldCreate(BaseModel):
     default_value: str | None = None
     value: str | None = None
     options: dict[str, Any] | list[Any] | None = None
+    validation: ValidationKind = "none"
+    validation_pattern: str | None = PydanticField(default=None, max_length=255)
+    condition: FieldCondition | None = None
+    merge_tag: str | None = PydanticField(default=None, max_length=120)
+    read_only: bool = False
 
     @field_validator("x", "y", "width", "height")
     @classmethod
@@ -40,6 +54,13 @@ class FieldUpdate(BaseModel):
     placeholder: str | None = PydanticField(default=None, max_length=255)
     default_value: str | None = None
     options: dict[str, Any] | list[Any] | None = None
+    type: FieldType | None = None
+    value: str | None = None
+    validation: ValidationKind | None = None
+    validation_pattern: str | None = PydanticField(default=None, max_length=255)
+    condition: FieldCondition | None = None
+    merge_tag: str | None = PydanticField(default=None, max_length=120)
+    read_only: bool | None = None
 
     @field_validator("x", "y", "width", "height")
     @classmethod
@@ -68,6 +89,22 @@ class FieldResponse(BaseModel):
     value: str | None
     options: dict[str, Any] | list[Any] | None
     is_locked: bool
+    validation: str
+    validation_pattern: str | None
+    condition: dict[str, Any] | None
+    merge_tag: str | None
+    read_only: bool
     created_at: datetime
     updated_at: datetime
+
+
+class FieldBulkItem(FieldCreate):
+    """A field in a bulk save. ``id`` preserves an existing row (and any value
+    already captured on it); omitting it creates a new field."""
+
+    id: str | None = None
+
+
+class FieldBulkSaveRequest(BaseModel):
+    fields: list[FieldBulkItem] = PydanticField(default_factory=list, max_length=1000)
 

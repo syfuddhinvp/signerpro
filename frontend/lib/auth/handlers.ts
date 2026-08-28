@@ -9,7 +9,15 @@ import { NextResponse } from 'next/server';
 import { SESSION_COOKIE, backendUrl, encodeSession, type SessionUser } from './session';
 
 export type AuthResult =
-  | { ok: true; user: { id: string; name: string; email: string; role: string; organizationId: string; isPlatformAdmin: boolean }; next: string }
+  | {
+      ok: true;
+      user: {
+        id: string; name: string; email: string; role: string;
+        organizationId: string; organizationName: string; isPlatformAdmin: boolean;
+      };
+      next: string;
+    }
+  | { ok: true; mfaRequired: true; mfaToken: string; delivery: string; maskedTarget: string }
   | { ok: false; error: string; code: 'bad_request' | 'invalid_credentials' | 'conflict' | 'backend_unreachable' | 'backend_error' };
 
 const COOKIE_MAX_AGE = 60 * 60 * 12;
@@ -72,15 +80,29 @@ export async function forwardAuth(path: string, body: unknown, next: string) {
     return jsonError('backend_error', detailOf(payload, 'The SignForge API returned an unexpected error.'), 502);
   }
 
-  const token = (payload as { access_token?: unknown } | null)?.access_token;
-  const user = (payload as { user?: SessionUser } | null)?.user;
-  if (typeof token !== 'string' || !user) {
-    return jsonError('backend_error', 'The SignForge API returned an unrecognised login response.', 502);
+  // An account with confirmed MFA gets a challenge instead of a token: no
+  // session is minted until the code is exchanged at /api/auth/mfa/verify.
+  const challenge = payload as {
+    mfa_required?: unknown; mfa_token?: unknown; delivery?: unknown; masked_target?: unknown;
+  } | null;
+  if (challenge?.mfa_required === true) {
+    if (typeof challenge.mfa_token !== 'string') {
+      return jsonError('backend_error', 'The SignForge API returned an incomplete MFA challenge.', 502);
+    }
+    return NextResponse.json({
+      ok: true,
+      mfaRequired: true,
+      mfaToken: challenge.mfa_token,
+      delivery: typeof challenge.delivery === 'string' ? challenge.delivery : 'totp',
+      maskedTarget: typeof challenge.masked_target === 'string' ? challenge.masked_target : '',
+    } satisfies AuthResult);
   }
 
-  // `is_platform_admin` is deliberately absent from the login response's user
-  // schema (it lives on CurrentUserResponse only), so ask /me for it.
-  const enriched: SessionUser = { ...user, is_platform_admin: await isPlatformAdmin(token) };
+  const token = (payload as { access_token?: unknown } | null)?.access_token;
+  const enriched = (payload as { user?: SessionUser } | null)?.user;
+  if (typeof token !== 'string' || !enriched) {
+    return jsonError('backend_error', 'The SignForge API returned an unrecognised login response.', 502);
+  }
 
   const response = NextResponse.json({
     ok: true,
@@ -90,6 +112,7 @@ export async function forwardAuth(path: string, body: unknown, next: string) {
       email: enriched.email,
       role: enriched.role,
       organizationId: enriched.organization_id,
+      organizationName: (enriched as { organization_name?: string }).organization_name ?? '',
       isPlatformAdmin: enriched.is_platform_admin === true,
     },
     next,
@@ -106,20 +129,6 @@ export async function forwardAuth(path: string, body: unknown, next: string) {
   });
 
   return response;
-}
-
-async function isPlatformAdmin(token: string): Promise<boolean> {
-  try {
-    const me = await fetch(`${backendUrl()}/api/auth/me`, {
-      headers: { authorization: `Bearer ${token}` },
-      cache: 'no-store',
-    });
-    if (!me.ok) return false;
-    const body = await me.json();
-    return body?.is_platform_admin === true;
-  } catch {
-    return false;
-  }
 }
 
 /** Where to land after a successful login — only same-origin paths are honoured. */

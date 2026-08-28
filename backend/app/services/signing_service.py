@@ -14,8 +14,17 @@ from app.models.field import Field
 from app.models.recipient import Recipient
 from app.models.signature import Signature
 from app.models.signing_token import SigningToken
-from app.schemas.signer import CompletionResponse, DeclineRequest, FieldValueRequest, SignatureRequest, SigningSessionResponse
+from app.schemas.signer import (
+    CompletionResponse,
+    DeclineRequest,
+    FieldValueRequest,
+    ReassignRequest,
+    ReassignResponse,
+    SignatureRequest,
+    SigningSessionResponse,
+)
 from app.services.audit_service import audit_service
+from app.services.field_service import field_service
 from app.services.email_service import signflow_email_service
 from app.services.pdf_service import pdf_service
 from app.services.token_service import token_service
@@ -76,6 +85,12 @@ class SigningService:
             required_completed=completed,
             otp_required=otp_required,
             consent_required=consent_required,
+            document_id=document.id,
+            assigned_field_ids=[field.id for field in document.fields if field.recipient_id == recipient.id],
+            consent_accepted=bool(recipient.consent_accepted),
+            consent_accepted_at=recipient.consent_accepted_at,
+            can_decline=not read_only,
+            can_reassign=not read_only,
         )
 
     def mark_viewed(
@@ -121,9 +136,13 @@ class SigningService:
         if field.type == FieldType.signature:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use the signature endpoint for signature fields")
         if field.type == FieldType.checkbox:
-            field.value = "true" if bool(payload.value) else "false"
+            new_value = "true" if bool(payload.value) else "false"
         else:
-            field.value = str(payload.value).strip()
+            new_value = str(payload.value).strip()
+        # FLD-2: authoring intent (read_only / validation / conditional rule) is
+        # enforced server-side, not just in the builder UI.
+        field_service.validate_value(document, field, new_value)
+        field.value = new_value
         audit_service.log(
             db,
             document_id=document.id,
@@ -270,6 +289,67 @@ class SigningService:
             metadata={"reason": payload.reason},
         )
         db.commit()
+
+    def reassign(
+        self,
+        db: Session,
+        *,
+        raw_token: str,
+        payload: ReassignRequest,
+        ip_address: str | None,
+        user_agent: str | None,
+    ) -> ReassignResponse:
+        """Delegate this signing turn to somebody else (SIGN-4).
+
+        The caller's link is revoked, the recipient row is re-pointed at the
+        delegate (so their field assignments carry over) and a fresh link is
+        issued and emailed. Both addresses land in the audit trail.
+        """
+        signing_token, document, recipient = self.load_session(db, raw_token=raw_token)
+        if document.status == DocumentStatus.completed:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Completed documents cannot be reassigned")
+        if recipient.status == RecipientStatus.completed:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recipient has already completed signing")
+        new_email = str(payload.email).strip().lower()
+        if new_email == recipient.email.strip().lower():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Delegate must be a different signer")
+        if any(item.email.strip().lower() == new_email for item in document.recipients if item.id != recipient.id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That signer is already on this document")
+
+        previous_email = recipient.email
+        signing_token.revoked_at = datetime.now(timezone.utc)
+        recipient.name = payload.name.strip()
+        recipient.email = new_email
+        recipient.status = RecipientStatus.sent
+        recipient.viewed_at = None
+        # Identity changed: verification and consent must be re-established.
+        recipient.otp_verified = False
+        recipient.otp_code_hash = None
+        recipient.otp_expires_at = None
+        recipient.otp_attempts = 0
+        recipient.otp_locked_until = None
+        recipient.consent_accepted = False
+        recipient.consent_accepted_at = None
+
+        new_raw_token, _ = token_service.create_for_recipient(db, document_id=document.id, recipient_id=recipient.id)
+        audit_service.log(
+            db,
+            document_id=document.id,
+            recipient_id=recipient.id,
+            event_type="recipient_reassigned",
+            event_message=f"{previous_email} reassigned signing to {new_email}.",
+            ip_address=ip_address,
+            user_agent=user_agent,
+            metadata={"previous_email": previous_email, "new_email": new_email, "reason": payload.reason},
+        )
+        db.commit()
+        signflow_email_service.send_signing_link(document=document, recipient=recipient, token=new_raw_token, db=db)
+        return ReassignResponse(
+            recipient_id=recipient.id,
+            previous_email=previous_email,
+            new_email=new_email,
+            signing_url=f"{get_settings().app_base_url.rstrip('/')}/sign/{new_raw_token}",
+        )
 
     def _activate_next_sequential_group(self, db: Session, document: Document) -> None:
         if document.workflow_type != WorkflowType.sequential:

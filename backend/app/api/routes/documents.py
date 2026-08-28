@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import FileResponse
+import io
+import zipfile
+
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, request_ip, request_user_agent
@@ -7,7 +10,24 @@ from app.core.database import get_db
 from app.core.storage import storage
 from app.models.enums import DocumentStatus, RecipientStatus
 from app.models.user import User
-from app.schemas.document import DocumentCreate, DocumentResponse, DocumentUpdate, SendDocumentResponse, UploadPdfResponse
+from app.schemas.document import (
+    BulkActionRequest,
+    BulkActionResult,
+    BulkDownloadRequest,
+    DocumentCounts,
+    DocumentCreate,
+    DocumentDuplicateRequest,
+    DocumentLibraryPage,
+    DocumentListItem,
+    DocumentMoveRequest,
+    DocumentRenameRequest,
+    DocumentResponse,
+    DocumentUpdate,
+    RoutingResponse,
+    RoutingUpdate,
+    SendDocumentResponse,
+    UploadPdfResponse,
+)
 from app.models.plan import (
     ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH,
     ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT,
@@ -53,6 +73,113 @@ def list_documents(
     return [document_response(document) for document in document_service.list_for_user(db, user=user, status_filter=status_filter)]
 
 
+def _list_item(document, *, owner_names: dict[str, str], favorites: set[str]) -> DocumentListItem:
+    base = document_response(document)
+    item = DocumentListItem(**base.model_dump())
+    item.owner_name = owner_names.get(document.owner_user_id or document.sender_id)
+    item.is_favorite = document.id in favorites
+    return item
+
+
+@router.get("/library", response_model=DocumentLibraryPage)
+def document_library(
+    quick: str = Query(default="all"),
+    status_filter: DocumentStatus | None = Query(default=None, alias="status"),
+    doc_type: str | None = Query(default=None),
+    folder_id: str | None = Query(default=None),
+    owner: str | None = Query(default=None),
+    since_days: int | None = Query(default=None, ge=1, le=3650),
+    q: str | None = Query(default=None, max_length=200),
+    sort: str = Query(default="recent", pattern="^(recent|name|status|owner)$"),
+    limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DocumentLibraryPage:
+    items, total, favorites = document_service.library(
+        db,
+        user=user,
+        quick=quick,
+        status_filter=status_filter,
+        doc_type=doc_type,
+        folder_id=folder_id,
+        owner=owner,
+        since_days=since_days,
+        q=q,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+    )
+    owner_names = document_service.owner_names(db, items)
+    return DocumentLibraryPage(
+        items=[_list_item(document, owner_names=owner_names, favorites=favorites) for document in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+        counts=document_service.library_counts(db, user=user),
+    )
+
+
+@router.get("/counts", response_model=DocumentCounts)
+def document_counts(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentCounts:
+    return document_service.library_counts(db, user=user)
+
+
+@router.post("/bulk", response_model=BulkActionResult)
+def bulk_document_action(
+    payload: BulkActionRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> BulkActionResult:
+    updated, ids, skipped = document_service.bulk_action(
+        db,
+        user=user,
+        document_ids=payload.document_ids,
+        action=payload.action,
+        folder_id=payload.folder_id,
+    )
+    return BulkActionResult(action=payload.action, updated=updated, document_ids=ids, skipped=skipped)
+
+
+@router.post("/bulk-download")
+def bulk_download(
+    payload: BulkDownloadRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Zip of the best available PDF per document (final if signed, else original)."""
+    buffer = io.BytesIO()
+    included = 0
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for document_id in dict.fromkeys(payload.document_ids):
+            document = document_service.get_for_user(db, document_id=document_id, user=user)
+            path = document.final_file_path or document.original_file_path
+            if not path:
+                continue
+            try:
+                content = storage.path(path).read_bytes()
+            except OSError:
+                continue
+            suffix = "-signed" if document.final_file_path else ""
+            safe_title = "".join(ch for ch in document.title if ch.isalnum() or ch in " -_").strip() or "document"
+            archive.writestr(f"{safe_title}-{document.id[:8]}{suffix}.pdf", content)
+            included += 1
+    if included == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No downloadable PDFs in the selection")
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="documents.zip"', "X-Document-Count": str(included)},
+    )
+
+
+@router.delete("/trash", response_model=BulkActionResult)
+def empty_trash(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> BulkActionResult:
+    purged = document_service.empty_trash(db, user=user)
+    return BulkActionResult(action="purge", updated=purged, document_ids=[], skipped=[])
+
+
 @router.get("/templates/all", response_model=list[DocumentResponse])
 def list_templates(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[DocumentResponse]:
     return [document_response(doc) for doc in document_service.list_templates(db, user=user)]
@@ -91,9 +218,134 @@ def update_document(
 
 
 @router.delete("/{document_id}", status_code=204)
-def delete_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+def delete_document(
+    document_id: str,
+    permanent: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Soft delete (trash) by default; `?permanent=true` purges a trashed row."""
     document = document_service.get_for_user(db, document_id=document_id, user=user)
-    document_service.delete(db, document=document)
+    if permanent:
+        document_service.purge(db, document=document)
+        return
+    document_service.soft_delete(db, document=document, user=user)
+@router.post("/{document_id}/duplicate", response_model=DocumentResponse, status_code=201)
+def duplicate_document(
+    document_id: str,
+    payload: DocumentDuplicateRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    if not document.is_template:
+        entitlement_service.check_entitlement(db, user.organization_id, ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH, amount=1)
+    copy = document_service.duplicate(
+        db, document=document, user=user, title=payload.title if payload else None, as_template=document.is_template
+    )
+    if not copy.is_template:
+        entitlement_service.record_usage(
+            db,
+            organization_id=user.organization_id,
+            event_type=UsageEventType.document_created,
+            document_id=copy.id,
+        )
+        db.commit()
+    return document_response(copy)
+
+
+@router.post("/{document_id}/make-template", response_model=DocumentResponse, status_code=201)
+def make_template(
+    document_id: str,
+    payload: DocumentDuplicateRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    template = document_service.duplicate(
+        db,
+        document=document,
+        user=user,
+        title=(payload.title if payload else None) or f"{document.title} (Template)",
+        as_template=True,
+    )
+    return document_response(template)
+
+
+@router.post("/{document_id}/rename", response_model=DocumentResponse)
+def rename_document(
+    document_id: str,
+    payload: DocumentRenameRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return document_response(document_service.rename(db, document=document, user=user, title=payload.title))
+
+
+@router.post("/{document_id}/archive", response_model=DocumentResponse)
+def archive_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return document_response(document_service.set_archived(db, document=document, user=user, archived=True))
+
+
+@router.post("/{document_id}/unarchive", response_model=DocumentResponse)
+def unarchive_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return document_response(document_service.set_archived(db, document=document, user=user, archived=False))
+
+
+@router.post("/{document_id}/trash", response_model=DocumentResponse)
+def trash_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return document_response(document_service.soft_delete(db, document=document, user=user))
+
+
+@router.post("/{document_id}/restore", response_model=DocumentResponse)
+def restore_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return document_response(document_service.restore(db, document=document, user=user))
+
+
+@router.post("/{document_id}/move", response_model=DocumentResponse)
+def move_document(
+    document_id: str,
+    payload: DocumentMoveRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return document_response(document_service.move(db, document=document, user=user, folder_id=payload.folder_id))
+
+
+@router.post("/{document_id}/favorite", status_code=204)
+def favorite_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    document_service.set_favorite(db, document=document, user=user, favorite=True)
+
+
+@router.delete("/{document_id}/favorite", status_code=204)
+def unfavorite_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    document_service.set_favorite(db, document=document, user=user, favorite=False)
+
+
+@router.get("/{document_id}/routing", response_model=RoutingResponse)
+def get_routing(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> RoutingResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return document_service.routing(document)
+
+
+@router.put("/{document_id}/routing", response_model=RoutingResponse)
+def update_routing(
+    document_id: str,
+    payload: RoutingUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RoutingResponse:
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return document_service.update_routing(db, document=document, user=user, payload=payload)
+
 
 
 @router.post("/{document_id}/upload-pdf", response_model=UploadPdfResponse)

@@ -4,25 +4,36 @@ from typing import Iterable
 
 from fastapi import HTTPException, UploadFile, status
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.hashing import sha256_bytes, sha256_json
 from app.core.storage import storage
 from app.models.document import Document
+from app.models.document_favorite import DocumentFavorite
+from app.models.folder import Folder
 from app.models.document_version import DocumentVersion
 from app.models.enums import DocumentStatus, DocumentVersionType, FieldType, RecipientStatus, WorkflowType
 from app.models.field import Field
 from app.models.recipient import Recipient
 from app.models.user import User
-from app.schemas.document import DocumentCreate, DocumentResponse, DocumentUpdate, SendDocumentResponse
+from app.schemas.document import (
+    DocumentCounts,
+    DocumentCreate,
+    DocumentResponse,
+    DocumentUpdate,
+    RoutingResponse,
+    RoutingUpdate,
+    SendDocumentResponse,
+)
 from app.services.audit_service import audit_service
 from app.services.email_service import signflow_email_service
 from app.services.token_service import token_service
 
 
 EDITABLE_STATUSES = {DocumentStatus.draft, DocumentStatus.prepared}
+ACTIVE_STATUSES = {DocumentStatus.sent, DocumentStatus.viewed, DocumentStatus.partially_completed}
 
 
 def document_response(document: Document) -> DocumentResponse:
@@ -45,6 +56,7 @@ class DocumentService:
         document = Document(
             organization_id=user.organization_id,
             sender_id=user.id,
+            owner_user_id=user.id,
             title=payload.title,
             workflow_type=payload.workflow_type,
             is_template=payload.is_template,
@@ -65,7 +77,8 @@ class DocumentService:
     def list_for_user(self, db: Session, *, user: User, status_filter: DocumentStatus | None = None) -> list[Document]:
         query = select(Document).where(
             Document.organization_id == user.organization_id,
-            Document.is_template == False
+            Document.is_template == False,
+            Document.deleted_at.is_(None),
         ).order_by(Document.updated_at.desc())
         if status_filter:
             query = query.where(Document.status == status_filter)
@@ -74,7 +87,8 @@ class DocumentService:
     def list_templates(self, db: Session, *, user: User) -> list[Document]:
         query = select(Document).where(
             Document.organization_id == user.organization_id,
-            Document.is_template == True
+            Document.is_template == True,
+            Document.deleted_at.is_(None),
         ).order_by(Document.updated_at.desc())
         return list(db.scalars(query).unique())
 
@@ -92,7 +106,9 @@ class DocumentService:
             original_file_path=template.original_file_path,
             original_sha256=template.original_sha256,
             page_count=template.page_count,
-            is_template=False
+            is_template=False,
+            # Keeps TemplateResponse.use_count derivable without a stored counter.
+            source_template_id=template.id,
         )
         db.add(new_doc)
         db.flush()
@@ -160,6 +176,10 @@ class DocumentService:
             document.workflow_type = payload.workflow_type
         if payload.is_template is not None:
             document.is_template = payload.is_template
+        if payload.doc_type is not None:
+            document.doc_type = payload.doc_type
+        if "folder_id" in payload.model_fields_set:
+            self.move(db, document=document, user=user, folder_id=payload.folder_id)
         audit_service.log(
             db,
             document_id=document.id,
@@ -326,6 +346,432 @@ class DocumentService:
             return recipients
         first_order = min(recipient.signing_order for recipient in recipients)
         return [recipient for recipient in recipients if recipient.signing_order == first_order]
+
+    # ------------------------------------------------------------------
+    # Library (DOC-1) and row actions (DOC-2…DOC-7)
+    # ------------------------------------------------------------------
+
+    def _library_base(self, user: User):
+        return select(Document).where(
+            Document.organization_id == user.organization_id,
+            Document.is_template == False,  # noqa: E712
+        )
+
+    def _favorite_ids(self, db: Session, *, user: User) -> set[str]:
+        return set(
+            db.scalars(
+                select(DocumentFavorite.document_id).where(DocumentFavorite.user_id == user.id)
+            ).all()
+        )
+
+    def library_counts(self, db: Session, *, user: User) -> DocumentCounts:
+        """Sidebar badge counts. `action` is what needs *this user* to sign;
+        `waiting` is out for signature by anyone else."""
+        rows = list(
+            db.execute(
+                select(Document.id, Document.status, Document.archived_at, Document.deleted_at, Document.is_template)
+                .where(Document.organization_id == user.organization_id)
+            ).all()
+        )
+        action_ids = set(
+            db.scalars(
+                select(Recipient.document_id)
+                .join(Document, Document.id == Recipient.document_id)
+                .where(
+                    Document.organization_id == user.organization_id,
+                    Recipient.email == (user.email or "").lower(),
+                    Recipient.status.in_([RecipientStatus.sent, RecipientStatus.viewed]),
+                )
+            ).all()
+        )
+        counts = DocumentCounts()
+        for doc_id, doc_status, archived_at, deleted_at, is_template in rows:
+            if deleted_at is not None:
+                counts.trashed += 1
+                continue
+            if is_template:
+                counts.templates += 1
+                continue
+            if archived_at is not None:
+                counts.archived += 1
+                continue
+            counts.all += 1
+            if doc_status in {DocumentStatus.draft, DocumentStatus.prepared}:
+                counts.draft += 1
+            elif doc_status == DocumentStatus.completed:
+                counts.completed += 1
+            elif doc_status in {DocumentStatus.voided, DocumentStatus.declined, DocumentStatus.expired}:
+                counts.voided += 1
+            if doc_status in ACTIVE_STATUSES:
+                counts.waiting += 1
+            if doc_id in action_ids:
+                counts.action += 1
+        return counts
+
+    def library(
+        self,
+        db: Session,
+        *,
+        user: User,
+        quick: str = "all",
+        status_filter: DocumentStatus | None = None,
+        doc_type: str | None = None,
+        folder_id: str | None = None,
+        owner: str | None = None,
+        since_days: int | None = None,
+        q: str | None = None,
+        sort: str = "recent",
+        limit: int = 25,
+        offset: int = 0,
+    ) -> tuple[list[Document], int, set[str]]:
+        query = self._library_base(user)
+        favorites = self._favorite_ids(db, user=user)
+
+        if quick == "trash":
+            query = query.where(Document.deleted_at.is_not(None))
+        elif quick == "archived":
+            query = query.where(Document.deleted_at.is_(None), Document.archived_at.is_not(None))
+        else:
+            query = query.where(Document.deleted_at.is_(None), Document.archived_at.is_(None))
+
+        if quick in {"drafts"}:
+            query = query.where(Document.status.in_([DocumentStatus.draft, DocumentStatus.prepared]))
+        elif quick == "completed":
+            query = query.where(Document.status == DocumentStatus.completed)
+        elif quick in {"outbox", "waiting"}:
+            query = query.where(Document.status.in_(list(ACTIVE_STATUSES)))
+        elif quick == "inbox":
+            inbox = (
+                select(Recipient.document_id)
+                .where(
+                    Recipient.email == (user.email or "").lower(),
+                    Recipient.status.in_([RecipientStatus.sent, RecipientStatus.viewed]),
+                )
+                .scalar_subquery()
+            )
+            query = query.where(Document.id.in_(inbox))
+        elif quick == "favorites":
+            query = query.where(Document.id.in_(favorites or [""]))
+        elif quick == "expiring":
+            horizon = datetime.now(timezone.utc) + timedelta(days=7)
+            query = query.where(
+                Document.status.in_(list(ACTIVE_STATUSES)),
+                Document.expires_at.is_not(None),
+                Document.expires_at <= horizon,
+            )
+        elif quick == "mine":
+            query = query.where(
+                or_(Document.owner_user_id == user.id, Document.sender_id == user.id)
+            )
+        elif quick == "shared":
+            query = query.where(
+                Document.sender_id != user.id,
+                or_(Document.owner_user_id.is_(None), Document.owner_user_id != user.id),
+            )
+
+        if status_filter:
+            query = query.where(Document.status == status_filter)
+        if doc_type:
+            query = query.where(Document.doc_type == doc_type)
+        if folder_id:
+            query = query.where(Document.folder_id == folder_id)
+        if owner == "me":
+            query = query.where(or_(Document.owner_user_id == user.id, Document.sender_id == user.id))
+        elif owner == "shared":
+            query = query.where(Document.sender_id != user.id)
+        elif owner and owner != "team":
+            query = query.where(or_(Document.owner_user_id == owner, Document.sender_id == owner))
+        if since_days:
+            query = query.where(Document.updated_at >= datetime.now(timezone.utc) - timedelta(days=since_days))
+        if q:
+            needle = f"%{q.strip().lower()}%"
+            recipient_match = (
+                select(Recipient.document_id)
+                .where(or_(func.lower(Recipient.email).like(needle), func.lower(Recipient.name).like(needle)))
+                .scalar_subquery()
+            )
+            query = query.where(or_(func.lower(Document.title).like(needle), Document.id.in_(recipient_match)))
+
+        total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+
+        if sort == "name":
+            query = query.order_by(func.lower(Document.title).asc())
+        elif sort == "status":
+            query = query.order_by(Document.status.asc(), Document.updated_at.desc())
+        elif sort == "owner":
+            query = query.order_by(Document.sender_id.asc(), Document.updated_at.desc())
+        else:
+            query = query.order_by(Document.updated_at.desc())
+
+        items = list(db.scalars(query.limit(limit).offset(offset)).unique())
+        return items, total, favorites
+
+    def owner_names(self, db: Session, documents: Iterable[Document]) -> dict[str, str]:
+        documents = list(documents)
+        ids = {doc.owner_user_id or doc.sender_id for doc in documents}
+        ids.discard(None)
+        if not ids:
+            return {}
+        return {
+            user_id: name
+            for user_id, name in db.execute(select(User.id, User.name).where(User.id.in_(ids))).all()
+        }
+
+    def rename(self, db: Session, *, document: Document, user: User, title: str) -> Document:
+        previous = document.title
+        document.title = title
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="document_renamed",
+            event_message=f"Document renamed from '{previous}' to '{title}'.",
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+
+    def duplicate(self, db: Session, *, document: Document, user: User, title: str | None = None, as_template: bool = False) -> Document:
+        copy = Document(
+            organization_id=document.organization_id,
+            sender_id=user.id,
+            owner_user_id=user.id,
+            title=title or f"{document.title} (Copy)",
+            status=DocumentStatus.prepared if document.original_file_path else DocumentStatus.draft,
+            workflow_type=document.workflow_type,
+            original_file_path=document.original_file_path,
+            original_sha256=document.original_sha256,
+            page_count=document.page_count,
+            is_template=as_template,
+            folder_id=document.folder_id,
+            doc_type=document.doc_type,
+            source_template_id=document.id if document.is_template else document.source_template_id,
+            reminder_cadence=document.reminder_cadence,
+            expires_in_days=document.expires_in_days,
+            invite_subject=document.invite_subject,
+            invite_message=document.invite_message,
+        )
+        db.add(copy)
+        db.flush()
+        if document.original_file_path and document.original_sha256:
+            db.add(
+                DocumentVersion(
+                    document_id=copy.id,
+                    version_type=DocumentVersionType.original,
+                    file_path=document.original_file_path,
+                    sha256=document.original_sha256,
+                )
+            )
+        recipient_map: dict[str, str] = {}
+        for recipient in document.recipients:
+            clone = Recipient(
+                document_id=copy.id,
+                name=recipient.name,
+                email=recipient.email,
+                role_name=recipient.role_name,
+                role=recipient.role,
+                color=recipient.color,
+                contact_id=recipient.contact_id,
+                signing_order=recipient.signing_order,
+                status=RecipientStatus.waiting,
+                otp_enabled=recipient.otp_enabled,
+                phone_number=recipient.phone_number,
+            )
+            db.add(clone)
+            db.flush()
+            recipient_map[recipient.id] = clone.id
+        for field in document.fields:
+            db.add(
+                Field(
+                    document_id=copy.id,
+                    recipient_id=recipient_map.get(field.recipient_id),
+                    type=field.type,
+                    label=field.label,
+                    required=field.required,
+                    page_number=field.page_number,
+                    x=field.x,
+                    y=field.y,
+                    width=field.width,
+                    height=field.height,
+                    placeholder=field.placeholder,
+                    default_value=field.default_value,
+                    options=field.options,
+                    validation=field.validation,
+                    validation_pattern=field.validation_pattern,
+                    condition=field.condition,
+                    merge_tag=field.merge_tag,
+                    read_only=field.read_only,
+                )
+            )
+        audit_service.log(
+            db,
+            document_id=copy.id,
+            user_id=user.id,
+            event_type="document_created",
+            event_message=(
+                f"Template created from '{document.title}'." if as_template else f"Document duplicated from '{document.title}'."
+            ),
+            metadata={"source_document_id": document.id},
+        )
+        db.commit()
+        db.refresh(copy)
+        return copy
+
+    def set_archived(self, db: Session, *, document: Document, user: User, archived: bool) -> Document:
+        document.archived_at = datetime.now(timezone.utc) if archived else None
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="document_archived" if archived else "document_unarchived",
+            event_message=f"Document was {'archived' if archived else 'restored from the archive'}.",
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+
+    def soft_delete(self, db: Session, *, document: Document, user: User) -> Document:
+        document.deleted_at = datetime.now(timezone.utc)
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="document_trashed",
+            event_message="Document was moved to the trash.",
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+
+    def restore(self, db: Session, *, document: Document, user: User) -> Document:
+        if document.deleted_at is None and document.archived_at is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document is not archived or trashed")
+        document.deleted_at = None
+        document.archived_at = None
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="document_restored",
+            event_message="Document was restored.",
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+
+    def purge(self, db: Session, *, document: Document) -> None:
+        if document.deleted_at is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only trashed documents can be purged")
+        db.delete(document)
+        db.commit()
+
+    def empty_trash(self, db: Session, *, user: User) -> int:
+        documents = list(
+            db.scalars(
+                select(Document).where(
+                    Document.organization_id == user.organization_id,
+                    Document.deleted_at.is_not(None),
+                )
+            ).unique()
+        )
+        for document in documents:
+            db.delete(document)
+        db.commit()
+        return len(documents)
+
+    def move(self, db: Session, *, document: Document, user: User, folder_id: str | None) -> Document:
+        if folder_id is not None:
+            folder = db.get(Folder, folder_id)
+            if not folder or folder.organization_id != user.organization_id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+        document.folder_id = folder_id
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="document_moved",
+            event_message="Document was moved to a different folder.",
+            metadata={"folder_id": folder_id},
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+
+    def set_favorite(self, db: Session, *, document: Document, user: User, favorite: bool) -> None:
+        existing = db.scalars(
+            select(DocumentFavorite).where(
+                DocumentFavorite.user_id == user.id, DocumentFavorite.document_id == document.id
+            )
+        ).first()
+        if favorite and not existing:
+            db.add(DocumentFavorite(user_id=user.id, document_id=document.id))
+        elif not favorite and existing:
+            db.delete(existing)
+        db.commit()
+
+    def bulk_action(
+        self, db: Session, *, user: User, document_ids: list[str], action: str, folder_id: str | None = None
+    ) -> tuple[int, list[str], list[dict[str, str]]]:
+        updated: list[str] = []
+        skipped: list[dict[str, str]] = []
+        for document_id in dict.fromkeys(document_ids):
+            document = db.get(Document, document_id)
+            if not document or document.organization_id != user.organization_id:
+                skipped.append({"document_id": document_id, "reason": "not_found"})
+                continue
+            try:
+                if action == "archive":
+                    self.set_archived(db, document=document, user=user, archived=True)
+                elif action in {"restore", "unarchive"}:
+                    if action == "unarchive":
+                        self.set_archived(db, document=document, user=user, archived=False)
+                    else:
+                        self.restore(db, document=document, user=user)
+                elif action == "delete":
+                    self.soft_delete(db, document=document, user=user)
+                elif action == "purge":
+                    self.purge(db, document=document)
+                elif action == "move":
+                    self.move(db, document=document, user=user, folder_id=folder_id)
+                else:  # pragma: no cover - guarded by the schema Literal
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported bulk action")
+            except HTTPException as exc:
+                db.rollback()
+                skipped.append({"document_id": document_id, "reason": str(exc.detail)})
+                continue
+            updated.append(document_id)
+        return len(updated), updated, skipped
+
+    # ------------------------------------------------------------------
+    # Routing settings (RTE-1)
+    # ------------------------------------------------------------------
+
+    def routing(self, document: Document) -> RoutingResponse:
+        return RoutingResponse(
+            document_id=document.id,
+            workflow_type=document.workflow_type,
+            reminder_cadence=document.reminder_cadence,
+            expires_in_days=document.expires_in_days,
+            invite_subject=document.invite_subject,
+            invite_message=document.invite_message,
+        )
+
+    def update_routing(self, db: Session, *, document: Document, user: User, payload: RoutingUpdate) -> RoutingResponse:
+        self.ensure_editable(document)
+        updates = payload.model_dump(exclude_unset=True)
+        for key, value in updates.items():
+            setattr(document, key, value)
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="routing_updated",
+            event_message="Routing settings were updated.",
+            metadata={key: str(value) for key, value in updates.items()},
+        )
+        db.commit()
+        db.refresh(document)
+        return self.routing(document)
 
     def void(self, db: Session, *, document: Document, user: User, reason: str | None = None) -> Document:
         if document.is_template:

@@ -23,6 +23,7 @@ export const SESSION_COOKIE = 'sf_session';
 export type SessionUser = {
   id: string;
   organization_id: string;
+  organization_name?: string;
   name: string;
   email: string;
   role: string;
@@ -36,6 +37,7 @@ export type Session = {
   email: string;
   role: string;
   organizationId: string;
+  organizationName: string;
   isPlatformAdmin: boolean;
 };
 
@@ -89,6 +91,7 @@ function parse(value: string): Session | null {
     email: env.u.email ?? '',
     role: env.u.role ?? 'sender',
     organizationId: env.u.organization_id ?? '',
+    organizationName: env.u.organization_name ?? '',
     isPlatformAdmin: env.u.is_platform_admin === true,
   };
 }

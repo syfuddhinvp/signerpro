@@ -12,6 +12,8 @@ from app.schemas.signer import (
     DeclineRequest,
     FieldValueRequest,
     OtpVerifyRequest,
+    ReassignRequest,
+    ReassignResponse,
     SignatureRequest,
     SigningSessionResponse,
 )
@@ -98,6 +100,17 @@ def complete(token: str, request: Request, db: Session = Depends(get_db)) -> Com
 @router.post("/{token}/decline", status_code=204)
 def decline(token: str, payload: DeclineRequest, request: Request, db: Session = Depends(get_db)) -> None:
     signing_service.decline(
+        db,
+        raw_token=token,
+        payload=payload,
+        ip_address=request_ip(request),
+        user_agent=request_user_agent(request),
+    )
+
+
+@router.post("/{token}/reassign", response_model=ReassignResponse)
+def reassign(token: str, payload: ReassignRequest, request: Request, db: Session = Depends(get_db)) -> ReassignResponse:
+    return signing_service.reassign(
         db,
         raw_token=token,
         payload=payload,

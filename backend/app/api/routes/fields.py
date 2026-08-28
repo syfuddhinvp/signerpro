@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.user import User
-from app.schemas.field import FieldCreate, FieldResponse, FieldUpdate
+from app.schemas.field import FieldBulkSaveRequest, FieldCreate, FieldResponse, FieldUpdate
 from app.services.document_service import document_service
 from app.services.field_service import field_service
 
@@ -27,6 +27,18 @@ def create_field(
 def list_fields(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[FieldResponse]:
     document = document_service.get_for_user(db, document_id=document_id, user=user)
     return document.fields
+
+
+@router.put("", response_model=list[FieldResponse])
+def bulk_save_fields(
+    document_id: str,
+    payload: FieldBulkSaveRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[FieldResponse]:
+    """Replace the document's whole field set in one transaction (builder save)."""
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return field_service.bulk_save(db, document=document, user=user, payload=payload)
 
 
 @router.patch("/{field_id}", response_model=FieldResponse)

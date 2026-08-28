@@ -20,11 +20,41 @@ def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, *, session_id: str | None = None, **claims) -> str:
+    """Mint an access token.
+
+    ``session_id`` is carried as ``sid`` so ``GET /api/auth/sessions`` can flag
+    which device row belongs to the calling token, and so logout can revoke
+    exactly that row. Older tokens without ``sid`` keep working.
+    """
     settings = get_settings()
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expires_minutes)
-    payload = {"sub": subject, "exp": expires_at}
+    payload: dict = {"sub": subject, "exp": expires_at}
+    if session_id:
+        payload["sid"] = session_id
+    payload.update(claims)
     return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
+
+
+def create_scoped_token(subject: str, *, purpose: str, expires_in_seconds: int, **claims) -> str:
+    """A short-lived, single-purpose token (e.g. the MFA login challenge)."""
+    settings = get_settings()
+    payload: dict = {
+        "sub": subject,
+        "purpose": purpose,
+        "exp": datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds),
+    }
+    payload.update(claims)
+    return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
+
+
+def generate_refresh_token() -> str:
+    return token_urlsafe(48)
+
+
+def hash_opaque_token(raw_token: str) -> str:
+    """SHA-256 of a bearer-style opaque token (refresh / password-reset)."""
+    return sha256(raw_token.encode("utf-8")).hexdigest()
 
 
 def decode_access_token(token: str) -> dict:

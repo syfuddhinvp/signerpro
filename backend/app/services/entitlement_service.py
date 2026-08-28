@@ -35,6 +35,33 @@ from app.models.user import User
 
 PAYMENT_REQUIRED = status.HTTP_402_PAYMENT_REQUIRED
 
+#: BIL-11: optional metered dimensions. These keys are absent from the seeded
+#: plan catalogue, so they read as unlimited until a plan row declares them.
+ENTITLEMENT_MAX_API_CALLS_PER_MONTH = "max_api_calls_per_month"
+ENTITLEMENT_MAX_SMS_PER_MONTH = "max_sms_per_month"
+
+#: (entitlement key, row label, usage event backing it) for the usage table.
+_USAGE_ROW_DEFS: tuple[tuple[str, str, str], ...] = (
+    (ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH, "Envelopes", UsageEventType.document_created.value),
+    (ENTITLEMENT_MAX_API_CALLS_PER_MONTH, "API calls", UsageEventType.api_call.value),
+    (ENTITLEMENT_MAX_STORAGE_BYTES, "Storage", UsageEventType.storage_bytes_added.value),
+    (ENTITLEMENT_MAX_SMS_PER_MONTH, "SMS sent", UsageEventType.sms_sent.value),
+)
+
+
+def _format_bytes(value: int) -> str:
+    step = 1024.0
+    amount = float(value)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if amount < step or unit == "TB":
+            return f"{amount:,.1f} {unit}" if unit != "B" else f"{int(amount)} B"
+        amount /= step
+    return f"{amount:,.1f} TB"
+
+
+def _format_count(value: int) -> str:
+    return f"{value:,}"
+
 #: Which usage aggregate backs each numeric entitlement key.
 _USAGE_SOURCES: dict[str, tuple[UsageEventType, bool]] = {
     # key -> (usage event type, scoped to the current billing period?)
@@ -229,7 +256,37 @@ class EntitlementService:
                 for key, value in context.entitlements.items()
                 if isinstance(value, bool)
             },
+            "rows": self._usage_rows(context, limits, totals),
         }
+
+    def _usage_rows(self, context: EntitlementContext, limits: dict, totals: dict) -> list[dict]:
+        """Presentation-ready metering rows (BIL-11).
+
+        Derived from the same limits/totals the enforcement path uses, so the
+        table can never disagree with what a 402 says.
+        """
+        rows: list[dict] = []
+        for key, label, event_type in _USAGE_ROW_DEFS:
+            entry = limits.get(key)
+            if entry is not None:
+                limit = entry["limit"]
+                used = entry["used"]
+            else:
+                limit = context.entitlements.get(key)
+                if isinstance(limit, bool):
+                    limit = None
+                used = int(totals.get(event_type, 0))
+            fmt = _format_bytes if key == ENTITLEMENT_MAX_STORAGE_BYTES else _format_count
+            if limit:
+                pct = min(100, int(round(used * 100 / limit)))
+                display = f"{fmt(used)} of {fmt(limit)}"
+            else:
+                pct = 0
+                display = f"{fmt(used)} of unlimited"
+            rows.append(
+                {"key": key, "label": label, "used": used, "limit": limit, "pct": pct, "display": display}
+            )
+        return rows
 
     def record_usage(
         self,

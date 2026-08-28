@@ -1,8 +1,12 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.models.enums import RecipientStatus
+from app.models.enums import RecipientStatus, WorkflowType
+
+
+RecipientRole = Literal["sign", "approve", "copy", "inperson"]
 
 
 class RecipientCreate(BaseModel):
@@ -12,6 +16,9 @@ class RecipientCreate(BaseModel):
     signing_order: int = Field(default=1, ge=1)
     otp_enabled: bool = Field(default=False)
     phone_number: str | None = Field(default=None, max_length=30)
+    role: RecipientRole = "sign"
+    color: str | None = Field(default=None, max_length=9)
+    contact_id: str | None = None
 
 
 class RecipientUpdate(BaseModel):
@@ -21,6 +28,9 @@ class RecipientUpdate(BaseModel):
     signing_order: int | None = Field(default=None, ge=1)
     otp_enabled: bool | None = None
     phone_number: str | None = Field(default=None, max_length=30)
+    role: RecipientRole | None = None
+    color: str | None = Field(default=None, max_length=9)
+    contact_id: str | None = None
 
 
 class RecipientResponse(BaseModel):
@@ -31,6 +41,9 @@ class RecipientResponse(BaseModel):
     name: str
     email: EmailStr
     role_name: str | None
+    role: str
+    color: str | None
+    contact_id: str | None
     signing_order: int
     status: RecipientStatus
     viewed_at: datetime | None
@@ -45,3 +58,24 @@ class RecipientResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+
+
+class RecipientSetItem(RecipientCreate):
+    """One recipient in a full-list replace. ``id`` keeps the existing row
+    (and its signing progress); omitting it creates a new recipient."""
+
+    id: str | None = None
+
+
+class RecipientSetRequest(BaseModel):
+    recipients: list[RecipientSetItem] = Field(default_factory=list, max_length=100)
+    workflow_type: WorkflowType | None = None
+
+
+class RecipientReorderRequest(BaseModel):
+    recipient_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class RecipientBulkRequest(BaseModel):
+    recipients: list[RecipientCreate] = Field(default_factory=list, max_length=100)
+    from_contact_ids: list[str] = Field(default_factory=list, max_length=100)

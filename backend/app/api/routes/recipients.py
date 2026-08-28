@@ -4,7 +4,14 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.user import User
-from app.schemas.recipient import RecipientCreate, RecipientResponse, RecipientUpdate
+from app.schemas.recipient import (
+    RecipientBulkRequest,
+    RecipientCreate,
+    RecipientReorderRequest,
+    RecipientResponse,
+    RecipientSetRequest,
+    RecipientUpdate,
+)
 from app.services.document_service import document_service
 from app.services.recipient_service import recipient_service
 
@@ -27,6 +34,42 @@ def create_recipient(
 def list_recipients(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[RecipientResponse]:
     document = document_service.get_for_user(db, document_id=document_id, user=user)
     return document.recipients
+
+
+@router.put("", response_model=list[RecipientResponse])
+def set_recipients(
+    document_id: str,
+    payload: RecipientSetRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[RecipientResponse]:
+    """Replace the recipient list (with signing order) in one call."""
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return recipient_service.set_all(db, document=document, user=user, payload=payload)
+
+
+@router.post("/bulk", response_model=list[RecipientResponse], status_code=201)
+def bulk_add_recipients(
+    document_id: str,
+    payload: RecipientBulkRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[RecipientResponse]:
+    """Append recipients, optionally sourced from address-book contacts."""
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return recipient_service.bulk_create(db, document=document, user=user, payload=payload)
+
+
+@router.post("/reorder", response_model=list[RecipientResponse])
+def reorder_recipients(
+    document_id: str,
+    payload: RecipientReorderRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[RecipientResponse]:
+    """Atomic signing-order rewrite; `recipient_ids` is the final order."""
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return recipient_service.reorder(db, document=document, user=user, recipient_ids=payload.recipient_ids)
 
 
 @router.patch("/{recipient_id}", response_model=RecipientResponse)

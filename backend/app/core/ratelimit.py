@@ -31,6 +31,15 @@ OTP_SEND_WINDOW = 600  # 10 minutes per signing token
 OTP_VERIFY_LIMIT = 10
 OTP_VERIFY_WINDOW = 600
 
+PASSWORD_FORGOT_LIMIT = 5
+PASSWORD_FORGOT_WINDOW = 900  # 15 minutes
+
+PASSWORD_RESET_LIMIT = 10
+PASSWORD_RESET_WINDOW = 900
+
+MFA_VERIFY_LIMIT = 10
+MFA_VERIFY_WINDOW = 300
+
 SIGNING_SESSION_IP_LIMIT = 120
 SIGNING_SESSION_IP_WINDOW = 60
 
@@ -175,4 +184,32 @@ signing_session_limiter = RateLimiter(
     limit=SIGNING_SESSION_IP_LIMIT,
     window_seconds=SIGNING_SESSION_IP_WINDOW,
     detail="Too many signing link requests. Please try again later.",
+)
+
+password_forgot_limiter = RateLimiter(
+    name="password_forgot",
+    limit=PASSWORD_FORGOT_LIMIT,
+    window_seconds=PASSWORD_FORGOT_WINDOW,
+    detail="Too many password reset requests. Please try again later.",
+)
+
+password_forgot_email_limiter = RateLimiter(
+    name="password_forgot_email",
+    limit=PASSWORD_FORGOT_LIMIT,
+    window_seconds=PASSWORD_FORGOT_WINDOW,
+    detail="Too many password reset requests for this account. Please try again later.",
+)
+
+password_reset_limiter = RateLimiter(
+    name="password_reset",
+    limit=PASSWORD_RESET_LIMIT,
+    window_seconds=PASSWORD_RESET_WINDOW,
+    detail="Too many password reset attempts. Please try again later.",
+)
+
+mfa_verify_limiter = RateLimiter(
+    name="mfa_verify",
+    limit=MFA_VERIFY_LIMIT,
+    window_seconds=MFA_VERIFY_WINDOW,
+    detail="Too many verification attempts. Please try again later.",
 )
