@@ -1,67 +1,31 @@
 /**
- * Signer experience — the *sender's* preview of what a recipient will see.
+ * Flat entry point for the sign screen.
  *
- * The same `Signer` surface the public route at `/sign/[token]` renders, fed
- * from the authenticated document endpoints instead of a signing token: the
- * fields assigned to the first signing recipient, that recipient's colours, and
- * whatever values have already been saved. Nothing here mutates — the preview
- * keeps the prototype's in-app modal flow.
- *
- * Envelope resolution: `?document=<id>`, newest document otherwise.
+ * The screen itself lives at `/documents/[id]/signer-view` — the envelope's identity
+ * belongs in the path. This route exists so the sidebar link (and any old
+ * bookmark) still works from a cold start: it resolves the most recently touched document and redirects
+ * to that document's own URL. With no document at all, it falls through to the
+ * library, which is where one gets created.
  */
 
 import type { Metadata } from 'next';
-import Signer from '@/components/sf/screens/Signer';
+import { redirect } from 'next/navigation';
 import { serverCaller } from '@/lib/api/client';
-import { documents as documentsApi, fields as fieldsApi, recipients as recipientsApi } from '@/lib/api/resources';
-import { toSignerFields, toSignerRecipients, toSignValues } from '@/lib/sf/adapters';
-import type { DocumentResponse, FieldResponse, RecipientResponse } from '@/lib/api/types';
+import { documents as documentsApi } from '@/lib/api/resources';
+import { documentPathFor, SCREEN_PATH } from '@/lib/sf/routes';
 
 export const metadata: Metadata = { title: 'Signer view · SignForge' };
 
-type SearchParams = { document?: string; recipient?: string };
+type SearchParams = Record<string, string | string[] | undefined>;
 
 export default async function Page({ searchParams }: { searchParams?: Promise<SearchParams> }) {
-  const api = serverCaller('/documents/signer-view');
-  const params = (await searchParams) ?? {};
+  const query = (await searchParams) ?? {};
+  // Old `?document=<id>` links keep working: they redirect into the path form.
+  const requested = typeof query.document === 'string' ? query.document : null;
+  if (requested) redirect(documentPathFor('sign', requested));
 
-  let document: DocumentResponse | null = null;
-  if (params.document) {
-    const result = await documentsApi.get(api, params.document);
-    if (result.ok) document = result.data;
-  }
-  if (!document) {
-    const newest = await documentsApi.library(api, { sort: 'recent', limit: 1 });
-    document = newest.ok ? (newest.data.items[0] ?? null) : null;
-  }
-
-  // A tenant with no documents yet: the store's authoring fields keep the
-  // designed surface intact instead of rendering blank paper.
-  if (!document) return <Signer />;
-
-  const [fieldsResult, recipientsResult] = await Promise.all([
-    fieldsApi.list(api, document.id),
-    recipientsApi.list(api, document.id),
-  ]);
-
-  const apiFields: FieldResponse[] = fieldsResult.ok ? fieldsResult.data : [];
-  const apiRecipients: RecipientResponse[] = recipientsResult.ok ? recipientsResult.data : [];
-  const recipientList = toSignerRecipients(apiRecipients);
-
-  // Preview the first signer in the routing order (or an explicit ?recipient=).
-  const previewed = params.recipient
-    ? recipientList.find(r => r.id === params.recipient)
-    : (recipientList.find(r => r.role === 'sign') ?? recipientList[0]);
-
-  const assigned = toSignerFields(apiFields).filter(f => !previewed || f.to === previewed.id);
-  if (!assigned.length) return <Signer />;
-
-  return (
-    <Signer
-      fields={assigned}
-      recipients={recipientList}
-      pageCount={document.page_count || 1}
-      initialValues={toSignValues(assigned)}
-    />
-  );
+  const api = serverCaller(SCREEN_PATH['sign']);
+  const newest = await documentsApi.library(api, { sort: 'recent', limit: 1 });
+  const documentId = newest.ok ? (newest.data.items[0]?.id ?? null) : null;
+  redirect(documentId ? documentPathFor('sign', documentId) : SCREEN_PATH.dashboard);
 }

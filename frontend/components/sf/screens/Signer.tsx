@@ -117,6 +117,9 @@ export default function Signer({
   const finish = () => {
     if (pct < 100) { flash('Complete all required fields first'); nextField(); return; }
     if (onFinish) { onFinish(); return; }
+    // Only reached in the sender's preview at `/documents/<id>/signer-view`
+    // (the real signing session always supplies `onFinish`), so `go` carries
+    // that route's document into the audit trail.
     go('audit'); flash('Envelope completed · certificate sealed');
   };
 

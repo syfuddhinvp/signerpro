@@ -10,22 +10,64 @@
  * documented inline with a `FALLBACK:` note.
  */
 
-import { CONTACT_PALETTE, GROUP_LABELS, type Dict } from './data';
+import {
+  CONTACT_PALETTE,
+  GROUP_LABELS,
+  PLAN_TONE,
+  STATUS_TONE,
+  type Dict,
+  type Tone,
+} from './data';
 import type { Contact, Recipient, SFField } from './state';
+import type * as PlatformApi from '@/lib/api/types';
 import type {
+  ApiKeyResponse,
+  ApiKeyScopeResponse,
+  ApiKeyUsageResponse,
+  ApiSettingsResponse,
   AuditTrailEntry,
   CertificateSummaryResponse,
+  ChargeResponse,
   ContactGroupResponse,
   ContactResponse,
+  DocumentLibraryParams,
   DocumentListItem,
   DocumentStatus,
-  DocumentLibraryParams,
+  FieldBulkItem,
+  FieldCondition,
   FieldResponse,
+  FieldType as ApiFieldType,
   FolderResponse,
   FolderTreeResponse,
+  InvoiceResponse,
+  OrganizationOverview,
+  OrganizationResponse,
+  PaymentMethodResponse,
+  PlanChangePreview,
+  PlanResponse,
+  QueueTicketStats,
+  QuickReply,
   RecipientResponse,
+  RecipientRole,
+  RecipientStatus,
+  RecipientSetItem,
+  ReminderCadence,
+  RoutingResponse,
+  RoutingUpdate,
+  SubscriptionResponse,
+  SupportAgent,
+  SystemLogRow,
   TemplateListParams,
   TemplateResponse,
+  TenantTicketStats,
+  TicketBucketCounts,
+  TicketDetailResponse,
+  TicketMessageResponse,
+  TicketResponse,
+  UpcomingInvoiceResponse,
+  UsageRow,
+  ValidationKind,
+  WorkflowType,
 } from '@/lib/api/types';
 
 /* ── shared formatters ──────────────────────────────────────────────────── */
@@ -62,6 +104,15 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
 /** Integer cents → `$1,240.00`, the money format the prototype prints. */
 export function formatCents(cents: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format((cents || 0) / 100);
+}
+
+/**
+ * `ENV-2291-KD` in the design is a human envelope reference the API does not
+ * mint; `toLibraryRow` derives one from the UUID and the audit/certificate
+ * cards must derive the *same* string for the same document.
+ */
+export function envelopeRef(documentId: string): string {
+  return `ENV-${documentId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 }
 
 /** `Alex Rivera` → `AR`. Mirrors `state.ts#initials`. */
@@ -149,16 +200,21 @@ export function toContactCounts(counts: Dict<number>, total: number, groupKeys: 
 
 /**
  * The design's five status buckets (`STATUS` in data.ts) against the backend's
- * seven-value `DocumentStatus`.
+ * nine-value `DocumentStatus` (`app/models/enums.py`). This is the single
+ * bucketing implementation — every screen that needs a bucket calls it.
  *
- * FALLBACK: `declined` and `expired` have no bucket of their own in the
- * prototype; they read as "action required" because both need the sender to
- * intervene.
+ * FALLBACK notes:
+ * - `prepared` is still an unsent envelope, so it reads as `draft`.
+ * - `viewed` is still out for signature, so it reads as `waiting`.
+ * - `declined` and `expired` have no bucket of their own in the prototype;
+ *   both read as "action required" because the sender has to intervene.
  */
 const DOC_STATUS_BUCKET: Record<DocumentStatus, string> = {
   draft: 'draft',
+  prepared: 'draft',
   sent: 'waiting',
-  partially_signed: 'action',
+  viewed: 'waiting',
+  partially_completed: 'action',
   completed: 'completed',
   declined: 'action',
   voided: 'voided',
@@ -198,7 +254,7 @@ export type LibraryRow = {
  */
 export function toLibraryRow(api: DocumentListItem): LibraryRow {
   return {
-    id: `ENV-${api.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+    id: envelopeRef(api.id),
     title: api.title,
     pages: api.page_count ?? 0,
     status: docStatusBucket(api.status),
@@ -330,12 +386,12 @@ export function isLibraryFolderId(folder: string): boolean {
  * FALLBACK: a bucket is not always one status. `waiting` covers everything
  * still out for signature and `action` covers everything needing the sender,
  * but `?status=` is one value, so each bucket sends its most representative
- * status: `waiting` → `sent`, `action` → `partially_signed`. The `quick`
+ * status: `waiting` → `sent`, `action` → `partially_completed`. The `quick`
  * views (`inbox`, `outbox`) are the exact server-side equivalents and the
  * sidebar already routes through them.
  */
 const LIB_STATUS_TO_API: Dict<DocumentStatus> = {
-  action: 'partially_signed',
+  action: 'partially_completed',
   waiting: 'sent',
   completed: 'completed',
   draft: 'draft',
@@ -416,19 +472,6 @@ export function libraryFolderLabel(
    header) so that concurrent appends to this shared file merge cleanly. Names
    the header already brings in (Recipient, SFField, FieldResponse,
    RecipientResponse) are not repeated. */
-import type {
-  FieldBulkItem,
-  FieldCondition,
-  FieldType as ApiFieldType,
-  RecipientRole,
-  RecipientSetItem,
-  ReminderCadence,
-  RoutingResponse,
-  RoutingUpdate,
-  ValidationKind,
-  WorkflowType,
-} from '@/lib/api/types';
-
 /**
  * The builder canvas is a US-Letter sheet drawn at 96 dpi (816 × 1056 CSS px);
  * the API stores field geometry in PDF points (72 dpi — 612 × 792 for Letter).
@@ -650,12 +693,15 @@ export function fieldResponseKey(api: FieldResponse): string {
 }
 
 /**
- * The design's recipient chips are display-cased (`Viewed`, `Sent`, `Pending`);
- * `RecipientStatus` is the lowercase enum.
+ * The one `RecipientStatus` → display-label map, over the real six-value enum
+ * (`app/models/enums.py:RecipientStatus`). The design's chips are
+ * display-cased (`Viewed`, `Sent`, `Pending`) where the API is lowercase.
  *
- * FALLBACK: the API's `waiting` reads as the design's `Pending`.
+ * FALLBACK: the API's `waiting` reads as the design's `Pending`; the design has
+ * no `Declined`/`Expired` chip, so those labels are simply passed through the
+ * same plain-text slot.
  */
-const BUILDER_RECIPIENT_STATUS_LABEL: Dict<string> = {
+const RECIPIENT_STATUS_LABEL: Record<RecipientStatus, string> = {
   waiting: 'Pending',
   sent: 'Sent',
   viewed: 'Viewed',
@@ -664,8 +710,18 @@ const BUILDER_RECIPIENT_STATUS_LABEL: Dict<string> = {
   expired: 'Expired',
 };
 
+/**
+ * The builder rail's label: an unknown status is title-cased rather than
+ * silently relabelled, so a status the API grows shows up as itself.
+ */
 export function builderRecipientStatusLabel(status: string): string {
-  return BUILDER_RECIPIENT_STATUS_LABEL[status] ?? (status ? status[0].toUpperCase() + status.slice(1) : 'Pending');
+  return RECIPIENT_STATUS_LABEL[status as RecipientStatus]
+    ?? (status ? status[0].toUpperCase() + status.slice(1) : 'Pending');
+}
+
+/** The signer chrome / attestation label: an unknown status reads as `Pending`. */
+export function recipientStatusLabel(status: string): string {
+  return RECIPIENT_STATUS_LABEL[status as RecipientStatus] ?? 'Pending';
 }
 
 /**
@@ -786,15 +842,6 @@ export function toRoutingUpdate(patch: Partial<BuilderRouting>): RoutingUpdate {
 
 /* ── signer session + audit trail (appended: SIGN screens) ──────────────── */
 
-/**
- * `ENV-2291-KD` in the design is a human envelope reference the API does not
- * mint; `toLibraryRow` derives one from the UUID and the audit/certificate
- * cards must derive the *same* string for the same document.
- */
-export function envelopeRef(documentId: string): string {
-  return `ENV-${documentId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
-}
-
 /** `2026-08-14T09:02:11Z` → `14 Aug 09:02:11 UTC`, the audit row's time format. */
 export function formatAuditTime(iso: string | null | undefined): string {
   if (!iso) return EMPTY;
@@ -811,54 +858,6 @@ export function formatSealedAt(iso: string | null | undefined): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return EMPTY;
   return `${formatDate(iso)} ${date.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' })} UTC`;
-}
-
-/**
- * `RecipientStatus` → the capitalised strings `RECIPIENTS[].status` uses, which
- * the recipient rail and the signer chrome render verbatim.
- *
- * FALLBACK: the design has no `Declined` chip; it reuses the same plain text
- * slot, so the label is simply passed through.
- */
-const RECIPIENT_STATUS_LABEL: Dict<string> = {
-  waiting: 'Pending',
-  sent: 'Sent',
-  viewed: 'Viewed',
-  completed: 'Completed',
-  declined: 'Declined',
-};
-
-export function recipientStatusLabel(status: string): string {
-  return RECIPIENT_STATUS_LABEL[status] ?? 'Pending';
-}
-
-/**
- * Document status → the design's five `STATUS` buckets, over the *real*
- * `app/models/enums.py:DocumentStatus` (nine values).
- *
- * `docStatusBucket` above is keyed off `types.ts#DocumentStatus`, which is
- * still the older seven-value list (`partially_signed`, no `prepared` /
- * `viewed` / `partially_completed`); this one is authoritative until that type
- * is regenerated.
- *
- * FALLBACK: `declined` and `expired` have no bucket of their own in the design;
- * both read as "action required" because the sender has to intervene.
- */
-const REAL_DOC_STATUS_BUCKET: Dict<string> = {
-  draft: 'draft',
-  prepared: 'draft',
-  sent: 'waiting',
-  viewed: 'waiting',
-  partially_completed: 'action',
-  partially_signed: 'action',
-  completed: 'completed',
-  declined: 'action',
-  expired: 'action',
-  voided: 'voided',
-};
-
-export function documentStatusBucket(status: string): string {
-  return REAL_DOC_STATUS_BUCKET[status] ?? 'draft';
 }
 
 /**
@@ -1115,23 +1114,6 @@ export function toCertificateCard(
 }
 
 /* ── support / logs / developer ─────────────────────────────────────────── */
-
-// Kept as its own import so concurrent appends to this file merge cleanly.
-import type {
-  ApiKeyResponse,
-  ApiKeyScopeResponse,
-  ApiKeyUsageResponse,
-  ApiSettingsResponse,
-  QueueTicketStats,
-  QuickReply,
-  SupportAgent,
-  SystemLogRow,
-  TenantTicketStats,
-  TicketBucketCounts,
-  TicketDetailResponse,
-  TicketMessageResponse,
-  TicketResponse,
-} from '@/lib/api/types';
 
 /* ── support tickets ────────────────────────────────────────────────────── */
 
@@ -1901,7 +1883,7 @@ export function toDocumentReportRows(
     return {
       key: d.document_id,
       label: d.title,
-      sub: `ENV-${d.document_id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+      sub: envelopeRef(d.document_id),
       cells: [
         String(d.total),
         String(d.signed),
@@ -1988,21 +1970,7 @@ export function toCustomReportCells(row: Record<string, unknown>, fields: string
   });
 }
 
-/* ══ billing & invoices ═════════════════════════════════════════════════════
-   Appended block (BIL screens). Imports are declared here rather than in the
-   header so concurrent edits to this shared file merge cleanly. */
-
-import type {
-  ChargeResponse,
-  InvoiceResponse,
-  PaymentMethodResponse,
-  PlanChangePreview,
-  PlanResponse,
-  SubscriptionResponse,
-  UpcomingInvoiceResponse,
-  UsageRow,
-} from '@/lib/api/types';
-import type { Tone } from './data';
+/* ══ billing & invoices (BIL screens) ══════════════════════════════════ */
 
 /** `1 Sep 2026` → `1 Sep`, the short due-date form the invoice table prints. */
 export function formatDayMonth(iso: string | null | undefined): string {
@@ -2357,18 +2325,8 @@ export function declineNotice(
 }
 
 /* ── platform: tenants, directory, flags, security, revenue ─────────────── */
-/* Namespaced/aliased imports and prefixed names on purpose: `adapters.ts` is
-   appended to by several screens, so this block must not collide with theirs. */
-
-import type * as PlatformApi from '@/lib/api/types';
-import {
-  PLAN_TONE as PLATFORM_PLAN_TONE,
-  STATUS_TONE as PLATFORM_STATUS_TONE,
-  type Tone as PillTone,
-} from './data';
-
 /** The prototype's neutral pill tone, for a plan or status the design never named. */
-const PLATFORM_TONE_NEUTRAL: PillTone = { bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' };
+const PLATFORM_TONE_NEUTRAL: Tone = { bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' };
 
 /** `$74.7k` — the prototype's compact money label. Input is cents. */
 export function formatCentsK(cents: number): string {
@@ -2432,13 +2390,13 @@ export type TenantTableRow = {
   slug: string;
   owner: string;
   plan: string;
-  planTone: PillTone;
+  planTone: Tone;
   seats: number;
   used: number;
   volume: string;
   region: string;
   status: string;
-  statusTone: PillTone;
+  statusTone: Tone;
   suspended: boolean;
   suspensionReason: string | null;
   mrrCents: number;
@@ -2478,13 +2436,13 @@ export function toTenantTableRow(api: PlatformApi.TenantRow): TenantTableRow {
     slug: api.slug || api.id,
     owner: api.owner_email || EMPTY,
     plan,
-    planTone: PLATFORM_PLAN_TONE[plan] ?? PLATFORM_TONE_NEUTRAL,
+    planTone: PLAN_TONE[plan] ?? PLATFORM_TONE_NEUTRAL,
     seats: api.seats_licensed || 0,
     used: api.seats_activated || 0,
     volume: (api.envelope_volume_30d ?? 0).toLocaleString(),
     region: api.region || EMPTY,
     status: label,
-    statusTone: PLATFORM_STATUS_TONE[label] ?? PLATFORM_TONE_NEUTRAL,
+    statusTone: STATUS_TONE[label] ?? PLATFORM_TONE_NEUTRAL,
     suspended: api.status === 'suspended',
     suspensionReason: api.suspension_reason,
     mrrCents: api.mrr_cents || 0,
@@ -2680,7 +2638,7 @@ export type PlatformPlanCard = {
   name: string;
   price: string;
   tag: string;
-  tone: PillTone;
+  tone: Tone;
   lines: { k: string; v: string }[];
   tenantsLabel: string;
   mrr: string;
@@ -2712,7 +2670,7 @@ export function toPlatformPlanCards(
       name: plan.name,
       price: '$' + Math.round((seatPrice || 0) / 100),
       tag: plan.tag || plan.billing_interval,
-      tone: PLATFORM_PLAN_TONE[plan.name] ?? PLATFORM_TONE_NEUTRAL,
+      tone: PLAN_TONE[plan.name] ?? PLATFORM_TONE_NEUTRAL,
       lines,
       tenantsLabel: subscribers + (subscribers === 1 ? ' tenant' : ' tenants'),
       mrr: formatCentsK(roll?.mrr_cents ?? 0),

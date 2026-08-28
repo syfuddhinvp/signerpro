@@ -73,7 +73,7 @@ export default function Routing({ documentId, recipients, routing }: RoutingProp
     setSending(true);
     void P.sendEnvelope().then(ok => {
       setSending(false);
-      if (ok) go('sign');
+      if (ok) go('sign', { documentId });
     });
   };
 

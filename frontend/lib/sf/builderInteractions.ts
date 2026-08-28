@@ -15,7 +15,15 @@ type Drag =
 const metaOf = (t: string) => TYPES.find(x => x.id === t) || TYPES[0];
 const snapWith = (grid: boolean, v: number) => (grid ? Math.round(v / 8) * 8 : Math.round(v));
 
-export function useBuilderInteractions() {
+/**
+ * `documentId` only steers navigation: dragging a tool while some other screen
+ * is showing jumps to the builder, and the builder is a per-document route, so
+ * the gesture has to name the envelope it belongs to. Omitted, the document
+ * already in the URL is carried over.
+ */
+export type BuilderInteractionsInput = { documentId?: string | null };
+
+export function useBuilderInteractions({ documentId }: BuilderInteractionsInput = {}) {
   const { s, set, flash, recip } = useSF();
   const { screen, go } = useNav();
   const screenRef = useRef(screen);
@@ -31,8 +39,8 @@ export function useBuilderInteractions() {
   const onToolDown = useCallback((typeId: string, e: React.PointerEvent) => {
     e.preventDefault();
     set({ dragTool: typeId, ghost: { x: e.clientX, y: e.clientY } });
-    if (screenRef.current !== 'builder') go('builder');
-  }, [set, go]);
+    if (screenRef.current !== 'builder') go('builder', { documentId });
+  }, [set, go, documentId]);
 
   const onFieldDown = useCallback((id: string, e: React.PointerEvent) => {
     e.stopPropagation();

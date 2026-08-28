@@ -38,7 +38,7 @@ export default function Builder({ documentId, title, pageCount, fields, recipien
   const { s, set, flash, accent, recips, meta, initials, sel, setField } = useSF();
   const { go } = useNav();
   const A = accent();
-  const I = useBuilderInteractions();
+  const I = useBuilderInteractions({ documentId });
 
   /* The document's own field set and recipients, in the shapes the canvas reads.
      Memoised on the props so the identities are stable across renders — the

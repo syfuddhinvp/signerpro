@@ -18,7 +18,7 @@ import {
   QUICK_ACCESS, LIB_FOLDERS, LIB_FILTER_DEFS, LIB_SORT_OPTIONS, ROW_ACTIONS,
   STATUS,
 } from '@/lib/sf/data';
-import { apiCall } from '@/lib/api/browser';
+import { apiCall, apiDownload, saveBlob } from '@/lib/api/browser';
 import type { ApiResult } from '@/lib/api/result';
 import { documents as documentsApi, templates as templatesApi } from '@/lib/api/resources';
 import {
@@ -38,9 +38,6 @@ export type LibraryProps = {
   folderOptions: FolderOption[];
   /** The filters the URL asked for, so a shared link seeds the selects. */
   initialFilters: LibraryFilters;
-  /** `POST /api/documents/bulk-download` (a zip, so it runs server-side). */
-  bulkDownload: (documentIds: string[]) =>
-    Promise<{ ok: true; filename: string; base64: string } | { ok: false; message: string }>;
 };
 
 /** Row actions the design lists that no endpoint backs yet — they stay toasts. */
@@ -51,7 +48,7 @@ const UNBACKED_ACTIONS = new Set([
 ]);
 
 export default function Library(props: LibraryProps) {
-  const { rows, total, templates, templateTotal, folderOptions, initialFilters, bulkDownload } = props;
+  const { rows, total, templates, templateTotal, folderOptions, initialFilters } = props;
   const { s, set, flash, accent } = useSF();
   const { go } = useNav();
   const router = useRouter();
@@ -237,7 +234,7 @@ export default function Library(props: LibraryProps) {
       line2: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '82%' } as CSSProperties,
       line3: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '64%' } as CSSProperties,
       line4: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '74%' } as CSSProperties,
-      onOpen: () => { set({ wizardStep: 1 }); go('builder'); },
+      onOpen: () => { set({ wizardStep: 1 }); go('builder', { documentId: uid }); },
       /* The design gives favourites no affordance of their own, so the row
          title carries the toggle on double-click until one is designed. */
       onFavorite: isTpl ? undefined : () => {
@@ -251,10 +248,11 @@ export default function Library(props: LibraryProps) {
           void templatesApi.use(apiCall, uid).then(res => {
             if (!res.ok) { flash('Could not complete · ' + res.error.message); return; }
             set({ wizardStep: 1 });
-            go('builder');
+            // The template mints a *new* document; the builder opens that one.
+            go('builder', { documentId: res.data.id });
           });
         }
-        : () => { set({ wizardStep: 1 }); go('builder'); },
+        : () => { set({ wizardStep: 1 }); go('builder', { documentId: uid }); },
       onTemplate: isTpl
         ? () => run('Template duplicated', () => templatesApi.duplicate(apiCall, uid))
         : () => run(d.title + ' saved as a template', () => documentsApi.makeTemplate(apiCall, uid)),
@@ -275,7 +273,7 @@ export default function Library(props: LibraryProps) {
           onClick: () => {
             set({ menuDoc: null, wizardStep: 1 });
             if (wired) { wired(); return; }
-            if (target) go(target as ScreenKey);
+            if (target) go(target as ScreenKey, { documentId: uid });
             else flash(label + ' — ' + d.title);
           },
           style: {
@@ -303,16 +301,16 @@ export default function Library(props: LibraryProps) {
 
   const downloadSelection = (ids: string[]) => {
     flash('Download — ' + ids.length + ' item(s)');
-    void bulkDownload(ids).then(res => {
+    // The proxy streams the zip's bytes and `content-disposition` through, so
+    // the browser can fetch `POST /api/documents/bulk-download` directly.
+    void apiDownload(documentsApi.bulkDownloadPath(), {
+      method: 'POST',
+      body: { document_ids: ids },
+      filename: 'documents.zip',
+    }).then(res => {
       set({ libSelected: [] });
-      if (!res.ok) { flash('Could not complete · ' + res.message); return; }
-      const bytes = Uint8Array.from(atob(res.base64), ch => ch.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = res.filename;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      if (!res.ok) { flash('Could not complete · ' + res.error.message); return; }
+      saveBlob(res.data);
     });
   };
 
@@ -369,7 +367,7 @@ export default function Library(props: LibraryProps) {
           </div>
           <div style={{ display: 'flex', gap: '7px', flex: '0 0 auto' }}>
             <button type="button" onClick={() => flash('Folder created in ' + libFolderLabel)} style={ghostBtn}>New folder</button>
-            <button type="button" onClick={() => go('builder')} style={primaryBtn}>Upload &amp; prepare</button>
+            <button type="button" onClick={() => go('builder', { documentId: null })} style={primaryBtn}>Upload &amp; prepare</button>
           </div>
         </div>
 

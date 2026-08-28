@@ -40,7 +40,6 @@ PAYMENT_REQUIRED = status.HTTP_402_PAYMENT_REQUIRED
 #: BIL-11 metered dimensions. Defined in ``app.models.plan`` alongside the rest
 #: of the catalogue and re-exported here for the callers that already import
 #: them from this module.
-__all__ = ["entitlement_service", "EntitlementService", "EntitlementContext"]
 
 #: (entitlement key, row label, usage event backing it) for the usage table.
 _USAGE_ROW_DEFS: tuple[tuple[str, str, str], ...] = (

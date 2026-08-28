@@ -26,8 +26,6 @@ import {
   toOverviewStats,
   toOverviewTeam,
   toSeriesLabels,
-  type OrganizationOverviewResponse,
-  type OrganizationProfileExtras,
 } from '@/lib/sf/adapters';
 
 export const metadata: Metadata = { title: 'Overview · SignForge' };
@@ -38,18 +36,13 @@ export default async function Page() {
   const api = serverCaller('/overview');
 
   const [overviewResult, orgResult, subscriptionResult] = await Promise.all([
-    // Not in `lib/api/resources.ts` yet (the consolidation agent owns that
-    // file); the caller is the same transport a resource function would use.
-    api<OrganizationOverviewResponse>('/api/organizations/me/overview', {
-      method: 'GET',
-      query: { range: OVERVIEW_RANGE },
-    }),
+    organizationsApi.overview(api, { range: OVERVIEW_RANGE }),
     organizationsApi.me(api),
     billingApi.subscription(api),
   ]);
 
   const overview = overviewResult.ok ? overviewResult.data : EMPTY_ORG_OVERVIEW;
-  const org = orgResult.ok ? (orgResult.data as unknown as OrganizationProfileExtras) : null;
+  const org = orgResult.ok ? orgResult.data : null;
   const subscription = subscriptionResult.ok ? subscriptionResult.data : null;
 
   const series = overview.series?.length ? overview.series : EMPTY_ORG_OVERVIEW.series;

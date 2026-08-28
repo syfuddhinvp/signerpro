@@ -19,11 +19,20 @@ export type IsoDateTime = string;
 export type UUID = string;
 
 /** `app/models/enums.py:DocumentStatus` */
-export type DocumentStatus = 'draft' | 'sent' | 'partially_signed' | 'completed' | 'declined' | 'voided' | 'expired';
+export type DocumentStatus =
+  | 'draft'
+  | 'prepared'
+  | 'sent'
+  | 'viewed'
+  | 'partially_completed'
+  | 'completed'
+  | 'declined'
+  | 'expired'
+  | 'voided';
 /** `app/models/enums.py:WorkflowType` */
 export type WorkflowType = 'sequential' | 'parallel';
 /** `app/models/enums.py:RecipientStatus` */
-export type RecipientStatus = 'waiting' | 'sent' | 'viewed' | 'completed' | 'declined';
+export type RecipientStatus = 'waiting' | 'sent' | 'viewed' | 'completed' | 'declined' | 'expired';
 /** `app/models/enums.py:FieldType` */
 export type FieldType =
   | 'signature' | 'initials' | 'full_name' | 'date' | 'text' | 'email' | 'phone'
@@ -154,6 +163,13 @@ export type AccountAuditFeed = { items: AccountAuditEntry[]; total: number };
 export type OrganizationResponse = {
   id: UUID;
   name: string;
+  /** Tenant identity / profile (ORG-1). */
+  slug: string | null;
+  region: string | null;
+  company_size: string | null;
+  seats_licensed: number;
+  accent_color: string | null;
+  logo_url: string | null;
   smtp_host: string | null;
   smtp_port: number | null;
   smtp_username: string | null;
@@ -162,6 +178,42 @@ export type OrganizationResponse = {
   twilio_account_sid: string | null;
   twilio_from_number: string | null;
   telnyx_from_number: string | null;
+};
+
+/** `GET /api/organizations/me/overview` (schemas/organization.py). */
+export type OrganizationOverviewStats = {
+  action_required: number;
+  out_for_signature: number;
+  seats_activated: number;
+  seats_licensed: number;
+  completion_rate: number;
+};
+
+export type OrganizationOverviewAttentionItem = {
+  title: string;
+  detail: string;
+  /** Front-end route the card links to. */
+  screen: string;
+  tone: string;
+};
+
+export type OrganizationOverviewSpendLine = { label: string; amount_cents: number };
+
+export type OrganizationOverviewTeamRow = {
+  name: string;
+  role_label: string;
+  last_active_at: IsoDateTime | null;
+  sent_count: number;
+};
+
+export type OrganizationOverview = {
+  range: string;
+  stats: OrganizationOverviewStats;
+  /** Always twelve buckets; the bucket width follows `range`. */
+  series: number[];
+  attention: OrganizationOverviewAttentionItem[];
+  spend_lines: OrganizationOverviewSpendLine[];
+  team: OrganizationOverviewTeamRow[];
 };
 
 /* ── documents (schemas/document.py) ────────────────────────────────────── */

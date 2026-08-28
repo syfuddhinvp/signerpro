@@ -50,6 +50,63 @@ export function pathFor(screen: ScreenKey, workspace: Workspace = 'tenant'): str
   return SCREEN_PATH[screen];
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   Document-scoped screens.
+
+   Prepare, workflow, signer view and audit are all about *one* envelope, so
+   the document id belongs in the path: `/documents/<id>/prepare`. The flat
+   paths in SCREEN_PATH above stay as entry points — they resolve the newest
+   relevant document server-side and redirect to the parameterised URL — which
+   is what keeps `ScreenKey` usable for the rail and sidebar.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+export const DOCUMENT_SCREENS = ['builder', 'routing', 'sign', 'audit'] as const;
+export type DocumentScreenKey = (typeof DOCUMENT_SCREENS)[number];
+
+/** The trailing segment each document screen owns under `/documents/<id>/`. */
+export const DOCUMENT_SEGMENT: Record<DocumentScreenKey, string> = {
+  builder: 'prepare',
+  routing: 'workflow',
+  sign: 'signer-view',
+  audit: 'audit',
+};
+
+const SCREEN_BY_SEGMENT: Record<string, DocumentScreenKey> = (() => {
+  const m: Record<string, DocumentScreenKey> = {};
+  DOCUMENT_SCREENS.forEach((k) => { m[DOCUMENT_SEGMENT[k]] = k; });
+  return m;
+})();
+
+export function isDocumentScreen(screen: ScreenKey): screen is DocumentScreenKey {
+  return (DOCUMENT_SCREENS as readonly ScreenKey[]).indexOf(screen) > -1;
+}
+
+/**
+ * URL for a document screen. With an id it is the parameterised route; without
+ * one it falls back to the flat entry point, which resolves a document itself.
+ */
+export function documentPathFor(screen: DocumentScreenKey, documentId?: string | null): string {
+  if (!documentId) return SCREEN_PATH[screen];
+  return '/documents/' + encodeURIComponent(documentId) + '/' + DOCUMENT_SEGMENT[screen];
+}
+
+const DOCUMENT_ROUTE = /^\/documents\/([^/]+)\/([^/]+)\/?$/;
+
+/** Splits `/documents/<id>/prepare` into its id and screen; null otherwise. */
+function parseDocumentPath(pathname: string): { documentId: string; screen: DocumentScreenKey } | null {
+  const hit = DOCUMENT_ROUTE.exec(pathname);
+  if (!hit) return null;
+  const screen = SCREEN_BY_SEGMENT[hit[2]];
+  if (!screen) return null;
+  return { documentId: decodeURIComponent(hit[1]), screen };
+}
+
+/** The document a parameterised route is about, or null on any other route. */
+export function documentIdForPath(pathname: string): string | null {
+  const parsed = parseDocumentPath(pathname);
+  return parsed ? parsed.documentId : null;
+}
+
 const BY_PATH: Record<string, ScreenKey> = (() => {
   const m: Record<string, ScreenKey> = {};
   (Object.keys(SCREEN_PATH) as ScreenKey[]).forEach((k) => { m[SCREEN_PATH[k]] = k; });
@@ -59,6 +116,8 @@ const BY_PATH: Record<string, ScreenKey> = (() => {
 
 /** Longest-prefix match, so nested routes still resolve to their screen. */
 export function screenForPath(pathname: string): ScreenKey {
+  const parsed = parseDocumentPath(pathname);
+  if (parsed) return parsed.screen;
   if (BY_PATH[pathname]) return BY_PATH[pathname];
   const hit = Object.keys(BY_PATH)
     .filter((p) => pathname === p || pathname.startsWith(p + '/'))

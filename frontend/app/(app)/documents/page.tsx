@@ -26,7 +26,6 @@ import {
 } from '@/lib/sf/adapters';
 import { DOCS, TEMPLATES } from '@/lib/sf/data';
 import type { DocumentCounts, FolderTreeResponse } from '@/lib/api/types';
-import { backendUrl, getSession } from '@/lib/auth/session';
 
 export const metadata: Metadata = { title: 'Documents · SignForge' };
 
@@ -69,33 +68,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
   const templateList = templatesResult.ok ? templatesResult.data : { items: [], total: counts.templates };
   const tree: FolderTreeResponse | null = treeResult.ok ? treeResult.data : null;
 
-  /**
-   * `POST /api/documents/bulk-download` streams a zip. The JSON proxy would
-   * mangle the bytes, so the bulk bar hands the selection to this action and
-   * gets base64 back to turn into a Blob.
-   */
-  async function bulkDownload(documentIds: string[]) {
-    'use server';
-    const session = await getSession();
-    if (!session) return { ok: false as const, message: 'Your session has expired.' };
-    let response: Response;
-    try {
-      response = await fetch(`${backendUrl()}/api/documents/bulk-download`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${session.token}` },
-        body: JSON.stringify({ document_ids: documentIds }),
-        cache: 'no-store',
-      });
-    } catch {
-      return { ok: false as const, message: 'Cannot reach the SignForge API.' };
-    }
-    if (!response.ok) {
-      return { ok: false as const, message: response.status === 404 ? 'No downloadable PDFs in the selection' : `Download failed (${response.status})` };
-    }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    return { ok: true as const, filename: 'documents.zip', base64: bytes.toString('base64') };
-  }
-
   return (
     <Library
       rows={toLibraryRows(library.items)}
@@ -104,7 +76,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
       templateTotal={isTemplateFolder ? templateList.total : counts.templates}
       folderOptions={toFolderOptions(tree)}
       initialFilters={filters}
-      bulkDownload={bulkDownload}
     />
   );
 }

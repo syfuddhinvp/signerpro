@@ -307,7 +307,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           <div style={{ display:'flex', gap:'7px', flexWrap:'wrap' }}>
             {tkTags.map((g, i) => (<span key={g.label + i} style={g.style}>{g.label}</span>))}
             {tk.envelope ? (
-              <button type="button" onClick={() => go('audit', { workspace: 'tenant' })} style={tkEnvelopeStyle}>{'Envelope ' + tk.envelope + ' ›'}</button>
+              <button type="button" onClick={() => go('audit', { workspace: 'tenant', documentId: tk.documentId })} style={tkEnvelopeStyle}>{'Envelope ' + tk.envelope + ' ›'}</button>
             ) : null}
           </div>
         </div>

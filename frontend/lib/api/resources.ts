@@ -76,6 +76,8 @@ export const organizations = {
   members: (c: Caller) => get<T.UserResponse[]>(c, '/api/organizations/me/members'),
   setMemberRole: (c: Caller, userId: string, role: string) =>
     patch<T.UserResponse>(c, `/api/organizations/me/members/${userId}/role`, { role }),
+  overview: (c: Caller, params?: { range?: string }) =>
+    get<T.OrganizationOverview>(c, '/api/organizations/me/overview', params),
   apiSettings: (c: Caller) => get<T.ApiSettingsResponse>(c, '/api/organizations/me/api-settings'),
   updateApiSettings: (c: Caller, body: Partial<T.ApiSettingsResponse>) =>
     patch<T.ApiSettingsResponse>(c, '/api/organizations/me/api-settings', body),
@@ -118,6 +120,8 @@ export const documents = {
   bulk: (c: Caller, body: { document_ids: string[]; action: T.BulkAction; folder_id?: string | null }) =>
     post<T.BulkActionResult>(c, '/api/documents/bulk', body),
   emptyTrash: (c: Caller) => del<T.BulkActionResult>(c, '/api/documents/trash'),
+  /** `POST /api/documents/bulk-download` streams a zip — use `apiDownload`, not a JSON caller. */
+  bulkDownloadPath: () => '/api/documents/bulk-download',
   routing: (c: Caller, id: string) => get<T.RoutingResponse>(c, `/api/documents/${id}/routing`),
   updateRouting: (c: Caller, id: string, body: T.RoutingUpdate) =>
     put<T.RoutingResponse>(c, `/api/documents/${id}/routing`, body),
@@ -284,8 +288,10 @@ export const audit = {
     get<T.AuditTrailEntry[]>(c, `/api/documents/${documentId}/audit-logs`),
   verifyChain: (c: Caller, documentId: string) =>
     get<T.AuditChainVerification>(c, `/api/documents/${documentId}/audit-logs/verify`),
+  /** `GET /api/documents/{id}/certificate/summary` — the router mounts the
+   *  certificate under a `/summary` action, not on the collection itself. */
   certificate: (c: Caller, documentId: string) =>
-    get<T.CertificateSummaryResponse>(c, `/api/documents/${documentId}/certificate`),
+    get<T.CertificateSummaryResponse>(c, `/api/documents/${documentId}/certificate/summary`),
 };
 
 export const logs = {

@@ -1,57 +1,31 @@
 /**
- * Signing workflow / routing.
+ * Flat entry point for the routing screen.
  *
- * Same structural caveat as the prepare screen: routing belongs to one
- * document, so `/documents/[id]/workflow` would be the better route. Until
- * `lib/sf/routes.ts` carries a parameterised entry the document comes from
- * `?document=<id>`, falling back to the newest draft, and the link between the
- * two screens preserves the param.
+ * The screen itself lives at `/documents/[id]/workflow` — the envelope's identity
+ * belongs in the path. This route exists so the sidebar link (and any old
+ * bookmark) still works from a cold start: it resolves the newest draft and redirects
+ * to that document's own URL. With no document at all, it falls through to the
+ * library, which is where one gets created.
  */
 
 import type { Metadata } from 'next';
-import Routing from '@/components/sf/screens/Routing';
+import { redirect } from 'next/navigation';
 import { serverCaller } from '@/lib/api/client';
-import { documents as documentsApi, recipients as recipientsApi } from '@/lib/api/resources';
-import { toBuilderRouting } from '@/lib/sf/adapters';
-import type { RecipientResponse, RoutingResponse } from '@/lib/api/types';
+import { documents as documentsApi } from '@/lib/api/resources';
+import { documentPathFor, SCREEN_PATH } from '@/lib/sf/routes';
 
 export const metadata: Metadata = { title: 'Signing workflow · SignForge' };
 
-type SearchParams = { [key: string]: string | string[] | undefined };
+type SearchParams = Record<string, string | string[] | undefined>;
 
-export default async function Page({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const api = serverCaller('/documents/workflow');
-  const params = await searchParams;
-  const requested = typeof params.document === 'string' ? params.document : null;
+export default async function Page({ searchParams }: { searchParams?: Promise<SearchParams> }) {
+  const query = (await searchParams) ?? {};
+  // Old `?document=<id>` links keep working: they redirect into the path form.
+  const requested = typeof query.document === 'string' ? query.document : null;
+  if (requested) redirect(documentPathFor('routing', requested));
 
-  let documentId = requested;
-  if (!documentId) {
-    const drafts = await documentsApi.library(api, { quick: 'drafts', sort: 'recent', limit: 1 });
-    documentId = drafts.ok ? (drafts.data.items[0]?.id ?? null) : null;
-  }
-
-  if (!documentId) {
-    return <Routing documentId={null} recipients={[]} routing={null} />;
-  }
-
-  const [documentResult, recipientsResult, routingResult] = await Promise.all([
-    documentsApi.get(api, documentId),
-    recipientsApi.list(api, documentId),
-    documentsApi.routing(api, documentId),
-  ]);
-
-  if (!documentResult.ok) {
-    return <Routing documentId={null} recipients={[]} routing={null} />;
-  }
-
-  const recipients: RecipientResponse[] = recipientsResult.ok ? recipientsResult.data : [];
-  const routing: RoutingResponse | null = routingResult.ok ? routingResult.data : null;
-
-  return (
-    <Routing
-      documentId={documentResult.data.id}
-      recipients={recipients}
-      routing={routing ? toBuilderRouting(routing) : null}
-    />
-  );
+  const api = serverCaller(SCREEN_PATH['routing']);
+  const newest = await documentsApi.library(api, { quick: 'drafts', sort: 'recent', limit: 1 });
+  const documentId = newest.ok ? (newest.data.items[0]?.id ?? null) : null;
+  redirect(documentId ? documentPathFor('routing', documentId) : SCREEN_PATH.dashboard);
 }

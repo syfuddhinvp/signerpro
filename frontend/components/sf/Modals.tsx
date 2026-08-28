@@ -10,6 +10,7 @@ import {
   PLAN_PRICES, GROUP_LABELS, TK_PRIO_LABEL, INVOICES
 } from '@/lib/sf/data';
 import { btn, inputStyle, lbl as lblStyle } from '@/lib/sf/ui';
+import { useDocumentPersistence } from '@/lib/sf/builderInteractions';
 import { apiCall } from '@/lib/api/browser';
 import { contacts as contactsApi, support as supportApi } from '@/lib/api/resources';
 /* checkout / plan-change / seat-change / card branches (BIL) */
@@ -29,6 +30,8 @@ import {
   type PlanChoice,
 } from '@/lib/sf/adapters';
 import type {
+  FieldResponse,
+  RecipientResponse,
   PaymentMethodResponse,
   PlanChangePreview,
   SubscriptionResponse,
@@ -49,6 +52,10 @@ const TICKET_CATEGORIES: [string, string][] = [
 const TICKET_PRIORITIES: [string, string][] = [
   ['urgent', 'P1 · Urgent — signing blocked'], ['high', 'P2 · High'], ['normal', 'P3 · Normal'], ['low', 'P4 · Low']
 ];
+/** Stable empty arrays — the persistence hook re-seeds on identity change. */
+const EMPTY_FIELD_ROWS: FieldResponse[] = [];
+const EMPTY_RECIPIENT_ROWS: RecipientResponse[] = [];
+
 const SLA_MAP: Record<string, string> = { urgent: '1h 00m left', high: '4h 00m left', normal: '1d 0h left', low: '3d 0h left' };
 
 const textareaStyle: CSSProperties = {
@@ -65,7 +72,7 @@ const iconBtn: CSSProperties = {
 
 export default function Modals() {
   const { s, set, flash, accent, recips, money, isPlat, signable } = useSF();
-  const { go } = useNav();
+  const { go, documentId } = useNav();
   const router = useRouter();
   const A = accent();
   const plat = isPlat();
@@ -76,6 +83,20 @@ export default function Modals() {
   stateRef.current = s;
 
   const closeModal = useCallback(() => set({ modal: null }), [set]);
+
+  /* The send confirmation is raised from the builder wizard and the header
+     button, so the envelope it acts on is the document in the URL. Sending is
+     the same `sendEnvelope` the workflow screen calls — it flushes pending
+     field and routing edits first, POSTs `/api/documents/{id}/send`, and
+     flashes the API's own message on failure. Field autosave stays off: this
+     component never authors fields. */
+  const persistence = useDocumentPersistence({
+    documentId,
+    serverFields: EMPTY_FIELD_ROWS,
+    serverRecipients: EMPTY_RECIPIENT_ROWS,
+    seededFields: s.fields,
+    autosaveFields: false,
+  });
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn = btn(A, '#fff', A);
@@ -525,7 +546,11 @@ export default function Modals() {
     set({ modal: null });
     if (m === 'decline') { flash('Signing declined · sender notified and audit trail updated'); go('audit'); }
     else if (m === 'reassign') flash('Envelope reassigned · original invitation revoked');
-    else if (m === 'send') { go('sign'); flash('Envelope sent · signer view opened'); }
+    else if (m === 'send') {
+      // Real send: only on success does the signer view open. `sendEnvelope`
+      // has already flashed the API's error message if it failed.
+      void persistence.sendEnvelope().then(ok => { if (ok) go('sign', { documentId }); });
+    }
     else flash('Disclosure accepted · consent recorded');
   };
 

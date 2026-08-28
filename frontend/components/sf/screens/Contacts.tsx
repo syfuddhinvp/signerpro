@@ -137,7 +137,7 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts, d
         router.refresh();
       });
   };
-  const ctSendEnvelope = () => go('routing');
+  const ctSendEnvelope = () => go('routing', { documentId: draftDocumentId });
   const openNewContact = () => set({ modal: 'contact' });
   const syncContacts = () => flash('CRM sync queued · 412 contacts scanned, 3 updated');
   const contactScopeLabel = 'Address book · ' + ctList.length + ' of ' + allContacts.length;
