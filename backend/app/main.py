@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.routes import audit, auth, billing, documents, fields, invitations, recipients, signing, organizations, saas, webhooks
 from app.api.routes import account, activity, invoices, revenue, support
@@ -14,7 +17,13 @@ from app import models  # noqa: F401
 settings = get_settings()
 configure_logging()
 
-app = FastAPI(title="SignFlow CRM API", version="0.1.0")
+app = FastAPI(
+    title="SignFlow CRM API",
+    version="0.1.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 
 app.add_middleware(RequestLoggingMiddleware)
 
@@ -25,6 +34,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 for malformed bodies, including binary ones.
+
+    FastAPI's default handler echoes the offending input back, and blows up with
+    a 500 ``UnicodeDecodeError`` when that input is raw bytes (e.g. a multipart
+    upload posted to a JSON endpoint). Drop the raw echo and keep the 422.
+    """
+    errors = []
+    for error in exc.errors():
+        scrubbed = dict(error)
+        if isinstance(scrubbed.get("input"), (bytes, bytearray)):
+            scrubbed["input"] = None
+        errors.append(scrubbed)
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
+
 
 app.include_router(auth.router)
 app.include_router(documents.router)
