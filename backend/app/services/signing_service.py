@@ -331,7 +331,12 @@ class SigningService:
         recipient.consent_accepted = False
         recipient.consent_accepted_at = None
 
-        new_raw_token, _ = token_service.create_for_recipient(db, document_id=document.id, recipient_id=recipient.id)
+        new_raw_token, _ = token_service.create_for_recipient(
+            db,
+            document_id=document.id,
+            recipient_id=recipient.id,
+            expires_at=document.expires_at,
+        )
         audit_service.log(
             db,
             document_id=document.id,
@@ -363,7 +368,12 @@ class SigningService:
             return
         for next_recipient in [item for item in document.recipients if item.signing_order == next_order]:
             next_recipient.status = RecipientStatus.sent
-            raw_token, _ = token_service.create_for_recipient(db, document_id=document.id, recipient_id=next_recipient.id)
+            raw_token, _ = token_service.create_for_recipient(
+                db,
+                document_id=document.id,
+                recipient_id=next_recipient.id,
+                expires_at=document.expires_at,
+            )
             signflow_email_service.send_signing_link(document=document, recipient=next_recipient, token=raw_token, db=db)
             audit_service.log(
                 db,
@@ -432,12 +442,27 @@ class SigningService:
         org = db.get(Organization, document.organization_id)
 
         # Dispatch via SMS if phone is available, otherwise fall back to Email dispatch
-        if recipient.phone_number:
+        from app.models.plan import ENTITLEMENT_MAX_SMS_PER_MONTH
+        from app.models.usage_event import UsageEventType
+        from app.services.entitlement_service import entitlement_service
+
+        # An exhausted SMS allowance (BIL-11) must not strand a signer
+        # mid-session, so the code degrades to email rather than 402-ing.
+        sms_allowed = recipient.phone_number and entitlement_service.has_headroom(
+            db, document.organization_id, ENTITLEMENT_MAX_SMS_PER_MONTH, 1
+        )
+        if sms_allowed:
             from app.services.sms_service import sms_service
             sms_service.send_sms(
                 to_phone=recipient.phone_number,
                 body=f"Your SignFlow CRM document verification code is: {otp_code}. Valid for 10 minutes.",
                 organization=org
+            )
+            entitlement_service.record_usage(
+                db,
+                organization_id=document.organization_id,
+                event_type=UsageEventType.sms_sent,
+                document_id=document.id,
             )
         else:
             from app.core.email import email_service, EmailMessage

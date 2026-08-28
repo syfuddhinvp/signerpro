@@ -1,14 +1,48 @@
 'use client';
 
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { btn, railHead } from '@/lib/sf/ui';
-import { TENANTS, PLATFORM_STATS_META, MRR_SERIES, DUNNING, HEALTH, PLATFORM_AUDIT } from '@/lib/sf/data';
+import { apiCall } from '@/lib/api/browser';
+import { platformInvoices as platformInvoicesApi } from '@/lib/api/resources';
+import type {
+  AuditStreamRow,
+  DunningQueueRow,
+  PlatformHealthTile,
+  PlatformStatTile,
+  TopTenantRow,
+} from '@/lib/sf/adapters';
 
-export default function PlatformHome() {
-  const { s, flash, accent, initials } = useSF();
+/**
+ * Server data, adapted in `app/(app)/platform/page.tsx`:
+ * `GET /api/saas/overview` (tiles, MRR series, health), `GET /api/saas/tenants`
+ * (top tenants by MRR), `GET /api/saas/dunning`, `GET /api/saas/audit` and
+ * `GET /api/saas/revenue/churn` (the NRR badge on the chart).
+ */
+export type PlatformHomeProps = {
+  stats: PlatformStatTile[];
+  /** Trailing-12-month MRR in `$k`, oldest → newest. */
+  mrrSeries: number[];
+  /** Three axis labels under the chart (first · middle · last month). */
+  mrrTicks: [string, string, string];
+  /** `+118% NRR` — net revenue retention from the churn endpoint. */
+  nrrLabel: string;
+  tenantCount: string;
+  seatsLabel: string;
+  topTenants: TopTenantRow[];
+  dunning: DunningQueueRow[];
+  health: PlatformHealthTile[];
+  audit: AuditStreamRow[];
+};
+
+export default function PlatformHome({
+  stats, mrrSeries, mrrTicks, nrrLabel, tenantCount, seatsLabel, topTenants, dunning, health, audit,
+}: PlatformHomeProps) {
+  const { flash, accent, initials } = useSF();
+  const router = useRouter();
   const A = accent();
-  void s;
+  const [retrying, setRetrying] = useState<string | null>(null);
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const superBannerStyle: CSSProperties = { background:'#0f172a', borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px' };
@@ -16,45 +50,55 @@ export default function PlatformHome() {
   const superBtn: CSSProperties = Object.assign(btn('transparent', '#e2e8f0', '#334155'), { flex:'0 0 auto' });
   const stepUp = () => flash('Step-up MFA satisfied · elevated session valid 15 min');
 
-  const totalSeats = TENANTS.reduce((a, t) => a + t.seats, 0);
-  const mrr = TENANTS.reduce((a, t) => a + t.mrr, 0);
-  const tenantCount = String(TENANTS.length);
-  const platformSeats = totalSeats.toLocaleString();
+  const emptyNote: CSSProperties = { fontSize:'11.5px', color:'#94a3b8', lineHeight:1.6 };
 
-  const statValues: { [k: string]: string } = {
-    'TENANTS': String(TENANTS.length),
-    'SEATS PROVISIONED': totalSeats.toLocaleString(),
-    'MRR': '$' + (mrr / 1000).toFixed(1) + 'k',
-  };
-  const platformStats = PLATFORM_STATS_META.map(x => ({
-    label: x.label, value: statValues[x.label] ?? x.value ?? '', meta: x.meta,
+  const platformStats = stats.map(x => ({
+    label: x.label, value: x.value, meta: x.meta,
     metaStyle: { fontSize:'11px', color: x.good ? '#047857' : '#c2410c', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties,
   }));
 
-  const mrrChart = MRR_SERIES.map((v, i) => ({
+  /* The prototype scaled bars against a hardcoded 74.7; scale against the
+     series maximum so any tenant book renders sensibly. */
+  const maxSeries = mrrSeries.reduce((a, v) => Math.max(a, v), 0);
+  const mrrChart = mrrSeries.map((v, i) => ({
     title: '$' + v + 'k MRR',
     wrap: { flex:'1', height:'100%', display:'flex', alignItems:'flex-end' } as CSSProperties,
-    bar: { width:'100%', height: Math.round(v / 74.7 * 100) + '%', borderRadius:'5px 5px 2px 2px', background: i === MRR_SERIES.length - 1 ? '#10b981' : '#a7f3d0' } as CSSProperties,
+    bar: { width:'100%', height: (maxSeries ? Math.round(v / maxSeries * 100) : 0) + '%', borderRadius:'5px 5px 2px 2px', background: i === mrrSeries.length - 1 ? '#10b981' : '#a7f3d0' } as CSSProperties,
   }));
 
-  const maxMrr = Math.max.apply(null, TENANTS.map(t => t.mrr));
-  const topTenants = TENANTS.slice().sort((a, b) => b.mrr - a.mrr).slice(0, 5).map(t => ({
-    name: t.name, initials: initials(t.name), mrr: '$' + (t.mrr / 1000).toFixed(1) + 'k',
+  const maxMrr = topTenants.reduce((a, t) => Math.max(a, t.mrrCents), 0);
+  const tenantRows = topTenants.map(t => ({
+    id: t.id, name: t.name, initials: initials(t.name), mrr: t.mrr,
     chip: { width:'26px', height:'26px', borderRadius:'8px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'10px', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
-    bar: { width: Math.round(t.mrr / maxMrr * 100) + '%', height:'100%', borderRadius:'99px', background: A } as CSSProperties,
+    bar: { width: (maxMrr ? Math.round(t.mrrCents / maxMrr * 100) : 0) + '%', height:'100%', borderRadius:'99px', background: A } as CSSProperties,
   }));
 
-  const dunning = DUNNING.map(([tenant, meta]) => ({
-    tenant, meta,
-    onRetry: () => flash('Charge retried for ' + tenant + ' · Stripe payment intent re-attempted'),
+  const retryCharge = (row: DunningQueueRow) => {
+    /* Optimistic toast first, as the prototype does. */
+    flash('Charge retried for ' + row.tenant + ' · payment re-attempted');
+    if (!row.invoiceId) { flash('No invoice on this dunning row · nothing to retry'); return; }
+    setRetrying(row.key);
+    void platformInvoicesApi.retryPayment(apiCall, row.invoiceId).then(res => {
+      setRetrying(null);
+      if (!res.ok) { flash('Retry failed for ' + row.tenant + ' · ' + res.error.message); return; }
+      flash(row.tenant + ' · ' + (res.data.number ?? 'invoice') + ' is now ' + res.data.status);
+      router.refresh();
+    });
+  };
+
+  const dunningRows = dunning.map(d => ({
+    key: d.key, tenant: d.tenant, meta: d.meta,
+    label: retrying === d.key ? 'Retrying…' : 'Retry',
+    onRetry: () => retryCharge(d),
   }));
 
-  const health = HEALTH.map(([label, meta, c]) => ({
-    label, meta, dot: { width:'8px', height:'8px', borderRadius:'99px', background:c, flex:'0 0 8px' } as CSSProperties,
+  const healthRows = health.map(h => ({
+    label: h.label, meta: h.meta,
+    dot: { width:'8px', height:'8px', borderRadius:'99px', background: h.color, flex:'0 0 8px' } as CSSProperties,
   }));
 
-  const platformAudit = PLATFORM_AUDIT.map(([label, meta], i) => ({
-    label, meta,
+  const platformAudit = audit.map((a, i) => ({
+    key: a.key, label: a.label, meta: a.meta,
     dot: { width:'8px', height:'8px', borderRadius:'99px', marginTop:'5px', flex:'0 0 8px', background: i === 0 ? '#f59e0b' : '#334155' } as CSSProperties,
   }));
 
@@ -63,7 +107,7 @@ export default function PlatformHome() {
       <div style={superBannerStyle}>
         <div style={{ display:'flex', alignItems:'center', gap:'11px', minWidth:0 }}>
           <span style={superChip}>SUPER ADMIN</span>
-          <span style={{ fontSize:'12.5px', color:'#cbd5e1', lineHeight:1.5 }}>Global scope · {tenantCount} tenants · {platformSeats} seats. Elevated session expires in 14 min.</span>
+          <span style={{ fontSize:'12.5px', color:'#cbd5e1', lineHeight:1.5 }}>Global scope · {tenantCount} tenants · {seatsLabel} seats. Elevated session expires in 14 min.</span>
         </div>
         <button type="button" onClick={stepUp} style={superBtn}>Re-authenticate</button>
       </div>
@@ -82,19 +126,19 @@ export default function PlatformHome() {
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div style={railHead}>Net MRR · trailing 12 months</div>
-            <span style={{ fontSize:'11px', color:'#047857', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>+118% NRR</span>
+            <span style={{ fontSize:'11px', color:'#047857', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{nrrLabel}</span>
           </div>
           <div style={{ display:'flex', alignItems:'flex-end', gap:'7px', height:'150px' }}>
             {mrrChart.map((c, i) => (
               <div key={i} style={c.wrap} title={c.title}><div style={c.bar}></div></div>
             ))}
           </div>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}><span>Sep 25</span><span>Feb 26</span><span>Aug 26</span></div>
+          <div style={{ display:'flex', justifyContent:'space-between', fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}><span>{mrrTicks[0]}</span><span>{mrrTicks[1]}</span><span>{mrrTicks[2]}</span></div>
         </div>
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Top tenants by revenue</div>
-          {topTenants.map(t => (
-            <div key={t.name} style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          {tenantRows.length ? tenantRows.map(t => (
+            <div key={t.id} style={{ display:'flex', alignItems:'center', gap:'10px' }}>
               <span style={t.chip}>{t.initials}</span>
               <div style={{ display:'flex', flexDirection:'column', gap:'3px', flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', gap:'8px' }}>
@@ -104,26 +148,26 @@ export default function PlatformHome() {
                 <div style={{ height:'4px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={t.bar}></div></div>
               </div>
             </div>
-          ))}
+          )) : (<span style={emptyNote}>No tenants yet.</span>)}
         </div>
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'16px', alignItems:'start' }}>
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Dunning queue</div>
-          {dunning.map(d => (
-            <div key={d.tenant} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fbfcfd' }}>
+          {dunningRows.length ? dunningRows.map(d => (
+            <div key={d.key} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fbfcfd' }}>
               <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
                 <span style={{ fontSize:'12.5px', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{d.tenant}</span>
                 <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{d.meta}</span>
               </div>
-              <button type="button" onClick={d.onRetry} style={ghostBtn}>Retry</button>
+              <button type="button" onClick={d.onRetry} style={ghostBtn}>{d.label}</button>
             </div>
-          ))}
+          )) : (<span style={emptyNote}>No invoices in collection.</span>)}
         </div>
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Service health</div>
-          {health.map(h => (
+          {healthRows.length ? healthRows.map(h => (
             <div key={h.label} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', padding:'7px 0', borderTop:'1px solid #f2f4f8' }}>
               <span style={{ fontSize:'12.5px', color:'#334155' }}>{h.label}</span>
               <span style={{ display:'flex', alignItems:'center', gap:'7px' }}>
@@ -131,19 +175,19 @@ export default function PlatformHome() {
                 <span style={h.dot}></span>
               </span>
             </div>
-          ))}
+          )) : (<span style={emptyNote}>Health data unavailable.</span>)}
         </div>
         <div style={{ background:'#0f172a', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={{ fontSize:'11px', letterSpacing:'.08em', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>RECENT ADMIN ACTIONS</div>
-          {platformAudit.map((a, i) => (
-            <div key={i} style={{ display:'flex', gap:'10px', alignItems:'flex-start' }}>
+          {platformAudit.length ? platformAudit.map(a => (
+            <div key={a.key} style={{ display:'flex', gap:'10px', alignItems:'flex-start' }}>
               <span style={a.dot}></span>
               <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
                 <span style={{ fontSize:'12.5px', color:'#e2e8f0', fontWeight:500 }}>{a.label}</span>
                 <span style={{ fontSize:'10.5px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all' }}>{a.meta}</span>
               </div>
             </div>
-          ))}
+          )) : (<span style={{ fontSize:'11.5px', color:'#64748b', lineHeight:1.6 }}>No administrative actions recorded yet.</span>)}
         </div>
       </div>
     </section>

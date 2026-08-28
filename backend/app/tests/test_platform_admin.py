@@ -546,11 +546,19 @@ def test_tenant_logs_are_scoped_and_filterable(client: TestClient) -> None:
     assert client.get("/api/logs", headers=other).json()["total"] == 0
 
     platform_page = client.get("/api/saas/logs", headers=platform).json()
-    assert platform_page["total"] == 3
+    # The middleware also persists the mutating requests this test itself made
+    # (registrations, promotions), so assert on the seeded rows rather than a
+    # total that grows with the fixture.
+    assert platform_page["total"] >= 3
+    seeded = {row["message"] for row in platform_page["items"]}
+    assert "platform-only maintenance window" in seeded
+    assert "invoice.payment_failed delivery failed" in seeded
     assert any(row["organization_name"] == "Acme Realty" for row in platform_page["items"])
     assert client.get(f"/api/saas/logs?organization_id={org_id}", headers=platform).json()["total"] == 2
 
-    log_id = platform_page["items"][0]["id"]
+    log_id = next(
+        row["id"] for row in platform_page["items"] if row["message"] == "platform-only maintenance window"
+    )
     detail = client.get(f"/api/saas/logs/{log_id}", headers=platform)
     assert detail.status_code == 200
     assert detail.json()["id"] == log_id
@@ -744,3 +752,25 @@ def test_agents_and_quick_replies_differ_by_caller(client: TestClient) -> None:
         reply["label"] for reply in platform_replies
     }
     assert all({"label", "body"} <= set(reply) for reply in tenant_replies + platform_replies)
+
+
+def test_health_has_one_derivation_shared_by_both_screens(client: TestClient) -> None:
+    """GET /api/saas/health and the overview tile came from two independent
+    derivations, which is why they disagreed. They now share one."""
+    platform, _tenant, _org_id = _platform_and_tenant(client)
+
+    components = client.get("/api/saas/health", headers=platform).json()
+    overview = client.get("/api/saas/overview", headers=platform).json()
+
+    assert [(row["component"], row["detail"], row["tone"]) for row in components] == [
+        (row["component"], row["detail"], row["tone"]) for row in overview["health"]
+    ]
+    assert {row["component"] for row in components} == {
+        "API",
+        "Signing",
+        "Tenants",
+        "Webhook delivery",
+        "Payment provider",
+        "Collections",
+    }
+    assert all(row["tone"] in {"good", "warn", "bad"} for row in components)

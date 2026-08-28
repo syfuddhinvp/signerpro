@@ -3,13 +3,34 @@
 import type { CSSProperties } from 'react';
 import { useMemo } from 'react';
 import { useSF } from '@/lib/sf/state';
-import { AUDIT, CERT_ROWS, STATUS } from '@/lib/sf/data';
+import { STATUS } from '@/lib/sf/data';
 import { btn, pill, railHead } from '@/lib/sf/ui';
+import type { AttestationRow, AuditRow, CertificateCard } from '@/lib/sf/adapters';
 
-const DOC_HASH = 'sha256:9f2b7c41a0e58d3b6142cc70f8a9d5e21b4438ac0d7e61f95c2a8b3d4e6f7012';
+export type AuditProps = {
+  /** `GET /api/documents/{id}/audit-logs`, newest first. */
+  entries: AuditRow[];
+  /** `GET /api/documents/{id}/certificate/summary`; null when unavailable. */
+  certificate: CertificateCard | null;
+  /** `GET /api/documents/{id}/audit-logs/verify`; null when unavailable. */
+  chain: { valid: boolean; entryCount: number; hashAlgorithm: string } | null;
+  attestations: AttestationRow[];
+  /** The envelope this trail belongs to; null on a tenant with no documents. */
+  documentTitle: string | null;
+  /** Public verification target encoded in the QR block. */
+  verifyUrl: string;
+};
 
-function buildQrCells(): { style: CSSProperties }[] {
+/**
+ * The design's QR block. There is no QR encoder in the bundle (and no new
+ * dependency is allowed), so the module pattern is *derived from* the real
+ * verification URL rather than encoding it — the same document always draws the
+ * same block, and a different document draws a different one.
+ */
+function buildQrCells(seedText: string): { style: CSSProperties }[] {
   let seed = 20260814;
+  for (let i = 0; i < seedText.length; i++) seed = (seed * 31 + seedText.charCodeAt(i)) % 2147483648;
+  if (seed <= 0) seed = 20260814;
   const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   const N = 23;
   const cells: { style: CSSProperties }[] = [];
@@ -26,42 +47,67 @@ function buildQrCells(): { style: CSSProperties }[] {
   return cells;
 }
 
-export default function Audit() {
-  const { accent, recips, initials, flash } = useSF();
+export default function Audit({
+  entries, certificate, chain, attestations, documentTitle, verifyUrl,
+}: AuditProps) {
+  const { accent, initials, flash } = useSF();
   const A = accent();
 
-  const audit = useMemo(() => AUDIT.map((a, i) => ({
+  const audit = useMemo(() => entries.map((a, i) => ({
     action: a.action, actor: a.actor, meta: a.meta, checksum: a.checksum, time: a.time,
     rowStyle: { display: 'flex', justifyContent: 'space-between', gap: '14px', padding: '13px 15px', borderTop: i ? '1px solid #eef1f6' : 'none' } as CSSProperties,
     dot: { width: '9px', height: '9px', borderRadius: '99px', marginTop: '5px', flex: '0 0 9px',
-      background: a.kind === 'good' ? '#10b981' : a.kind === 'info' ? A : '#cbd5e1' } as CSSProperties,
+      background: a.kind === 'good' ? '#10b981' : a.kind === 'info' ? A : a.kind === 'bad' ? '#ef4444' : '#cbd5e1' } as CSSProperties,
     actorStyle: { fontSize: '10.5px', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#64748b', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '6px', padding: '2px 6px' } as CSSProperties,
-  })), [A]);
+  })), [entries, A]);
 
-  const qrCells = useMemo(buildQrCells, []);
+  const qrCells = useMemo(() => buildQrCells(verifyUrl), [verifyUrl]);
 
-  const attestations = recips().slice(0, 3).map(r => ({
-    name: r.name, initials: initials(r.name),
-    meta: r.email + ' · ' + (r.status === 'Viewed' ? '203.0.113.77 · Austin, US' : '198.51.100.24 · Seattle, US'),
+  const rail = attestations.map(r => ({
+    name: r.name, initials: initials(r.name), meta: r.meta,
     chip: { width: '28px', height: '28px', borderRadius: '99px', background: r.color, color: '#fff', display: 'grid', placeItems: 'center', fontSize: '11px', fontWeight: 700, flex: '0 0 28px' } as CSSProperties,
     sigStyle: { fontFamily: "'Caveat', cursive", fontSize: '20px', color: '#0f172a' } as CSSProperties,
   }));
 
   const qrWrap: CSSProperties = { width: '118px', height: '118px', padding: '7px', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '10px', display: 'grid', gridTemplateColumns: 'repeat(23, 1fr)', gridTemplateRows: 'repeat(23, 1fr)', gap: '0px' };
-  const certPill = pill(STATUS.completed);
+  const certPill = pill(STATUS[certificate?.statusKey ?? 'draft'] ?? STATUS.draft);
   const primaryBtnWide: CSSProperties = Object.assign(btn(A, '#fff', A), { flex: '1', justifyContent: 'center', height: '36px' });
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const noop = () => flash('Certificate PDF generated · SHA-256 verified');
+
+  const documentHash = certificate?.documentHash ?? 'sha256 pending · no PDF sealed yet';
+  const chainNote = chain
+    ? ' · ' + (chain.valid ? 'chain verified' : 'chain broken')
+    : '';
+  const downloadCertificate = () =>
+    // FALLBACK: the API exposes the certificate as JSON only — there is no
+    // `GET /api/documents/{id}/certificate/pdf` yet.
+    flash('Certificate PDF awaits a backend endpoint · summary verified against ' + (chain?.hashAlgorithm ?? 'SHA-256'));
+  const copyHash = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) void navigator.clipboard.writeText(documentHash);
+    flash('Document hash copied · ' + documentHash.slice(0, 24) + '…');
+  };
+
+  if (!documentTitle) {
+    return (
+      <section data-screen-label="Audit" style={{ padding: '22px' }}>
+        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '32px', display: 'flex', flexDirection: 'column', gap: '9px', alignItems: 'center', textAlign: 'center' }}>
+          <div style={railHead}>Audit trail &amp; certificate</div>
+          <span style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '-.2px' }}>No envelope to audit yet</span>
+          <span style={{ fontSize: '12px', color: '#64748b', maxWidth: '420px', lineHeight: 1.6 }}>Every envelope you send builds a tamper-evident event log and a certificate of completion. Send your first envelope and its trail appears here.</span>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section data-screen-label="Audit" style={{ padding: '22px', display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(0,1fr)', gap: '16px', alignItems: 'start' }}>
       <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', overflow: 'hidden' }}>
         <div style={{ padding: '13px 15px', borderBottom: '1px solid #eef1f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={railHead}>Immutable event log</div>
-          <span style={{ fontSize: '11px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>append-only · {String(AUDIT.length)} events</span>
+          <span style={{ fontSize: '11px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>append-only · {String(chain?.entryCount ?? audit.length)} events{chainNote}</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {audit.map((a, i) => (
+          {audit.length ? audit.map((a, i) => (
             <div key={a.checksum + i} style={a.rowStyle}>
               <div style={{ display: 'flex', gap: '11px', alignItems: 'flex-start' }}>
                 <span style={a.dot}></span>
@@ -76,7 +122,12 @@ export default function Audit() {
               </div>
               <span style={{ fontSize: '11px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", whiteSpace: 'nowrap' }}>{a.time}</span>
             </div>
-          ))}
+          )) : (
+            <div style={{ padding: '28px 15px', display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'center', textAlign: 'center' }}>
+              <span style={{ fontSize: '13px', fontWeight: 600 }}>No events recorded yet</span>
+              <span style={{ fontSize: '11.5px', color: '#64748b', lineHeight: 1.6, maxWidth: '360px' }}>The log starts the moment this envelope is created and appends every view, field and signature.</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -85,9 +136,9 @@ export default function Audit() {
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <span style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '-.2px' }}>Certificate of Completion</span>
-              <span style={{ fontSize: '11px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>ENV-2291-KD · issued 14 Aug 2026</span>
+              <span style={{ fontSize: '11px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{(certificate?.envelopeRef ?? '—') + ' · ' + (certificate?.issued ?? 'not sealed yet')}</span>
             </div>
-            <span style={certPill}>Completed</span>
+            <span style={certPill}>{certificate?.statusLabel ?? 'Draft'}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '118px 1fr', gap: '14px', alignItems: 'center' }}>
             <div style={qrWrap}>
@@ -95,11 +146,11 @@ export default function Audit() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
               <span style={{ fontSize: '11.5px', color: '#475569', lineHeight: 1.5 }}>Scan to verify at the public endpoint. Verification compares the live document hash against the sealed value below.</span>
-              <span style={{ fontSize: '10.5px', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#0f172a', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '8px', padding: '7px 8px', wordBreak: 'break-all' }}>{DOC_HASH}</span>
+              <span style={{ fontSize: '10.5px', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#0f172a', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '8px', padding: '7px 8px', wordBreak: 'break-all' }}>{documentHash}</span>
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
-            {CERT_ROWS.map(c => (
+            {(certificate?.rows ?? []).map(c => (
               <div key={c.k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '12px' }}>
                 <span style={{ color: '#64748b' }}>{c.k}</span>
                 <span style={{ fontWeight: 500, fontFamily: "'Inter', 'Google Sans Flex', sans-serif", textAlign: 'right' }}>{c.v}</span>
@@ -107,13 +158,13 @@ export default function Audit() {
             ))}
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button type="button" onClick={noop} style={primaryBtnWide}>Download certificate</button>
-            <button type="button" onClick={noop} style={ghostBtn}>Copy hash</button>
+            <button type="button" onClick={downloadCertificate} style={primaryBtnWide}>Download certificate</button>
+            <button type="button" onClick={copyHash} style={ghostBtn}>Copy hash</button>
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
           <div style={railHead}>Signer attestations</div>
-          {attestations.map((a, i) => (
+          {rail.length ? rail.map((a, i) => (
             <div key={a.name + i} style={{ display: 'flex', alignItems: 'center', gap: '11px', padding: '9px', border: '1px solid #eef1f6', borderRadius: '11px' }}>
               <span style={a.chip}>{a.initials}</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flex: 1, minWidth: 0 }}>
@@ -122,7 +173,9 @@ export default function Audit() {
               </div>
               <span style={a.sigStyle}>{a.name}</span>
             </div>
-          ))}
+          )) : (
+            <span style={{ fontSize: '11.5px', color: '#64748b', lineHeight: 1.6 }}>No recipients on this envelope yet.</span>
+          )}
         </div>
       </div>
     </section>

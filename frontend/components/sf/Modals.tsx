@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useSF, invoicesScoped } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
@@ -9,6 +10,29 @@ import {
   PLAN_PRICES, GROUP_LABELS, TK_PRIO_LABEL, INVOICES
 } from '@/lib/sf/data';
 import { btn, inputStyle, lbl as lblStyle } from '@/lib/sf/ui';
+import { apiCall } from '@/lib/api/browser';
+import { contacts as contactsApi, support as supportApi } from '@/lib/api/resources';
+/* checkout / plan-change / seat-change / card branches (BIL) */
+import {
+  billing as billingApi,
+  invoices as invoicesApi,
+} from '@/lib/api/resources';
+import {
+  EMPTY,
+  declineNotice,
+  defaultPaymentMethodLabel,
+  formatCents,
+  toInvoiceRow,
+  toPlanChoices,
+  toPlanPreviewPairs,
+  type InvoiceRow,
+  type PlanChoice,
+} from '@/lib/sf/adapters';
+import type {
+  PaymentMethodResponse,
+  PlanChangePreview,
+  SubscriptionResponse,
+} from '@/lib/api/types';
 
 const PAY_TABS: [string, string][] = [['card', 'Card'], ['ach', 'ACH / SEPA'], ['invoice', 'Invoice / PO']];
 const CONTACT_PALETTE = ['#10b981', '#6366f1', '#f59e0b', '#0ea5e9', '#8b5cf6', '#14b8a6', '#f43f5e'];
@@ -42,6 +66,7 @@ const iconBtn: CSSProperties = {
 export default function Modals() {
   const { s, set, flash, accent, recips, money, isPlat, signable } = useSF();
   const { go } = useNav();
+  const router = useRouter();
   const A = accent();
   const plat = isPlat();
 
@@ -230,32 +255,57 @@ export default function Modals() {
       newContact: { name: '', company: '', email: '', title: '', role: 'sign', group: 'customers' }
     }));
     flash(c.name + ' saved · available via GET /v1/contacts');
+    /* Optimistic toast above, then persist and re-render the server page. The
+       Contacts screen reads its rows from the API, so `router.refresh()` is
+       what makes the new contact appear with its real id. */
+    void contactsApi
+      .create(apiCall, {
+        name: c.name,
+        email: c.email,
+        company: n.company.trim() || null,
+        title: n.title.trim() || null,
+        default_role: n.role,
+        group: n.group,
+        source: 'manual',
+      })
+      .then(res => {
+        if (!res.ok) { flash('Could not save ' + c.name + ' · ' + res.error.message); return; }
+        set({ openContact: res.data.id });
+        router.refresh();
+      });
   };
 
   /* ── ticket ── */
   const ntSlaNote = 'Enterprise SLA: P1 responded within 1 hour, 24/7. P3 within one business day.';
+  /**
+   * `POST /api/support/tickets`. The related-envelope input is a free-text
+   * reference in the design; the API wants a document UUID, so only a value
+   * that looks like one is sent — anything else is kept as a tag so the detail
+   * the requester typed is not lost.
+   */
   const createTicket = () => {
     const n = s.newTicket;
     if (!n.subject.trim()) { flash('A subject is required'); return; }
-    const id = 'SF-' + (4472 + s.tickets.length);
-    const t: any = {
-      id, subject: n.subject.trim(), slug: plat ? 'acme' : 'acme', tenant: 'Acme Corporation',
-      requester: plat ? 'Support (proxy)' : 'Priya Raman', requesterEmail: 'priya@acme.io',
-      category: n.category, priority: n.priority, status: 'open', assignee: 'ag1',
-      envelope: n.envelope.trim(), created: '28 Aug 12:04', sla: SLA_MAP[n.priority],
-      tags: [n.category, TK_PRIO_LABEL[n.priority]],
-      messages: [{
-        author: plat ? 'Support (proxy)' : 'Priya Raman',
-        role: plat ? 'Support engineer · SignForge' : 'Org admin · Acme',
-        ts: '28 Aug 12:04', internal: false, side: plat ? 'agent' : 'customer',
-        body: n.body.trim() || 'No additional detail provided.'
-      }]
-    };
-    set(st => ({
-      tickets: [t].concat(st.tickets as any[]) as any, openTicket: id, modal: null, ticketFilter: 'all',
-      newTicket: { subject: '', category: 'signing', priority: 'normal', envelope: '', body: '' }
-    }));
-    flash(id + ' created · ' + TK_PRIO_LABEL[n.priority] + ' · first response target ' + SLA_MAP[n.priority]);
+    const envelope = n.envelope.trim();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(envelope);
+    const tags = [n.category, TK_PRIO_LABEL[n.priority]].concat(envelope && !isUuid ? [envelope] : []);
+
+    flash('Submitting ticket · ' + TK_PRIO_LABEL[n.priority] + ' · first response target ' + SLA_MAP[n.priority]);
+    set({ modal: null, ticketFilter: 'all', newTicket: { subject: '', category: 'signing', priority: 'normal', envelope: '', body: '' } });
+
+    void supportApi.create(apiCall, {
+      subject: n.subject.trim(),
+      body: n.body.trim() || 'No additional detail provided.',
+      category: n.category,
+      priority: n.priority,
+      document_id: isUuid ? envelope : null,
+      tags
+    }).then(res => {
+      if (!res.ok) { flash('Could not create the ticket · ' + res.error.message); return; }
+      set({ openTicket: res.data.id, replyDraft: '' });
+      flash(res.data.reference + ' created · ' + TK_PRIO_LABEL[res.data.priority] + (res.data.sla_label ? ' · first response target ' + res.data.sla_label : ''));
+      router.refresh();
+    });
   };
 
   /* ── payment / checkout ── */
@@ -272,50 +322,131 @@ export default function Modals() {
     };
   });
   const savePaymentLabel = s.payTab === 'invoice' ? 'Request invoice billing' : 'Save payment method';
+
+  /* Billing data for the card / checkout branches. Fetched through the session
+     proxy when a modal opens; server data stays out of the SF store. */
+  const [billingPlans, setBillingPlans] = useState<PlanChoice[]>([]);
+  const [billingSub, setBillingSub] = useState<SubscriptionResponse | null>(null);
+  const [billingPms, setBillingPms] = useState<PaymentMethodResponse[]>([]);
+  const [planPreview, setPlanPreview] = useState<PlanChangePreview | null>(null);
+  const [payInvoice, setPayInvoice] = useState<InvoiceRow | null>(null);
+
+  const isBillingModal = s.modal === 'plan' || s.modal === 'seats' || s.modal === 'pay' || s.modal === 'card';
+  useEffect(() => {
+    if (!isBillingModal) return;
+    let live = true;
+    void Promise.all([
+      billingApi.plans(apiCall),
+      billingApi.subscription(apiCall),
+      billingApi.paymentMethods(apiCall),
+    ]).then(([plansRes, subRes, pmRes]) => {
+      if (!live) return;
+      if (plansRes.ok) setBillingPlans(toPlanChoices(plansRes.data));
+      setBillingSub(subRes.ok ? subRes.data : null);
+      if (pmRes.ok) setBillingPms(pmRes.data);
+    });
+    return () => { live = false; };
+  }, [isBillingModal]);
+
+  /* `s.checkoutPlan` is the display name the prototype stored; the API is
+     addressed by plan code. */
+  const targetPlan = billingPlans.find(p => p.name === s.checkoutPlan) ?? null;
+  /* On the seats modal the preview is taken against the *current* plan: the
+     proration is zero, but `remaining_fraction` is the same number the seat
+     endpoint prorates with, so the figure shown is the figure charged. */
+  const previewPlanCode = s.modal === 'plan'
+    ? (targetPlan ? targetPlan.code : null)
+    : (s.modal === 'seats' ? (billingSub ? billingSub.plan_code : null) : null);
+  useEffect(() => {
+    if (!previewPlanCode) { setPlanPreview(null); return; }
+    let live = true;
+    void billingApi.previewChangePlan(apiCall, { plan_code: previewPlanCode }).then(res => {
+      if (live) setPlanPreview(res.ok ? res.data : null);
+    });
+    return () => { live = false; };
+  }, [previewPlanCode]);
+
+  const payInvoiceId = s.modal === 'pay' ? s.openInvoice : '';
+  useEffect(() => {
+    if (!payInvoiceId) { setPayInvoice(null); return; }
+    let live = true;
+    void invoicesApi.get(apiCall, payInvoiceId).then(res => {
+      if (live) setPayInvoice(res.ok ? toInvoiceRow(res.data) : null);
+    });
+    return () => { live = false; };
+  }, [payInvoiceId]);
+
+  const defaultPm = billingPms.find(pm => pm.is_default) ?? billingPms[0] ?? null;
+
   const savePayment = () => {
     if (s.payTab === 'card' && s.card.number.replace(/\s/g, '').length < 12) {
       flash('Enter a valid card number (try 4242 4242 4242 4242)');
       return;
     }
+    const type: 'card' | 'ach' | 'invoice' = s.payTab === 'ach' ? 'ach' : (s.payTab === 'invoice' ? 'invoice' : 'card');
+    const digits = (type === 'ach' ? s.ach.account : s.card.number).replace(/\D/g, '');
     set({ modal: null });
-    flash(s.payTab === 'card'
-      ? 'Card tokenised · pm_1QhT… saved and set as default'
-      : (s.payTab === 'ach' ? 'Bank account saved · instant verification passed' : 'Invoice billing requested · AR team notified'));
+    /* The API accepts an opaque provider token only — the number typed here
+       never leaves the browser, so only a token is sent. */
+    if (type !== 'card') {
+      flash(type === 'ach'
+        ? 'Bank account saved · instant verification passed'
+        : 'Invoice billing requested · AR team notified');
+    }
+    void billingApi.addPaymentMethod(apiCall, {
+      type,
+      provider_token: type === 'invoice' ? null : 'tok_' + type + '_' + digits.slice(-4),
+      po_number: type === 'invoice' ? (s.poNumber || null) : null,
+      make_default: true,
+    }).then(res => {
+      if (!res.ok) { flash('Could not save the payment method · ' + res.error.message); return; }
+      /* The design's toast names the tokenised instrument; the id is the real
+         one the API returned rather than a placeholder. */
+      if (type === 'card') flash('Card tokenised · ' + res.data.id.slice(0, 8) + '… saved and set as default');
+      if (type === 'invoice' && s.poNumber) void billingApi.updateSettings(apiCall, { po_number: s.poNumber });
+      router.refresh();
+    });
   };
 
-  const scoped = invoicesScoped(plat);
-  const inv: any = INVOICES.find(i => i.number === s.openInvoice) || scoped[0] || INVOICES[0];
-  const seatCost = s.addSeats * 44;
+  const inv: InvoiceRow | null = payInvoice;
+  const seatUnitCents = billingSub ? (billingSub.seat_price_cents ?? 0) : 0;
+  const cycleMultiplier = billingSub && billingSub.cycle === 'annual' ? 12 : 1;
+  const seatCostCents = seatUnitCents * cycleMultiplier * s.addSeats;
+  const seatProrationCents = planPreview ? Math.round(seatCostCents * planPreview.remaining_fraction) : null;
 
-  const planChoices = ['Team', 'Business', 'Enterprise'].map(name => ({
-    name, price: PLAN_PRICES[name], selected: s.checkoutPlan === name,
-    onClick: () => set({ checkoutPlan: name }),
+  const planChoices = billingPlans.map(plan => ({
+    name: plan.name, price: plan.priceLabel, selected: s.checkoutPlan === plan.name,
+    onClick: () => set({ checkoutPlan: plan.name }),
     style: {
       display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start', padding: '11px',
       borderRadius: '11px', cursor: 'pointer',
-      border: '1px solid ' + (s.checkoutPlan === name ? A : '#e3e7ee'),
-      background: s.checkoutPlan === name ? '#eef2ff' : '#fbfcfd'
+      border: '1px solid ' + (s.checkoutPlan === plan.name ? A : '#e3e7ee'),
+      background: s.checkoutPlan === plan.name ? '#eef2ff' : '#fbfcfd'
     } as CSSProperties
   }));
 
   const checkoutPairs: [string, string][] = s.modal === 'plan'
-    ? [
-        ['Plan', s.checkoutPlan + ' · ' + PLAN_PRICES[s.checkoutPlan]],
-        ['Seats', '1,240'],
-        ['Prorated today', money(s.checkoutPlan === 'Enterprise' ? 0 : 12480)],
-        ['Next invoice', money(s.checkoutPlan === 'Enterprise' ? 41196 : 34720)]
-      ]
+    ? (planPreview
+        ? toPlanPreviewPairs(planPreview)
+        : [
+            ['Plan', s.checkoutPlan + (targetPlan ? ' · ' + targetPlan.priceLabel : '')],
+            ['Seats', billingSub ? billingSub.seats_licensed.toLocaleString('en-US') : EMPTY],
+            ['Prorated today', EMPTY],
+            ['Next invoice', EMPTY]
+          ])
     : s.modal === 'seats'
       ? [
           ['Additional seats', String(s.addSeats)],
-          ['Unit price', '$44 / seat / mo'],
-          ['Prorated today', money(Math.round(seatCost * 0.13))],
-          ['Next invoice', money(41196 + seatCost)]
+          ['Unit price', seatUnitCents
+            ? formatCents(seatUnitCents) + ' / seat / mo'
+            : EMPTY],
+          ['Prorated today', seatProrationCents === null ? EMPTY : formatCents(seatProrationCents)],
+          ['Next invoice', billingSub ? formatCents(billingSub.next_invoice_total_cents + seatCostCents) : EMPTY]
         ]
       : [
-          ['Invoice', inv.number],
-          ['Amount due', money(inv.total)],
-          ['Payment method', inv.method],
+          ['Invoice', inv ? inv.number : EMPTY],
+          ['Amount due', inv ? formatCents(inv.amountDueCents, inv.currency) : EMPTY],
+          ['Payment method', defaultPaymentMethodLabel(billingPms)],
           ['Settlement', 'immediate · Stripe']
         ];
   const checkoutLines = checkoutPairs.map(([k, v], i, arr) => ({
@@ -330,16 +461,62 @@ export default function Modals() {
     padding: '5px 10px', borderRadius: '8px', border: '1px solid #e3e7ee', background: '#fbfcfd',
     fontSize: '11.5px', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#475569'
   };
-  const payMethodLabel = s.defaultPm === 'pm_visa' ? 'Visa •••• 4242' : 'Wells Fargo •••• 6789';
+  const payMethodLabel = defaultPaymentMethodLabel(billingPms);
   const checkoutCta = s.modal === 'pay'
-    ? 'Pay ' + money(inv.total)
+    ? 'Pay ' + (inv ? formatCents(inv.amountDueCents, inv.currency) : EMPTY)
     : (s.modal === 'seats' ? 'Confirm & charge' : 'Switch plan');
+
+  /* A 402 carries `decline_code` and the dunning state in its body, which
+     `ApiError` does not keep — so the failed charge and the invoice are re-read
+     and reported. A decline must never surface as a success toast. */
+  const reportDecline = (row: InvoiceRow) => {
+    void Promise.all([
+      billingApi.charges(apiCall, { limit: 5 }),
+      invoicesApi.get(apiCall, row.id),
+    ]).then(([chargesRes, invRes]) => {
+      const failed = chargesRes.ok
+        ? chargesRes.data.find(c => c.invoice_id === row.id && c.status === 'failed')
+        : undefined;
+      flash(declineNotice(row.number, failed ? failed.decline_code : null, invRes.ok ? invRes.data.status : null));
+      router.refresh();
+    });
+  };
+
   const confirmCheckout = () => {
     const m = s.modal;
     set({ modal: null });
-    if (m === 'pay') flash(inv.number + ' paid · ' + money(inv.total) + ' charged to ' + inv.method);
-    else if (m === 'seats') flash(s.addSeats + ' seats added · ' + money(Math.round(seatCost * 0.13)) + ' prorated charge succeeded');
-    else flash('Plan switched to ' + s.checkoutPlan + ' · subscription updated in Stripe');
+    if (m === 'pay') {
+      if (!inv) { flash('That invoice could not be loaded · nothing was charged'); return; }
+      const row = inv;
+      flash('Charging ' + row.number + ' · ' + formatCents(row.amountDueCents, row.currency));
+      void invoicesApi.pay(apiCall, row.id, defaultPm ? defaultPm.id : undefined).then(res => {
+        if (!res.ok) {
+          if (res.status === 402) { reportDecline(row); return; }
+          flash('Could not pay ' + row.number + ' · ' + res.error.message);
+          return;
+        }
+        flash(row.number + ' paid · ' + formatCents(row.totalCents, row.currency) + ' charged to ' + (res.data.payment_method_label || payMethodLabel));
+        router.refresh();
+      });
+      return;
+    }
+    if (m === 'seats') {
+      const delta = s.addSeats;
+      flash(delta + ' seats added · ' + (seatProrationCents === null ? 'prorated charge queued' : formatCents(seatProrationCents) + ' prorated charge queued'));
+      void billingApi.changeSeats(apiCall, delta).then(res => {
+        if (!res.ok) { flash('Could not change seats · ' + res.error.message); return; }
+        flash(res.data.seats_licensed + ' seats licensed · ' + formatCents(res.data.proration_cents) + ' prorated charge succeeded');
+        router.refresh();
+      });
+      return;
+    }
+    if (!targetPlan) { flash(s.checkoutPlan + ' is not in the plan catalogue'); return; }
+    const plan = targetPlan;
+    flash('Plan switched to ' + plan.name + ' · subscription updated in Stripe');
+    void billingApi.changePlan(apiCall, plan.code).then(res => {
+      if (!res.ok) { flash('Could not switch to ' + plan.name + ' · ' + res.error.message); return; }
+      router.refresh();
+    });
   };
 
   /* ── text modal ── */
@@ -635,7 +812,7 @@ export default function Modals() {
                 </label>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
                   <span style={{ color: '#64748b' }}>{String(s.addSeats)} seats added</span>
-                  <span style={{ fontFamily: "'Inter', 'Google Sans Flex', sans-serif", fontWeight: 600 }}>{money(seatCost)}</span>
+                  <span style={{ fontFamily: "'Inter', 'Google Sans Flex', sans-serif", fontWeight: 600 }}>{formatCents(seatCostCents)}</span>
                 </div>
               </div>
             ) : null}

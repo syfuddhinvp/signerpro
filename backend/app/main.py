@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import audit, auth, billing, documents, fields, invitations, recipients, signing, organizations, saas, webhooks
 from app.api.routes import account, activity, invoices, revenue, support
-from app.api.routes import contacts, folders, templates
+from app.api.routes import contacts, folders, teams, templates
 from app.api.routes import api_keys, embed, public_api, reports
 from app.api.routes import flags, logs, tenants
 from app.core.config import get_settings
@@ -56,6 +56,7 @@ app.include_router(account.router)
 app.include_router(contacts.router)
 app.include_router(templates.router)
 app.include_router(folders.router)
+app.include_router(teams.router)
 
 
 @app.on_event("startup")

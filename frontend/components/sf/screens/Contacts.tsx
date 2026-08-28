@@ -1,10 +1,31 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { useSF } from '@/lib/sf/state';
+import { useRouter } from 'next/navigation';
+import { useSF, type Contact } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
-import { GROUP_LABELS, ROLE_WORDS, SRC_TONE } from '@/lib/sf/data';
+import { ROLE_WORDS, SRC_TONE, type Dict } from '@/lib/sf/data';
 import { btn, jsonBoxStyle, pill, railHead } from '@/lib/sf/ui';
+import { apiCall } from '@/lib/api/browser';
+import { contacts as contactsApi } from '@/lib/api/resources';
+
+/**
+ * Server data, adapted in `app/(app)/contacts/page.tsx` via
+ * `lib/sf/adapters.ts`. The screen owns only UI state (search text, selected
+ * group, selected contact) — the rows themselves come from the API.
+ */
+export type ContactsProps = {
+  contacts: Contact[];
+  /** Group key → label, from `GET /api/contacts/groups`. */
+  groupLabels: Dict<string>;
+  /** Pill counts from `GET /api/contacts` (`counts` + an `all` bucket). */
+  counts: Dict<number>;
+  /**
+   * The draft envelope "Add as recipient" targets. Null when the workspace has
+   * no draft yet — the toast still fires, but nothing is persisted.
+   */
+  draftDocumentId: string | null;
+};
 
 /* The prototype's signing-history rows (data.ts ships only the first three). */
 const CT_HISTORY_ROWS: [string, string, string, string][] = [
@@ -14,18 +35,23 @@ const CT_HISTORY_ROWS: [string, string, string, string][] = [
   ['Statement of Work #14', 'ENV-2280-LM · signed 8 Aug 2026', 'Completed', 'good'],
 ];
 
-export default function Contacts() {
-  const { s, set, flash, accent, initials, recips, contactCounts, contactsFiltered } = useSF();
+export default function Contacts({ contacts: allContacts, groupLabels, counts, draftDocumentId }: ContactsProps) {
+  const { s, set, flash, accent, initials, recips } = useSF();
   const { go } = useNav();
+  const router = useRouter();
   const A = accent();
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
 
-  const ctCounts = contactCounts();
-  const ctList = contactsFiltered();
+  const ctCounts = counts;
+  /* Same predicate as the prototype's `contactsFiltered`, over server rows. */
+  const cq = s.contactQuery.toLowerCase();
+  const ctList = allContacts.filter(c =>
+    (s.contactGroup === 'all' || c.group === s.contactGroup) &&
+    (!cq || (c.name + c.email + c.company + c.tags.join(' ')).toLowerCase().indexOf(cq) > -1));
 
   const contactGroups = ([['all', 'All']] as [string, string][])
-    .concat(Object.keys(GROUP_LABELS).map(g => [g, GROUP_LABELS[g]] as [string, string]))
+    .concat(Object.keys(groupLabels).map(g => [g, groupLabels[g]] as [string, string]))
     .map(([id, label]) => {
       const on = s.contactGroup === id;
       return {
@@ -50,12 +76,35 @@ export default function Contacts() {
     };
   });
 
-  const ct = s.contacts.find(c => c.id === s.openContact) || ctList[0] || s.contacts[0];
+  /* The prototype's data set was never empty, so the detail rail assumed a
+     selected contact. A brand-new tenant has none — render the list chrome
+     only rather than crashing. */
+  if (!allContacts.length) {
+    return (
+      <section data-screen-label="Contacts" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.35fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
+        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
+          <div style={{ padding:'12px 14px', borderBottom:'1px solid #eef1f6', display:'flex', flexDirection:'column', gap:'9px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
+              <div style={railHead}>Address book · 0 of 0</div>
+              <div style={{ display:'flex', gap:'7px' }}>
+                <button type="button" onClick={() => flash('CRM sync queued · 0 contacts scanned')} style={ghostBtn}>Sync CRM</button>
+                <button type="button" onClick={() => set({ modal: 'contact' })} style={primaryBtn}>New contact</button>
+              </div>
+            </div>
+          </div>
+          <div style={{ padding:'22px 14px', fontSize:'12.5px', color:'#64748b' }}>No contacts yet — add one to start routing envelopes.</div>
+        </div>
+        <div />
+      </section>
+    );
+  }
+
+  const ct = allContacts.find(c => c.id === s.openContact) || ctList[0] || allContacts[0];
 
   const ctFields = ([
     { k:'Email', v:ct.email, mono:true }, { k:'Phone', v:ct.phone, mono:true },
     { k:'Company', v:ct.company, mono:false }, { k:'Default role', v:ROLE_WORDS[ct.role], mono:false },
-    { k:'Group', v:GROUP_LABELS[ct.group], mono:false }, { k:'Source', v:ct.source, mono:true },
+    { k:'Group', v:groupLabels[ct.group] ?? ct.group, mono:false }, { k:'Source', v:ct.source, mono:true },
     { k:'Envelopes', v:String(ct.envelopes), mono:true }, { k:'Last signed', v:ct.lastSigned, mono:true },
   ]).map(f => ({ k:f.k, v:f.v, style: { fontWeight:500, textAlign:'right', wordBreak:'break-all', fontFamily: f.mono ? "'Inter', 'Google Sans Flex', sans-serif" : 'inherit' } as CSSProperties }));
 
@@ -77,13 +126,21 @@ export default function Contacts() {
   const ctAddRecipient = () => {
     const list = recips();
     if (list.some(r => r.email === ct.email)) { flash(ct.name + ' is already a recipient on this envelope'); return; }
+    /* Optimistic first — the toast must fire immediately, as in the prototype. */
     set({ recipients: list.concat([{ id:'r' + (list.length + 1), name:ct.name, email:ct.email, role:ct.role, color:ct.color, order:list.length + 1, status:'Pending' } as any]) });
     flash(ct.name + ' added as recipient ' + (list.length + 1) + ' · assign fields in the builder');
+    if (!draftDocumentId) return;
+    void contactsApi
+      .addAsRecipients(apiCall, { document_id: draftDocumentId, contact_ids: [ct.id] })
+      .then(res => {
+        if (!res.ok) { flash('Could not add ' + ct.name + ' · ' + res.error.message); return; }
+        router.refresh();
+      });
   };
   const ctSendEnvelope = () => go('routing');
   const openNewContact = () => set({ modal: 'contact' });
   const syncContacts = () => flash('CRM sync queued · 412 contacts scanned, 3 updated');
-  const contactScopeLabel = 'Address book · ' + ctList.length + ' of ' + s.contacts.length;
+  const contactScopeLabel = 'Address book · ' + ctList.length + ' of ' + allContacts.length;
 
   return (
     <section data-screen-label="Contacts" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.35fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>

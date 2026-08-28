@@ -195,3 +195,25 @@ def test_folders_are_isolated_per_organization(client: TestClient, pdf_bytes: by
         headers=acme,
         json={"document_ids": [acme_doc["id"]], "folder_id": globex_folder["id"]},
     ).status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_folder_response_carries_its_tenant(client: TestClient) -> None:
+    """FolderResponse echoes organization_id so a client holding folders from
+    more than one tenant can tell them apart (it was dropped in a merge)."""
+    headers = register(client, org="Acme", name="Ada", email="ada@acme.com")
+    db = db_session(client)
+    org_id = db.query(User).filter(User.email == "ada@acme.com").one().organization_id
+
+    created = make_folder(client, headers, name="Contracts")
+    assert created["organization_id"] == org_id
+
+    child = make_folder(client, headers, name="2026", parent_id=created["id"])
+    assert child["organization_id"] == org_id
+
+    assert {node["organization_id"] for node in client.get("/api/folders", headers=headers).json()} == {org_id}
+    tree = client.get("/api/folders/tree", headers=headers).json()
+    assert tree["personal"][0]["organization_id"] == org_id
+    assert tree["personal"][0]["children"][0]["organization_id"] == org_id
+
+    renamed = client.patch(f"/api/folders/{created['id']}", headers=headers, json={"name": "Agreements"})
+    assert renamed.json()["organization_id"] == org_id

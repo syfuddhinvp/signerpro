@@ -1,41 +1,96 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { useSF, logsScoped } from '@/lib/sf/state';
-import { LOG_SOURCES, LOG_LEVELS, LEVEL_TONE } from '@/lib/sf/data';
+import { useEffect, useRef, useState } from 'react';
+import { useSF } from '@/lib/sf/state';
+import { LEVEL_TONE } from '@/lib/sf/data';
+import { apiCall } from '@/lib/api/browser';
+import { logs as logsApi } from '@/lib/api/resources';
+import { toLogLevelFilters, toLogRow, toLogRows, toLogSourceFilters } from '@/lib/sf/adapters';
+import type { SystemLogPage } from '@/lib/api/types';
 
-export default function Logs() {
-  const { s, set, isPlat: isPlatFn, logsFiltered } = useSF();
+export type LogsProps = {
+  /** `GET /api/logs` (tenant) or `GET /api/saas/logs` (platform). */
+  page: SystemLogPage;
+  /** Which of the two the client re-queries when a filter changes. */
+  scope: 'tenant' | 'platform';
+  /** The retention window the page requested, echoed back as `since_days`. */
+  sinceDays: number;
+  /** The tenant slug the footer prints (`scope: acme`). */
+  orgSlug: string;
+};
+
+const EMPTY_PAGE: SystemLogPage = { items: [], total: 0, sources: [], levels: [] };
+
+export default function Logs({ page, scope, sinceDays, orgSlug }: LogsProps) {
+  const { s, set, isPlat: isPlatFn } = useSF();
   const isPlat = isPlatFn();
 
-  const logScoped = logsScoped(isPlat);
-  const logRows = logsFiltered();
+  /* Filtering belongs to the API (`source` / `level` / `q` / `since_days`), so a
+     filter change re-queries instead of narrowing a client array. */
+  const [logPage, setLogPage] = useState<SystemLogPage>(page);
+  const firstLoad = useRef(true);
+
+  useEffect(() => { setLogPage(page); }, [page]);
+
+  const sourceParam = s.logSource === 'all' ? undefined : s.logSource;
+  const levelParam = s.logLevel === 'all' ? undefined : s.logLevel;
+  const queryParam = s.logQuery.trim() || undefined;
+
+  useEffect(() => {
+    if (firstLoad.current) { firstLoad.current = false; return; }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const params = { source: sourceParam, level: levelParam, q: queryParam, since_days: sinceDays, limit: 200 };
+      const call = scope === 'platform' ? logsApi.platform(apiCall, params) : logsApi.tenant(apiCall, params);
+      void call.then(res => {
+        if (cancelled) return;
+        setLogPage(res.ok ? res.data : EMPTY_PAGE);
+      });
+    }, 220);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [sourceParam, levelParam, queryParam, scope, sinceDays]);
+
+  /* The row already carries its payload; the platform detail endpoint is the
+     authoritative copy, so expanding a row on the platform side fetches it. */
+  const [detailPayloads, setDetailPayloads] = useState<Record<string, string>>({});
+  const expandLog = (id: string) => {
+    if (scope !== 'platform' || detailPayloads[id] !== undefined) return;
+    void logsApi.platformDetail(apiCall, id).then(res => {
+      if (!res.ok) return;
+      setDetailPayloads(prev => ({ ...prev, [id]: toLogRow(res.data).payload }));
+    });
+  };
+
+  const logRows = toLogRows(logPage.items);
 
   const chipStyle = (on: boolean): CSSProperties => ({
     height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'12px', fontWeight: on ? 600 : 500,
     background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none'
   });
 
-  const logSources = LOG_SOURCES
-    .filter(([id]) => isPlat || (id !== 'admin'))
+  /* The filter groups come from the API's own `sources` / `levels` lists — the
+     tenant endpoint already omits the platform-only sources. */
+  const logSources = toLogSourceFilters(logPage.sources)
     .map(([id, label]) => {
       const on = s.logSource === id;
       return { id, label, selected: (on ? 'true' : 'false') as 'true' | 'false', onClick: () => set({ logSource: id }), style: chipStyle(on) };
     });
 
-  const logLevels = LOG_LEVELS.map(([id, label]) => {
+  const logLevels = toLogLevelFilters(logPage.levels).map(([id, label]) => {
     const on = s.logLevel === id;
     return { id, label, selected: (on ? 'true' : 'false') as 'true' | 'false', onClick: () => set({ logLevel: id }), style: chipStyle(on) };
   });
 
   const logs = logRows.map((l, i) => {
-    const open = s.openLog === l.ts;
-    const tone = LEVEL_TONE[l.level];
+    const open = s.openLog === l.id;
+    const tone = LEVEL_TONE[l.level] ?? LEVEL_TONE.info;
     return {
-      key: l.ts + '-' + i,
-      ts: l.ts, level: l.level.toUpperCase(), source: l.source, msg: l.msg, code: l.code, latency: l.latency, payload: l.payload,
+      key: l.id,
+      ts: l.ts, level: l.level.toUpperCase(), source: l.source, msg: l.msg, code: l.code, latency: l.latency,
+      payload: detailPayloads[l.id] ?? l.payload,
       open, openStr: (open ? 'true' : 'false') as 'true' | 'false',
-      onToggle: () => set({ openLog: open ? null : l.ts }),
+      onToggle: () => { if (!open) expandLog(l.id); set({ openLog: open ? null : l.id }); },
       wrapStyle: { borderTop: i ? '1px solid #1a2740' : 'none', background: open ? '#0b1424' : 'transparent' } as CSSProperties,
       rowStyle: { display:'flex', alignItems:'center', gap:'11px', width:'100%', padding:'9px 15px', background:'transparent', border:'none', cursor:'pointer' } as CSSProperties,
       levelStyle: { padding:'2px 7px', borderRadius:'6px', background: tone.bg, color: tone.fg, fontSize:'9.5px', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto' } as CSSProperties,
@@ -45,8 +100,8 @@ export default function Logs() {
     };
   });
 
-  const logCountLabel = logs.length + ' of ' + logScoped.length + ' events';
-  const logScopeLabel = isPlat ? 'scope: all tenants' : 'scope: acme';
+  const logCountLabel = logs.length + ' of ' + logPage.total + ' events';
+  const logScopeLabel = isPlat ? 'scope: all tenants' : 'scope: ' + orgSlug;
 
   return (
     <section data-screen-label="Logs" style={{ padding:'22px 22px 40px', display:'flex', flexDirection:'column', gap:'14px' }}>
@@ -82,6 +137,9 @@ export default function Logs() {
             ) : null}
           </div>
         ))}
+        {logs.length === 0 ? (
+          <div style={{ padding:'26px 15px', textAlign:'center', fontSize:'12px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>No events in this window.</div>
+        ) : null}
       </div>
       <div style={{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
         <span>retention 90 days · streamed to S3 + Datadog</span>

@@ -21,9 +21,18 @@ class FolderUpdate(BaseModel):
 
 
 class FolderResponse(BaseModel):
+    """A folder as the library sidebar renders it.
+
+    ``organization_id`` is echoed back so a client holding folders from more
+    than one tenant (the org switcher) can tell them apart without a second
+    call. ``document_count`` counts live, non-template documents filed
+    directly in this folder -- it is not rolled up from ``children``.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    organization_id: str
     name: str
     parent_id: str | None = None
     team_id: str | None = None
@@ -46,5 +55,12 @@ class FolderTreeResponse(BaseModel):
 
 
 class FolderMoveRequest(BaseModel):
+    """Body of ``POST /api/folders/move``, which answers ``[document_id]``.
+
+    ``folder_id=None`` unfiles the documents. Every id must belong to the
+    caller's organization; one unknown id fails the whole batch with a 404 so
+    a partial move can never be mistaken for a complete one.
+    """
+
     document_ids: list[str] = Field(min_length=1, max_length=200)
     folder_id: str | None = None

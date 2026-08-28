@@ -121,7 +121,12 @@ def resend_recipient_link(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
 
     # Generate token & link
-    raw_token, _ = token_service.create_for_recipient(db, document_id=document.id, recipient_id=recipient.id)
+    raw_token, _ = token_service.create_for_recipient(
+        db,
+        document_id=document.id,
+        recipient_id=recipient.id,
+        expires_at=document.expires_at,
+    )
     link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token)
 
     # Log to audit trail

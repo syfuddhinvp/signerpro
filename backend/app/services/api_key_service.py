@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.hashing import sha256_bytes
 from app.models.api_key import API_KEY_SCOPES, ApiKey
 from app.models.embed_session import EmbedSession
+from app.models.usage_event import UsageEventType
 from app.models.user import User
 
 
@@ -134,6 +135,21 @@ class ApiKeyService:
         if api_key.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key has been revoked")
         api_key.last_used_at = datetime.now(timezone.utc)
+        # Every API-key authenticated request is one metered API call (BIL-11).
+        # Checked before the request runs, so an exhausted plan gets a 402 with
+        # the machine-readable body instead of silent overage.
+        from app.models.plan import ENTITLEMENT_MAX_API_CALLS_PER_MONTH
+        from app.services.entitlement_service import entitlement_service
+
+        entitlement_service.check_entitlement(
+            db, api_key.organization_id, ENTITLEMENT_MAX_API_CALLS_PER_MONTH, 1
+        )
+        entitlement_service.record_usage(
+            db,
+            organization_id=api_key.organization_id,
+            event_type=UsageEventType.api_call,
+            metadata={"api_key_id": api_key.id, "mode": api_key.mode},
+        )
         db.commit()
         return api_key
 

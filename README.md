@@ -121,6 +121,49 @@ docker compose exec backend python scripts/seed.py
 * **Demo Admin Email:** `admin@signflow.com`
 * **Password:** `password123`
 
+### Seed the SignForge Design Dataset
+
+`scripts/seed.py` gives you a minimal working account. To make a fresh install
+look exactly like the SignForge design — six tenants, the documents, templates,
+contacts, invoices, tickets, logs, flags and twelve months of history the
+Reports and Revenue screens aggregate — run the SignForge seeder instead. It is
+idempotent (upserts by natural key), so it is safe to run repeatedly.
+
+**Local Setup:**
+```bash
+cd backend
+python scripts/seed_signforge.py
+```
+
+**Docker Setup:**
+```bash
+docker compose exec backend python scripts/seed_signforge.py
+```
+
+**Throwaway SQLite database (no Postgres needed):**
+```bash
+cd backend
+python scripts/seed_signforge.py --database-url sqlite+pysqlite:///./signforge.db
+```
+
+**Start over:** `--reset` clears the seeded tenant graph first.
+```bash
+python scripts/seed_signforge.py --reset
+```
+
+Every seeded account shares one password, printed at the end of the run along
+with the plaintext API keys (only their hashes are stored):
+
+| Account | Email | Password |
+| --- | --- | --- |
+| Super admin | `jordan.mehta@signforge.com` | `SignForge!2026` |
+| Acme · Legal Ops admin (Jordan Mehta) | `jordan.mehta@northwind.com` | `SignForge!2026` |
+| Acme · Org admin (Priya Raman) | `priya@acme.io` | `SignForge!2026` |
+
+The other directory users — `m.bell@acme.io`, `alex.rivera@acme.io`,
+`dana@northwind-legal.com`, `sofia@vertex.dev`, `it@halden.de`,
+`security@kestrel.health`, `hello@lumen.studio` — use the same password.
+
 ### Reset Database
 
 If you need to wipe and reset the database schema and re-seed all default tables:
@@ -137,6 +180,9 @@ python scripts/seed.py
 ```bash
 # Tears down volume, restarts database, migrates, and seeds:
 docker compose down -v && docker compose up -d --build && docker compose exec backend alembic upgrade head && docker compose exec backend python scripts/seed.py
+
+# …or reset straight into the full SignForge design dataset:
+docker compose down -v && docker compose up -d --build && docker compose exec backend alembic upgrade head && docker compose exec backend python scripts/seed_signforge.py
 ```
 
 ---

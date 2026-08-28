@@ -306,7 +306,11 @@ class DocumentService:
         document.field_config_sha256 = sha256_json(field_payload)
         document.status = DocumentStatus.sent
         document.sent_at = datetime.now(timezone.utc)
-        document.expires_at = document.sent_at + timedelta(days=get_settings().signing_token_expire_days)
+        # The envelope's own setting wins (RTE-1); the global
+        # SIGNING_TOKEN_EXPIRE_DAYS is only the fallback for rows that carry no
+        # per-document value.
+        expire_days = document.expires_in_days or get_settings().signing_token_expire_days
+        document.expires_at = document.sent_at + timedelta(days=expire_days)
 
         recipients_to_email = self._recipients_available_to_sign(document.recipients, document.workflow_type)
         links: list[dict[str, str]] = []
@@ -314,7 +318,12 @@ class DocumentService:
             recipient.status = RecipientStatus.waiting
         for recipient in recipients_to_email:
             recipient.status = RecipientStatus.sent
-            raw_token, _ = token_service.create_for_recipient(db, document_id=document.id, recipient_id=recipient.id)
+            raw_token, _ = token_service.create_for_recipient(
+                db,
+                document_id=document.id,
+                recipient_id=recipient.id,
+                expires_at=document.expires_at,
+            )
             link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token, db=db)
             links.append({"recipient_id": recipient.id, "email": recipient.email, "signing_link": link})
             audit_service.log(

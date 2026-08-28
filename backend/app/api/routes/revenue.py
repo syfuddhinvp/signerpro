@@ -28,7 +28,6 @@ from app.models.subscription import (
     SubscriptionStatus,
 )
 from app.models.user import User
-from app.models.webhook import WebhookDelivery
 from app.schemas.operations import (
     BalanceResponse,
     BillingEventResponse,
@@ -41,6 +40,7 @@ from app.schemas.operations import (
     RevenueSeriesPoint,
     RevenueSummary,
 )
+from app.services import platform_service
 from app.services.billing_service import MAX_DUNNING_STEP, billing_service
 
 # The router owns the whole /api/saas billing surface, so the new tiles do not
@@ -451,51 +451,7 @@ def platform_health(
 ) -> list[HealthComponent]:
     """Component health for the platform home tiles (REV-6).
 
-    Only components with a real signal in the database are reported. Anything
-    that would need an external probe (latency percentiles, worker queues) is
-    intentionally absent rather than invented.
+    The derivation lives in ``platform_service.component_health`` so this
+    endpoint and ``GET /api/saas/overview`` can never disagree.
     """
-    now = _now()
-    window = now - timedelta(days=1)
-    total = int(
-        db.scalar(select(func.count(WebhookDelivery.id)).where(WebhookDelivery.created_at >= window)) or 0
-    )
-    delivered = int(
-        db.scalar(
-            select(func.count(WebhookDelivery.id)).where(
-                WebhookDelivery.created_at >= window, WebhookDelivery.status == "delivered"
-            )
-        )
-        or 0
-    )
-    success = round(delivered * 100 / total, 1) if total else 100.0
-    unprocessed = int(
-        db.scalar(
-            select(func.count(ProcessedWebhookEvent.id)).where(
-                ProcessedWebhookEvent.processed == False  # noqa: E712
-            )
-        )
-        or 0
-    )
-    dunning = int(
-        db.scalar(select(func.count(Charge.id)).where(Charge.status == "failed")) or 0
-    )
-    return [
-        HealthComponent(
-            component="Webhook delivery",
-            detail=f"{success}% delivered in 24h ({delivered}/{total})",
-            tone="good" if success >= 99 else ("warn" if success >= 95 else "bad"),
-        ),
-        HealthComponent(
-            component="Payment provider",
-            detail=(
-                f"{billing_service.provider.name} · {unprocessed} unprocessed event(s)"
-            ),
-            tone="good" if unprocessed == 0 else ("warn" if unprocessed < 5 else "bad"),
-        ),
-        HealthComponent(
-            component="Collections",
-            detail=f"{dunning} failed charge(s) in dunning",
-            tone="good" if dunning == 0 else ("warn" if dunning < 5 else "bad"),
-        ),
-    ]
+    return [HealthComponent(**row) for row in platform_service.component_health(db)]

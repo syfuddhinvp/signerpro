@@ -184,6 +184,116 @@ def record_system_log(
     return row
 
 
+# --- Platform component health --------------------------------------------
+#
+# ONE implementation, two consumers: ``GET /api/saas/health`` (REV-6) renders
+# it as ``HealthComponent`` and ``GET /api/saas/overview`` (ORG-9) as
+# ``PlatformHealthRow``. Both shapes are {component, detail, tone}; two
+# separate derivations were the reason the two screens disagreed.
+#
+# Only components with a real signal in the database are reported. Anything
+# needing an external probe (latency percentiles, worker queues) is
+# deliberately absent rather than invented.
+
+
+def component_health(db: Session) -> list[dict[str, str]]:
+    """Derived health rows for the platform home tiles."""
+    from app.models.charge import Charge
+    from app.models.subscription import ProcessedWebhookEvent
+    from app.models.webhook import WebhookDelivery
+    from app.services.billing_service import billing_service
+
+    now = now_utc()
+    day_ago = now - timedelta(days=1)
+
+    errors_24h = int(
+        db.scalar(
+            select(func.count())
+            .select_from(SystemLog)
+            .where(SystemLog.level == "error", SystemLog.occurred_at >= day_ago)
+        )
+        or 0
+    )
+    envelopes_30d = int(
+        db.scalar(
+            select(func.count()).select_from(Document).where(Document.created_at >= now - timedelta(days=30))
+        )
+        or 0
+    )
+    suspended = int(
+        db.scalar(
+            select(func.count()).select_from(Organization).where(Organization.suspended_at.is_not(None))
+        )
+        or 0
+    )
+    total_deliveries = int(
+        db.scalar(select(func.count(WebhookDelivery.id)).where(WebhookDelivery.created_at >= day_ago)) or 0
+    )
+    delivered = int(
+        db.scalar(
+            select(func.count(WebhookDelivery.id)).where(
+                WebhookDelivery.created_at >= day_ago, WebhookDelivery.status == "delivered"
+            )
+        )
+        or 0
+    )
+    success = round(delivered * 100 / total_deliveries, 1) if total_deliveries else 100.0
+    unprocessed = int(
+        db.scalar(
+            select(func.count(ProcessedWebhookEvent.id)).where(
+                ProcessedWebhookEvent.processed == False  # noqa: E712
+            )
+        )
+        or 0
+    )
+    dunning = int(db.scalar(select(func.count(Charge.id)).where(Charge.status == "failed")) or 0)
+
+    return [
+        {
+            "component": "API",
+            "detail": f"{errors_24h} errors in the last 24h",
+            "tone": "bad" if errors_24h > 50 else "warn" if errors_24h else "good",
+        },
+        {
+            "component": "Signing",
+            "detail": f"{envelopes_30d} envelopes in the last 30 days",
+            "tone": "good",
+        },
+        {
+            "component": "Tenants",
+            "detail": f"{suspended} suspended",
+            "tone": "warn" if suspended else "good",
+        },
+        {
+            "component": "Webhook delivery",
+            "detail": f"{success}% delivered in 24h ({delivered}/{total_deliveries})",
+            "tone": "good" if success >= 99 else ("warn" if success >= 95 else "bad"),
+        },
+        {
+            "component": "Payment provider",
+            "detail": f"{billing_service.provider.name} \u00b7 {unprocessed} unprocessed event(s)",
+            "tone": "good" if unprocessed == 0 else ("warn" if unprocessed < 5 else "bad"),
+        },
+        {
+            "component": "Collections",
+            "detail": f"{dunning} failed charge(s) in dunning",
+            "tone": "good" if dunning == 0 else ("warn" if dunning < 5 else "bad"),
+        },
+    ]
+
+
+def error_count_since(db: Session, *, days: int) -> int:
+    """System-log error rows in the window -- backs the derived uptime figure."""
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(SystemLog)
+            .where(SystemLog.level == "error", SystemLog.occurred_at >= now_utc() - timedelta(days=days))
+        )
+        or 0
+    )
+
+
 # --- Tenant metrics --------------------------------------------------------
 
 

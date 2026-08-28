@@ -603,28 +603,10 @@ def platform_overview(
             )
         )
 
-    errors_24h = db.scalar(
-        select(func.count())
-        .select_from(SystemLog)
-        .where(SystemLog.level == "error", SystemLog.occurred_at >= now_utc() - timedelta(days=1))
-    ) or 0
-    health = [
-        PlatformHealthRow(
-            component="API",
-            detail=f"{errors_24h} errors in the last 24h",
-            tone="bad" if errors_24h > 50 else "warn" if errors_24h else "good",
-        ),
-        PlatformHealthRow(
-            component="Signing",
-            detail=f"{envelopes} envelopes in the last 30 days",
-            tone="good",
-        ),
-        PlatformHealthRow(
-            component="Tenants",
-            detail=f"{suspended} suspended",
-            tone="warn" if suspended else "good",
-        ),
-    ]
+    # Health and the error count behind uptime come from platform_service, the
+    # single derivation shared with GET /api/saas/health.
+    errors_24h = platform_service.error_count_since(db, days=1)
+    health = [PlatformHealthRow(**row) for row in platform_service.component_health(db)]
 
     return PlatformOverview(
         tenants=PlatformTenantCounts(

@@ -1,38 +1,73 @@
 'use client';
 
 import type { CSSProperties } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import type { ScreenKey } from '@/lib/sf/routes';
-import { ORG_STATS, ORG_SERIES, ORG_ATTENTION, ORG_SPEND_LINES, ORG_TEAM, TOUR, ACCENT_DEFAULT } from '@/lib/sf/data';
+import { TOUR } from '@/lib/sf/data';
 import { btn, railHead } from '@/lib/sf/ui';
+import type {
+  OverviewAttentionRow,
+  OverviewBanner,
+  OverviewSpend,
+  OverviewTeamRow,
+} from '@/lib/sf/adapters';
 
-export default function TenantHome() {
-  const { accent, set, initials } = useSF();
+/**
+ * Server data, fetched and adapted in `app/(app)/overview/page.tsx` from
+ * `GET /api/organizations/me/overview`. This screen owns no data of its own —
+ * only the tour trigger and navigation.
+ */
+export type TenantHomeProps = {
+  banner: OverviewBanner;
+  stats: { label: string; value: string; meta: string; good: boolean; pct: number }[];
+  /** Twelve envelope counts, one per bucket of the overview's range. */
+  series: number[];
+  /** Bucket labels (`W23`…) for the chart's tooltips and axis. */
+  seriesLabels: string[];
+  attention: OverviewAttentionRow[];
+  spend: OverviewSpend;
+  team: OverviewTeamRow[];
+  /** "due 1 Sep · autopay on", from the subscription. */
+  nextInvoiceMeta: string;
+};
+
+/* Shared with the empty branches so they match the design's muted rows. */
+const emptyNote: CSSProperties = { fontSize: '12px', color: '#94a3b8', lineHeight: 1.6 };
+
+export default function TenantHome({
+  banner, stats, series, seriesLabels, attention, spend, team, nextInvoiceMeta,
+}: TenantHomeProps) {
+  const { set, initials, accent } = useSF();
   const { go } = useNav();
+  const router = useRouter();
   const A = accent();
 
-  const orgStats = ORG_STATS.map(x => ({
+  const orgStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
     metaStyle: { fontSize: '11.5px', fontWeight: 600, fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: x.good ? '#047857' : '#c2410c' } as CSSProperties,
     bar: { width: x.pct + '%', height: '100%', borderRadius: '99px', background: x.good ? '#10b981' : '#f59e0b' } as CSSProperties,
   }));
 
-  const orgChart = ORG_SERIES.map((v, i) => ({
-    title: 'W' + (23 + i) + ' · ' + v + ' envelopes',
+  /* The prototype divided by a hardcoded 612; the peak is now the real one. */
+  const peak = Math.max(1, ...series);
+  const orgChart = series.map((v, i) => ({
+    title: (seriesLabels[i] ?? `Bucket ${i + 1}`) + ' · ' + v + ' envelopes',
     wrap: { flex: '1', height: '100%', display: 'flex', alignItems: 'flex-end' } as CSSProperties,
-    bar: { width: '100%', height: Math.round(v / 612 * 100) + '%', borderRadius: '5px 5px 2px 2px', background: i === ORG_SERIES.length - 1 ? A : '#c7d2fe' } as CSSProperties,
+    bar: { width: '100%', height: Math.round(v / peak * 100) + '%', borderRadius: '5px 5px 2px 2px', background: i === series.length - 1 ? A : '#c7d2fe' } as CSSProperties,
   }));
+  const axis = [seriesLabels[0], seriesLabels[Math.floor(series.length / 2)], seriesLabels[series.length - 1]];
 
-  const orgAttention = ORG_ATTENTION.map(([label, meta, target, color]) => ({
-    label, meta,
-    onClick: () => go(target as ScreenKey, { workspace: target === 'platform' ? 'platform' : 'tenant' }),
+  const orgAttention = attention.map(a => ({
+    label: a.label, meta: a.meta,
+    onClick: () => router.push(a.href),
     rowStyle: { display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', border: '1px solid #eef1f6', borderRadius: '11px', background: '#fbfcfd', cursor: 'pointer', width: '100%' } as CSSProperties,
-    dot: { width: '8px', height: '8px', borderRadius: '99px', background: color === ACCENT_DEFAULT ? A : color, flex: '0 0 8px' } as CSSProperties,
+    dot: { width: '8px', height: '8px', borderRadius: '99px', background: a.color === 'ACCENT' ? A : a.color, flex: '0 0 8px' } as CSSProperties,
   }));
 
-  const orgTeam = ORG_TEAM.map(([name, meta, count]) => ({
-    name, meta, count, initials: initials(name),
+  const orgTeam = team.map(t => ({
+    name: t.name, meta: t.meta, count: t.count, initials: initials(t.name),
     chip: { width: '28px', height: '28px', borderRadius: '99px', background: '#e3e7ee', color: '#475569', display: 'grid', placeItems: 'center', fontSize: '11px', fontWeight: 700, flex: '0 0 28px' } as CSSProperties,
   }));
 
@@ -50,10 +85,10 @@ export default function TenantHome() {
     <section data-screen-label="Tenant overview" style={{ padding: '22px 22px 40px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div style={orgBannerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-          <span style={orgAvatar}>AC</span>
+          <span style={orgAvatar}>{banner.initials}</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-            <span style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.2px' }}>Acme Corporation</span>
-            <span style={{ fontSize: '11.5px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>acme · Enterprise · us-east-1 · renews 1 Sep 2026</span>
+            <span style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.2px' }}>{banner.name}</span>
+            <span style={{ fontSize: '11.5px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{banner.meta}</span>
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', flex: '0 0 auto' }}>
@@ -80,18 +115,20 @@ export default function TenantHome() {
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={railHead}>Envelope volume · last 12 weeks</div>
-            <span style={{ fontSize: '11px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>peak 612 / wk</span>
+            <span style={{ fontSize: '11px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>peak {peak} / wk</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '130px' }}>
             {orgChart.map((c, i) => (
               <div key={i} style={c.wrap} title={c.title}><div style={c.bar}></div></div>
             ))}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#94a3b8', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}><span>W23</span><span>W29</span><span>W34</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#94a3b8', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{axis.map((label, i) => <span key={i}>{label}</span>)}</div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
           <div style={railHead}>Needs your attention</div>
-          {orgAttention.map(a => (
+          {orgAttention.length === 0 ? (
+            <span style={emptyNote}>Nothing needs a decision right now.</span>
+          ) : orgAttention.map(a => (
             <button key={a.label} type="button" onClick={a.onClick} style={a.rowStyle}>
               <span style={a.dot}></span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'left', minWidth: 0, flex: 1 }}>
@@ -108,10 +145,12 @@ export default function TenantHome() {
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
           <div style={railHead}>Spend this cycle</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '9px' }}>
-            <span style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-1px' }}>$38,400</span>
-            <span style={{ fontSize: '12px', color: '#64748b' }}>due 1 Sep · autopay on</span>
+            <span style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-1px' }}>{spend.total}</span>
+            <span style={{ fontSize: '12px', color: '#64748b' }}>{nextInvoiceMeta}</span>
           </div>
-          {ORG_SPEND_LINES.map(l => (
+          {spend.lines.length === 0 ? (
+            <span style={emptyNote}>No invoiced usage in this period yet.</span>
+          ) : spend.lines.map(l => (
             <div key={l.k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '6px 0', borderTop: '1px solid #f2f4f8' }}>
               <span style={{ color: '#64748b' }}>{l.k}</span><span style={{ fontFamily: "'Inter', 'Google Sans Flex', sans-serif", fontWeight: 500 }}>{l.v}</span>
             </div>
@@ -120,7 +159,9 @@ export default function TenantHome() {
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
           <div style={railHead}>Team activity</div>
-          {orgTeam.map(t => (
+          {orgTeam.length === 0 ? (
+            <span style={emptyNote}>No teammates have sent an envelope yet.</span>
+          ) : orgTeam.map(t => (
             <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
               <span style={t.chip}>{t.initials}</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flex: 1, minWidth: 0 }}>

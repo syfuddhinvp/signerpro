@@ -1,14 +1,81 @@
 'use client';
 
-import type { CSSProperties } from 'react';
-import { useSF } from '@/lib/sf/state';
+import React, { type CSSProperties } from 'react';
+import { reorderRecips, useSF, type Recipient } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import { btn, pill, inputStyle, lbl, railHead, TONE_NEUTRAL } from '@/lib/sf/ui';
+import { useDocumentPersistence } from '@/lib/sf/builderInteractions';
+import { toBuilderRecipients, type BuilderRouting } from '@/lib/sf/adapters';
+import type { RecipientResponse, RecipientRole } from '@/lib/api/types';
 
-export default function Routing() {
-  const { s, set, accent, recips, reorder } = useSF();
+export type RoutingProps = {
+  /** null when the tenant has no draft to route. */
+  documentId: string | null;
+  recipients: RecipientResponse[];
+  routing: BuilderRouting | null;
+};
+
+export default function Routing({ documentId, recipients, routing }: RoutingProps) {
+  const { s, set, accent, recips } = useSF();
   const { go } = useNav();
   const A = accent();
+
+  const seededRecipients = React.useMemo<Recipient[]>(() => toBuilderRecipients(recipients), [recipients]);
+
+  /* This screen never touches fields, so the persistence hook is given the
+     store's current set as its own baseline — that keeps its field autosave
+     inert here while still providing the recipient, routing and send calls. */
+  const P = useDocumentPersistence({
+    documentId,
+    serverFields: [],
+    serverRecipients: recipients,
+    seededFields: s.fields,
+    autosaveFields: false,
+  });
+
+  React.useEffect(() => {
+    if (!documentId) return;
+    set({
+      recipients: seededRecipients,
+      routing: routing ? routing.routing : 'sequential',
+      cadence: routing ? routing.cadence : '48h',
+      expiry: routing ? routing.expiry : '14',
+      message: routing ? routing.message : '',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, seededRecipients, routing]);
+
+  const [sending, setSending] = React.useState(false);
+
+  const reorderRecipient = (id: string, dir: number) => {
+    const next = reorderRecips(s, id, dir);
+    if (!next) return;
+    set({ recipients: next });
+    P.saveRecipientOrder(next);
+  };
+  const changeRole = (id: string, role: string) => {
+    set({ recipients: recips().map(x => (x.id === id ? Object.assign({}, x, { role }) : x)) });
+    P.patchRecipient(id, { role: role as RecipientRole });
+  };
+  const changeRouting = (patch: Partial<BuilderRouting>) => {
+    const local: { [k: string]: string } = {};
+    if (patch.routing !== undefined) local.routing = patch.routing;
+    if (patch.cadence !== undefined) local.cadence = patch.cadence;
+    if (patch.expiry !== undefined) local.expiry = patch.expiry;
+    if (patch.message !== undefined) local.message = patch.message;
+    if (Object.keys(local).length) set(local);
+    P.saveRouting(patch);
+  };
+
+  /** `POST /api/documents/{id}/send` — the real thing, then the signer view. */
+  const send = () => {
+    if (sending) return;
+    setSending(true);
+    void P.sendEnvelope().then(ok => {
+      setSending(false);
+      if (ok) go('sign');
+    });
+  };
 
   const list = recips();
 
@@ -23,24 +90,21 @@ export default function Routing() {
     orderStyle: { width: '26px', height: '26px', borderRadius: '8px', background: r.color, color: '#fff', display: 'grid', placeItems: 'center', fontSize: '11.5px', fontWeight: 700, flex: '0 0 26px' } as CSSProperties,
     selectStyle: Object.assign({}, inputStyle, { width: '160px' }) as CSSProperties,
     pill: pill(TONE_NEUTRAL),
-    onRole: (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const v = e.target.value;
-      set({ recipients: list.map(x => (x.id === r.id ? Object.assign({}, x, { role: v }) : x)) });
-    },
-    onUp: () => reorder(r.id, -1),
-    onDown: () => reorder(r.id, 1)
+    onRole: (e: React.ChangeEvent<HTMLSelectElement>) => changeRole(r.id, e.target.value),
+    onUp: () => reorderRecipient(r.id, -1),
+    onDown: () => reorderRecipient(r.id, 1)
   }));
 
   const cadences = ['24h', '48h', '7 days', 'none'].map(c => ({
     key: c,
     label: c === 'none' ? 'No reminders' : 'Every ' + c,
-    onClick: () => set({ cadence: c }),
+    onClick: () => changeRouting({ cadence: c }),
     style: btn(s.cadence === c ? '#eef2ff' : '#fff', s.cadence === c ? '#3730a3' : '#475569', s.cadence === c ? '#c7d2fe' : '#e3e7ee')
   }));
 
   const timeline = ([
-    ['Envelope queued', 'now · sequential · ' + list.length + ' recipients'],
-    ['Signer 1 notified', '+0s · alex.rivera@acme.io'],
+    ['Envelope queued', 'now · ' + s.routing + ' · ' + list.length + (list.length === 1 ? ' recipient' : ' recipients')],
+    ['Signer 1 notified', '+0s · ' + (list.length ? list[0].email : 'no recipients yet')],
     ['Reminder scheduled', s.cadence === 'none' ? 'disabled' : '+' + s.cadence + ' cadence'],
     ['Expires', 'in ' + s.expiry + ' days · auto-void']
   ] as [string, string][]).map(([label, meta], i) => ({
@@ -58,17 +122,34 @@ export default function Routing() {
   const textarea: CSSProperties = { border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '12.5px', resize: 'vertical', outline: 'none', width: '100%', color: '#0f172a' };
   const primaryBtnWide: CSSProperties = Object.assign(btn(A, '#fff', A), { flex: '1', justifyContent: 'center', height: '36px' });
 
+  if (!documentId) {
+    return (
+      <section data-screen-label="Routing" style={{ padding: '22px', display: 'grid', placeItems: 'center' }}>
+        <div style={{ maxWidth: '420px', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'center' }}>
+          <span style={{ fontSize: '13.5px', fontWeight: 600, color: '#0f172a' }}>No envelope to route</span>
+          <span style={{ fontSize: '12px', lineHeight: 1.6, color: '#64748b' }}>Create a draft from the documents list, add its recipients, then set the signing order here.</span>
+          <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, btn(A, '#fff', A), { justifyContent: 'center' })}>Go to documents</button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section data-screen-label="Routing" style={{ padding: '22px', display: 'grid', gridTemplateColumns: 'minmax(0,1.55fr) minmax(0,1fr)', gap: '16px', alignItems: 'start' }}>
       <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
           <div style={railHead}>Signing order</div>
           <div style={{ display: 'flex', gap: '4px', background: '#f5f6f8', padding: '4px', borderRadius: '10px' }}>
-            <button type="button" onClick={() => set({ routing: 'sequential' })} style={seqStyle}>Sequential</button>
-            <button type="button" onClick={() => set({ routing: 'parallel' })} style={parStyle}>Parallel</button>
+            <button type="button" onClick={() => changeRouting({ routing: 'sequential' })} style={seqStyle}>Sequential</button>
+            <button type="button" onClick={() => changeRouting({ routing: 'parallel' })} style={parStyle}>Parallel</button>
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
+          {!routingRows.length ? (
+            <div style={{ fontSize: '12px', color: '#64748b', background: '#fbfcfd', border: '1px solid #eef1f6', borderRadius: '12px', padding: '14px', lineHeight: 1.6 }}>
+              No recipients on this envelope yet. Add them from the prepare screen or the contacts list.
+            </div>
+          ) : null}
           {routingRows.map(r => (
             <div key={r.id} style={r.rowStyle}>
               <span style={r.orderStyle}>{r.order}</span>
@@ -102,7 +183,7 @@ export default function Routing() {
             ))}
           </div>
           <label style={lbl}>Expires after
-            <select value={s.expiry} onChange={(e) => set({ expiry: e.target.value })} style={inputStyle}>
+            <select value={s.expiry} onChange={(e) => changeRouting({ expiry: e.target.value })} style={inputStyle}>
               <option value="7">7 days</option>
               <option value="14">14 days</option>
               <option value="30">30 days</option>
@@ -110,9 +191,9 @@ export default function Routing() {
             </select>
           </label>
           <label style={lbl}>Email message
-            <textarea onChange={(e) => set({ message: e.target.value })} value={s.message} rows={4} style={textarea} />
+            <textarea onChange={(e) => changeRouting({ message: e.target.value })} value={s.message} rows={4} style={textarea} />
           </label>
-          <button type="button" onClick={() => go('sign')} style={primaryBtnWide}>Send envelope &amp; preview signer view</button>
+          <button type="button" onClick={send} disabled={sending} style={primaryBtnWide}>Send envelope &amp; preview signer view</button>
         </div>
         <div style={{ background: '#0f172a', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ fontSize: '11px', letterSpacing: '.08em', color: '#94a3b8', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>DELIVERY SIMULATION</div>

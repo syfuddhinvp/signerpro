@@ -1,37 +1,130 @@
 'use client';
 
-/* SignForge — DOCUMENT LIBRARY screen (isDash). Ported verbatim from the prototype. */
+/* SignForge — DOCUMENT LIBRARY screen (isDash). Ported verbatim from the prototype.
+ *
+ * Data comes from `app/(app)/documents/page.tsx` (props); the filters, the
+ * search box, the selection and the open row menu stay in `lib/sf/state.tsx`.
+ * Every filter is mirrored into the URL so the server page refetches — the
+ * markup below is untouched apart from an empty-state branch the prototype's
+ * always-populated mock never needed. */
 
-import type { CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import type { ScreenKey } from '@/lib/sf/routes';
 import { btn, pill, linkBtn } from '@/lib/sf/ui';
 import {
   QUICK_ACCESS, LIB_FOLDERS, LIB_FILTER_DEFS, LIB_SORT_OPTIONS, ROW_ACTIONS,
-  STATUS, TEMPLATES,
+  STATUS,
 } from '@/lib/sf/data';
+import { apiCall } from '@/lib/api/browser';
+import type { ApiResult } from '@/lib/api/result';
+import { documents as documentsApi, templates as templatesApi } from '@/lib/api/resources';
+import {
+  libraryFiltersToQuery, libraryFolderLabel,
+  type FolderOption, type LibraryFilters, type LibraryRow, type TemplateRow,
+} from '@/lib/sf/adapters';
 
-export default function Library() {
-  const { s, set, flash, accent, libDocsFiltered } = useSF();
+export type LibraryProps = {
+  /** One design page of documents for the active folder + filters. */
+  rows: LibraryRow[];
+  /** `DocumentLibraryPage.total` — every document the filters match. */
+  total: number;
+  /** Real templates, for the `templates` folder view. */
+  templates: TemplateRow[];
+  templateTotal: number;
+  /** `GET /api/folders/tree`, flattened — the "Move to folder" targets. */
+  folderOptions: FolderOption[];
+  /** The filters the URL asked for, so a shared link seeds the selects. */
+  initialFilters: LibraryFilters;
+  /** `POST /api/documents/bulk-download` (a zip, so it runs server-side). */
+  bulkDownload: (documentIds: string[]) =>
+    Promise<{ ok: true; filename: string; base64: string } | { ok: false; message: string }>;
+};
+
+/** Row actions the design lists that no endpoint backs yet — they stay toasts. */
+const UNBACKED_ACTIONS = new Set([
+  'Email a copy', 'Create invite link', 'Freeform invite', 'Notarize', 'Quick preview',
+  'Share', 'Download', 'Download with certificate', 'Print', 'Export to cloud',
+  'Merge document with…',
+]);
+
+export default function Library(props: LibraryProps) {
+  const { rows, total, templates, templateTotal, folderOptions, initialFilters, bulkDownload } = props;
+  const { s, set, flash, accent } = useSF();
   const { go } = useNav();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const A = accent();
 
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
 
-  const libFolderLabel = (
+  /* ── filters ⇄ URL ─────────────────────────────────────────────────────
+     The selects write to the store as before; the store is mirrored into the
+     query string, which is what the server page reads. Typing is debounced so
+     a search does one refetch, not one per keystroke. */
+  const seeded = useRef(false);
+  const [seedApplied, setSeedApplied] = useState(false);
+  useEffect(() => {
+    if (seeded.current) return;
+    seeded.current = true;
+    setSeedApplied(true);
+    set({
+      libFolder: initialFilters.folder,
+      libStatus: initialFilters.status,
+      libType: initialFilters.type,
+      libTime: initialFilters.time,
+      libOwner: initialFilters.owner,
+      libSort: initialFilters.sort,
+      query: initialFilters.q,
+    });
+  }, [initialFilters, set]);
+
+  const [debouncedQuery, setDebouncedQuery] = useState(initialFilters.q);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(s.query), 300);
+    return () => clearTimeout(timer);
+  }, [s.query]);
+
+  const currentQuery = searchParams.toString();
+  useEffect(() => {
+    if (!seedApplied) return;
+    const next = libraryFiltersToQuery({
+      folder: s.libFolder, status: s.libStatus, type: s.libType, time: s.libTime,
+      owner: s.libOwner, q: debouncedQuery, sort: s.libSort,
+    });
+    if (next.replace(/^\?/, '') === currentQuery) return;
+    router.replace(`/documents${next}`, { scroll: false });
+  }, [s.libFolder, s.libStatus, s.libType, s.libTime, s.libOwner, s.libSort, debouncedQuery, currentQuery, router, seedApplied]);
+
+  /* ── mutations ─────────────────────────────────────────────────────────
+     Optimistic toast first (the prototype's behaviour), then the call, then a
+     refresh so the server page re-renders the row. */
+  const run = useCallback((optimistic: string, call: () => Promise<ApiResult<unknown>>) => {
+    flash(optimistic);
+    void call().then(res => {
+      if (!res.ok) { flash('Could not complete · ' + res.error.message); return; }
+      router.refresh();
+    });
+  }, [flash, router]);
+
+  const libFolderLabel = libraryFolderLabel(
+    s.libFolder,
     (QUICK_ACCESS as [string, string, number, string][])
       .map(f => [f[0], f[1]] as [string, string])
-      .concat(LIB_FOLDERS.map(f => [f[0], f[1]] as [string, string]))
-      .find(f => f[0] === s.libFolder) || ['', 'Documents']
-  )[1];
+      .concat(LIB_FOLDERS.map(f => [f[0], f[1]] as [string, string])),
+    folderOptions,
+  );
 
   const isTemplateFolder = s.libFolder === 'templates';
-  const libDocs = libDocsFiltered();
+  const isArchiveFolder = s.libFolder === 'archive';
+  const isTrashFolder = s.libFolder === 'trash';
+  const libDocs = rows;
 
   const libCountLabel =
-    (isTemplateFolder ? TEMPLATES.length : libDocs.length) +
+    (isTemplateFolder ? templateTotal : total) +
     (isTemplateFolder ? ' templates' : ' documents');
 
   const filterSelectStyle: CSSProperties = {
@@ -52,12 +145,73 @@ export default function Library() {
 
   const libSortOptions = LIB_SORT_OPTIONS.map(([id, label]) => ({ id, label }));
 
-  const libRows = (isTemplateFolder ? TEMPLATES : libDocs).map((d: any, i: number) => {
+  const moveTarget = folderOptions[0] ?? null;
+
+  const libRows = (isTemplateFolder ? templates : libDocs).map((d: any, i: number) => {
     const isTpl = isTemplateFolder;
+    /** The real UUID — what the API takes. `d.id` stays the design's reference. */
+    const uid: string = isTpl ? d.templateId : d.documentId;
     const st = isTpl ? STATUS.completed : STATUS[d.status];
-    const checked = s.libSelected.indexOf(d.id) > -1;
+    const checked = s.libSelected.indexOf(uid) > -1;
+
+    /** Row action → endpoint. Everything in `UNBACKED_ACTIONS` keeps its toast. */
+    const actionCall = (label: string): (() => void) | null => {
+      if (isTpl) {
+        switch (label) {
+          case 'Make template':
+          case 'Duplicate':
+            return () => run('Template duplicated', () => templatesApi.duplicate(apiCall, uid));
+          case 'Rename': {
+            return () => {
+              const title = window.prompt('Rename template', d.title);
+              if (!title || title === d.title) return;
+              run(title + ' renamed', () => templatesApi.update(apiCall, uid, { title }));
+            };
+          }
+          case 'Move to folder':
+            return moveTarget
+              ? () => run('Moved to ' + moveTarget.name, () => templatesApi.update(apiCall, uid, { folder_id: moveTarget.id }))
+              : () => flash('No folders yet — create one first');
+          case 'Archive':
+            return isArchiveFolder
+              ? () => run(d.title + ' restored', () => templatesApi.restore(apiCall, uid))
+              : () => run(d.title + ' archived', () => templatesApi.archive(apiCall, uid));
+          default:
+            return null;
+        }
+      }
+      switch (label) {
+        case 'Make template':
+          return () => run(d.title + ' saved as a template', () => documentsApi.makeTemplate(apiCall, uid));
+        case 'Duplicate':
+          return () => run(d.title + ' duplicated', () => documentsApi.duplicate(apiCall, uid));
+        case 'Rename':
+          return () => {
+            const title = window.prompt('Rename document', d.title);
+            if (!title || title === d.title) return;
+            run(title + ' renamed', () => documentsApi.rename(apiCall, uid, title));
+          };
+        case 'Move to folder':
+          return moveTarget
+            ? () => run('Moved to ' + moveTarget.name, () => documentsApi.move(apiCall, uid, moveTarget.id))
+            : () => flash('No folders yet — create one first');
+        case 'Archive':
+          if (isArchiveFolder) return () => run(d.title + ' unarchived', () => documentsApi.unarchive(apiCall, uid));
+          if (isTrashFolder) return () => run(d.title + ' restored', () => documentsApi.restore(apiCall, uid));
+          return () => run(d.title + ' archived', () => documentsApi.archive(apiCall, uid));
+        case 'Delete':
+          if (isTrashFolder) {
+            return () => run(d.title + ' deleted permanently',
+              () => documentsApi.bulk(apiCall, { document_ids: [uid], action: 'purge' }));
+          }
+          return () => run(d.title + ' moved to Trash', () => documentsApi.trash(apiCall, uid));
+        default:
+          return null;
+      }
+    };
+
     return {
-      id: d.id,
+      id: uid,
       title: d.title,
       checked: checked ? 'true' : 'false',
       meta: isTpl
@@ -72,7 +226,7 @@ export default function Library() {
         background: checked ? '#f8faff' : 'transparent', flexWrap: 'wrap',
       } as CSSProperties,
       onCheck: () => set(st2 => ({
-        libSelected: checked ? st2.libSelected.filter(x => x !== d.id) : st2.libSelected.concat([d.id]),
+        libSelected: checked ? st2.libSelected.filter(x => x !== uid) : st2.libSelected.concat([uid]),
       })),
       thumb: {
         width: '40px', height: '50px', borderRadius: '5px', background: '#fff',
@@ -84,43 +238,114 @@ export default function Library() {
       line3: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '64%' } as CSSProperties,
       line4: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '74%' } as CSSProperties,
       onOpen: () => { set({ wizardStep: 1 }); go('builder'); },
+      /* The design gives favourites no affordance of their own, so the row
+         title carries the toggle on double-click until one is designed. */
+      onFavorite: isTpl ? undefined : () => {
+        if (d.isFavorite) run(d.title + ' removed from Favorites', () => documentsApi.unfavorite(apiCall, uid));
+        else run(d.title + ' added to Favorites', () => documentsApi.favorite(apiCall, uid));
+      },
       primaryLabel: isTpl ? 'Use template' : (d.status === 'draft' ? 'Prepare and send' : 'Invite to sign'),
-      onPrimary: () => { set({ wizardStep: 1 }); go('builder'); },
-      onTemplate: () => flash(isTpl ? 'Template duplicated' : d.title + ' saved as a template'),
-      menuOpen: s.menuDoc === d.id,
+      onPrimary: isTpl
+        ? () => {
+          flash('Document created from ' + d.title);
+          void templatesApi.use(apiCall, uid).then(res => {
+            if (!res.ok) { flash('Could not complete · ' + res.error.message); return; }
+            set({ wizardStep: 1 });
+            go('builder');
+          });
+        }
+        : () => { set({ wizardStep: 1 }); go('builder'); },
+      onTemplate: isTpl
+        ? () => run('Template duplicated', () => templatesApi.duplicate(apiCall, uid))
+        : () => run(d.title + ' saved as a template', () => documentsApi.makeTemplate(apiCall, uid)),
+      menuOpen: s.menuDoc === uid,
       onMenu: (e: React.MouseEvent) => {
         e.stopPropagation();
-        set({ menuDoc: s.menuDoc === d.id ? null : d.id });
+        set({ menuDoc: s.menuDoc === uid ? null : uid });
       },
       menuBtn: {
         width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
         background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '13px',
         lineHeight: 1, flex: '0 0 28px',
       } as CSSProperties,
-      actions: ROW_ACTIONS.map(([label, target]) => ({
-        label,
-        onClick: () => {
-          set({ menuDoc: null, wizardStep: 1 });
-          if (target) go(target as ScreenKey);
-          else flash(label + ' — ' + d.title);
-        },
-        style: {
-          display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
-          borderRadius: '7px', border: 'none', background: 'transparent', cursor: 'pointer',
-          fontSize: '12.5px',
-          color: (label === 'Delete' || label === 'Archive') ? '#b91c1c' : '#334155',
-        } as CSSProperties,
-      })),
+      actions: ROW_ACTIONS.map(([label, target]) => {
+        const wired = UNBACKED_ACTIONS.has(label) ? null : actionCall(label);
+        return {
+          label,
+          onClick: () => {
+            set({ menuDoc: null, wizardStep: 1 });
+            if (wired) { wired(); return; }
+            if (target) go(target as ScreenKey);
+            else flash(label + ' — ' + d.title);
+          },
+          style: {
+            display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
+            borderRadius: '7px', border: 'none', background: 'transparent', cursor: 'pointer',
+            fontSize: '12.5px',
+            color: (label === 'Delete' || label === 'Archive') ? '#b91c1c' : '#334155',
+          } as CSSProperties,
+        };
+      }),
     };
   });
 
   const hasLibSelection = s.libSelected.length > 0;
   const libSelectedLabel = s.libSelected.length ? s.libSelected.length + ' selected' : '';
+
+  const bulkRun = (optimistic: string, call: () => Promise<ApiResult<unknown>>) => {
+    flash(optimistic);
+    void call().then(res => {
+      set({ libSelected: [] });
+      if (!res.ok) { flash('Could not complete · ' + res.error.message); return; }
+      router.refresh();
+    });
+  };
+
+  const downloadSelection = (ids: string[]) => {
+    flash('Download — ' + ids.length + ' item(s)');
+    void bulkDownload(ids).then(res => {
+      set({ libSelected: [] });
+      if (!res.ok) { flash('Could not complete · ' + res.message); return; }
+      const bytes = Uint8Array.from(atob(res.base64), ch => ch.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = res.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    });
+  };
+
   const libBulk = ['Move', 'Archive', 'Download', 'Delete'].map(label => ({
     label,
     onClick: () => {
-      flash(label + ' — ' + s.libSelected.length + ' item(s)');
-      set({ libSelected: [] });
+      const ids = s.libSelected.slice();
+      const suffix = ' — ' + ids.length + ' item(s)';
+      if (isTemplateFolder) { flash(label + suffix); set({ libSelected: [] }); return; }
+      if (label === 'Download') { downloadSelection(ids); return; }
+      if (label === 'Move') {
+        if (!moveTarget) { flash('No folders yet — create one first'); set({ libSelected: [] }); return; }
+        bulkRun('Moved to ' + moveTarget.name + suffix,
+          () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'move', folder_id: moveTarget.id }));
+        return;
+      }
+      if (label === 'Archive') {
+        if (isArchiveFolder) {
+          bulkRun('Unarchived' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'unarchive' }));
+          return;
+        }
+        if (isTrashFolder) {
+          bulkRun('Restored' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'restore' }));
+          return;
+        }
+        bulkRun('Archived' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'archive' }));
+        return;
+      }
+      if (isTrashFolder) {
+        bulkRun('Deleted permanently' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'purge' }));
+        return;
+      }
+      bulkRun('Moved to Trash' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'delete' }));
     },
     style: btn('#fff', label === 'Delete' ? '#b91c1c' : '#475569', label === 'Delete' ? '#fecaca' : '#e3e7ee'),
   }));
@@ -191,6 +416,16 @@ export default function Library() {
         ) : null}
 
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', overflow: 'visible' }}>
+          {libRows.length === 0 ? (
+            <div style={{ padding: '28px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <span style={{ fontSize: '13.5px', fontWeight: 600, color: '#0f172a' }}>
+                {isTemplateFolder ? 'No templates yet' : 'Nothing in ' + libFolderLabel}
+              </span>
+              <span style={{ fontSize: '11.5px', color: '#94a3b8', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
+                {isTemplateFolder ? 'Save a prepared document as a template to reuse it.' : 'Upload a document or clear the filters above.'}
+              </span>
+            </div>
+          ) : null}
           {libRows.map(d => (
             <div key={d.id} style={d.rowStyle}>
               <button
@@ -208,6 +443,7 @@ export default function Library() {
                 <button
                   type="button"
                   onClick={d.onOpen}
+                  onDoubleClick={d.onFavorite}
                   style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: '13.5px', fontWeight: 600, color: '#0f172a', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 >{d.title}</button>
                 <span style={{ fontSize: '11px', color: '#94a3b8', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.meta}</span>

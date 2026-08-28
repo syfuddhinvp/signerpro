@@ -1,8 +1,110 @@
+/**
+ * Document library — server component.
+ *
+ * The library's filters live in `lib/sf/state.tsx` (ephemeral UI state), but
+ * the *data* they select is fetched here. The screen mirrors every filter into
+ * the URL (`?folder=archive&status=draft&q=nda…`) and Next re-runs this page,
+ * so the query params, the selects and the rows can never disagree — and a
+ * filtered library is a link you can share, bookmark and refresh.
+ */
+
 import type { Metadata } from 'next';
 import Library from '@/components/sf/screens/Library';
+import { serverCaller } from '@/lib/api/client';
+import {
+  documents as documentsApi,
+  folders as foldersApi,
+  templates as templatesApi,
+} from '@/lib/api/resources';
+import {
+  libraryFiltersFromQuery,
+  toFolderOptions,
+  toLibraryParams,
+  toLibraryRows,
+  toTemplateParams,
+  toTemplateRows,
+} from '@/lib/sf/adapters';
+import { DOCS, TEMPLATES } from '@/lib/sf/data';
+import type { DocumentCounts, FolderTreeResponse } from '@/lib/api/types';
+import { backendUrl, getSession } from '@/lib/auth/session';
 
 export const metadata: Metadata = { title: 'Documents · SignForge' };
 
-export default function Page() {
-  return <Library />;
+/**
+ * The design has no pager: it renders one screenful of rows. We keep exactly
+ * that many, and surface the real `total` in the count label instead.
+ */
+const DOC_PAGE_SIZE = DOCS.length;
+const TEMPLATE_PAGE_SIZE = TEMPLATES.length;
+
+const EMPTY_COUNTS: DocumentCounts = {
+  all: 0, action: 0, waiting: 0, completed: 0, draft: 0,
+  voided: 0, archived: 0, trashed: 0, templates: 0,
+};
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+export default async function Page({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const sp = await searchParams;
+  const filters = libraryFiltersFromQuery(key => {
+    const value = sp[key];
+    return Array.isArray(value) ? value[0] : value;
+  });
+
+  const api = serverCaller('/documents');
+  const isTemplateFolder = filters.folder === 'templates';
+
+  const [libraryResult, countsResult, templatesResult, treeResult] = await Promise.all([
+    documentsApi.library(api, toLibraryParams(filters, DOC_PAGE_SIZE)),
+    documentsApi.counts(api),
+    templatesApi.list(api, toTemplateParams(filters, TEMPLATE_PAGE_SIZE)),
+    foldersApi.tree(api),
+  ]);
+
+  const counts: DocumentCounts = countsResult.ok ? countsResult.data : EMPTY_COUNTS;
+  const library = libraryResult.ok
+    ? libraryResult.data
+    // FALLBACK: the counts endpoint still tells us how big the folder is.
+    : { items: [], total: counts.all, limit: DOC_PAGE_SIZE, offset: 0, counts };
+  const templateList = templatesResult.ok ? templatesResult.data : { items: [], total: counts.templates };
+  const tree: FolderTreeResponse | null = treeResult.ok ? treeResult.data : null;
+
+  /**
+   * `POST /api/documents/bulk-download` streams a zip. The JSON proxy would
+   * mangle the bytes, so the bulk bar hands the selection to this action and
+   * gets base64 back to turn into a Blob.
+   */
+  async function bulkDownload(documentIds: string[]) {
+    'use server';
+    const session = await getSession();
+    if (!session) return { ok: false as const, message: 'Your session has expired.' };
+    let response: Response;
+    try {
+      response = await fetch(`${backendUrl()}/api/documents/bulk-download`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ document_ids: documentIds }),
+        cache: 'no-store',
+      });
+    } catch {
+      return { ok: false as const, message: 'Cannot reach the SignForge API.' };
+    }
+    if (!response.ok) {
+      return { ok: false as const, message: response.status === 404 ? 'No downloadable PDFs in the selection' : `Download failed (${response.status})` };
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return { ok: true as const, filename: 'documents.zip', base64: bytes.toString('base64') };
+  }
+
+  return (
+    <Library
+      rows={toLibraryRows(library.items)}
+      total={library.total}
+      templates={toTemplateRows(templateList.items)}
+      templateTotal={isTemplateFolder ? templateList.total : counts.templates}
+      folderOptions={toFolderOptions(tree)}
+      initialFilters={filters}
+      bulkDownload={bulkDownload}
+    />
+  );
 }

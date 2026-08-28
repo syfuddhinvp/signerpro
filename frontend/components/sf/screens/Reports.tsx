@@ -1,44 +1,30 @@
 'use client';
-/* SignForge — Reports screen (isReports). Ported verbatim from the prototype template + renderVals(). */
-import React, { useMemo } from 'react';
+/* SignForge — Reports screen (isReports). Markup ported verbatim from the
+   prototype template + renderVals(); every figure now comes from
+   `GET /api/reports/*` via `app/(app)/reports/page.tsx`. */
+import React, { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
-import { DOCS, REPORT_RECIPIENTS, STATUS, TEMPLATES } from '@/lib/sf/data';
 import { btn, railHead } from '@/lib/sf/ui';
+import { apiCall } from '@/lib/api/browser';
+import { reports as reportsApi } from '@/lib/api/resources';
+import {
+  REPORT_CARDS,
+  reportFieldLabel,
+  toCustomReportCells,
+  type ReportTableRow,
+  type ReportTileRow,
+} from '@/lib/sf/adapters';
 
 const th: CSSProperties = { padding:'10px 14px', fontSize:'11px', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
 const thRight: CSSProperties = { padding:'10px 14px', fontSize:'11px', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, textAlign:'right', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
 const td: CSSProperties = { padding:'11px 14px', verticalAlign:'middle' };
-
-const INVITE_SPLIT: [string, number, string][] = [
-  ['Pending / expired', 1, '#f59e0b'],
-  ['Completed', 9, '#10b981'],
-  ['Declined', 0, '#f43f5e'],
-  ['Cancelled', 5, '#facc15']
-];
-
-const REPORT_TILES = [
-  { label:'COMPLETION RATE', value:'60%', meta:'9 of 15 invites' },
-  { label:'MEDIAN COMPLETION', value:'2h 14m', meta:'−18% vs prior period' },
-  { label:'TEMPLATES CREATED', value:'7', meta:'128 uses' },
-  { label:'DOCUMENTS CREATED', value:'18', meta:'6 senders' },
-  { label:'RECIPIENTS', value:'6', meta:'2 first-time' }
-];
+const emptyCell: CSSProperties = { padding:'22px 14px', fontSize:'12.5px', color:'#94a3b8', textAlign:'center' };
 
 const REPORT_RANGES: [string, string][] = [
   ['7d','Last 7 days'], ['30d','Last 30 days'], ['90d','Last quarter'], ['12m','Last 12 months']
 ];
-
-const ALL_REPORT_CARDS: [string, string][] = [
-  ['Documents report', 'Status, progress and ageing for every envelope in the period.'],
-  ['Templates report', 'Template inventory with field counts and owners.'],
-  ['Templates usage report', 'Which templates are used, by whom and how often.'],
-  ['Completed copies report', 'Every completed copy generated from a template.'],
-  ['Recipients report', 'Per-recipient volume, completion time and decline rate.'],
-  ['Audit export', 'Full event log with checksums for a date range.']
-];
-
-const CUSTOM_REPORT_FIELDS = ['Envelope status','Recipient','Sender','Template','Completion time','Field values','Tenant','Tags'];
 
 const REPORT_TITLES: Record<string, string> = {
   analytics:'My Analytics', all:'All reports', documents:'Documents report',
@@ -53,60 +39,189 @@ const REPORT_SUBS: Record<string, string> = {
   custom:'Compose your own report from available dimensions.'
 };
 
-export default function Reports() {
+/** Which `report_service.REPORT_KEYS` the "Export report" button downloads. */
+const SECTION_REPORT_KEY: Record<string, string> = {
+  analytics: 'invites', all: 'documents', documents: 'documents',
+  templates: 'templates', recipients: 'recipients', custom: 'documents',
+};
+
+/**
+ * Server data, fetched and adapted in `app/(app)/reports/page.tsx` (and its
+ * platform twin). The screen owns only UI state: the section (in the store,
+ * driven by the rail), and the custom-report draft below.
+ *
+ * The range is NOT store state — it is the `?range=` search param, so a range
+ * is shareable and changing it re-runs the server component.
+ */
+export type ReportsProps = {
+  scope: 'tenant' | 'platform';
+  /** `7d | 30d | 90d | 12m`, mirrored from `?range=`. */
+  range: string;
+  inviteTotal: number;
+  inviteSplit: [string, number, string][];
+  tiles: ReportTileRow[];
+  recipientRows: ReportTableRow[];
+  recipientTotal: number;
+  docRows: ReportTableRow[];
+  tplRows: ReportTableRow[];
+  /** `GET /api/reports/fields` — the custom-report dimension catalogue. */
+  customFields: string[];
+  savedReports: { id: string; name: string; fields: string[] }[];
+  /** Set when the API cannot answer this screen in the requested scope. */
+  scopeNotice: string | null;
+};
+
+export default function Reports({
+  scope, range, inviteTotal, inviteSplit, tiles, recipientRows, recipientTotal,
+  docRows, tplRows, customFields, savedReports, scopeNotice,
+}: ReportsProps) {
   const { s, set, flash, accent } = useSF();
+  const router = useRouter();
+  const pathname = usePathname() || '/reports';
   const A = accent();
 
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
 
-  const exportReport = () => flash('Report exported · CSV queued for download');
-  const onReportRange = (e: React.ChangeEvent<HTMLSelectElement>) => set({ reportRange: e.target.value });
+  const sec = s.reportsSection;
 
-  const inviteTotal = INVITE_SPLIT.reduce((a, x) => a + x[1], 0);
-  const inviteBar = INVITE_SPLIT.filter(x => x[1] > 0).map(([label, n, c]) => ({
-    label, style: { width: (n / inviteTotal * 100) + '%', background:c, height:'100%' } as CSSProperties
+  /**
+   * `GET /api/reports/{key}/csv` is a synchronous CSV; the browser gets it
+   * through `/api/proxy` (which re-attaches the bearer token and passes the
+   * `text/csv` body straight through) and saves it as a file.
+   *
+   * The asynchronous path — `POST /api/reports/export` then polling
+   * `GET /api/reports/exports/{id}` — exists for scheduled/large exports; the
+   * button uses the synchronous one so the file lands immediately.
+   */
+  const downloadCsv = async (reportKey: string) => {
+    flash('Report exported · CSV queued for download');
+    try {
+      const res = await fetch(`/api/proxy/reports/${encodeURIComponent(reportKey)}/csv?range=${encodeURIComponent(range)}`, {
+        headers: { accept: 'text/csv' },
+      });
+      if (!res.ok) { flash(`Could not export · ${res.status}`); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${reportKey}-${range}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      flash('Could not export · the API is unreachable');
+    }
+  };
+
+  const exportReport = () => { void downloadCsv(SECTION_REPORT_KEY[sec] ?? 'documents'); };
+
+  /* The range lives in the URL, so the server component refetches on change. */
+  const onReportRange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value;
+    set({ reportRange: next });
+    router.push(`${pathname}?range=${encodeURIComponent(next)}`);
+  };
+
+  const inviteBar = inviteSplit.filter(x => x[1] > 0).map(([label, n, c]) => ({
+    label, style: { width: (inviteTotal ? n / inviteTotal * 100 : 0) + '%', background:c, height:'100%' } as CSSProperties
   }));
-  const inviteLegend = INVITE_SPLIT.map(([label, n, c]) => ({
+  const inviteLegend = inviteSplit.map(([label, n, c]) => ({
     label, value: String(n),
     dot: { width:'8px', height:'8px', borderRadius:'99px', background:c, flex:'0 0 8px' } as CSSProperties
   }));
 
-  const recipientRows = useMemo(() => REPORT_RECIPIENTS.map((r: any, i: number) => ({
-    email: String(r[0]),
-    cells: [r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]].map(v => ({ v: String(v) })),
-    rowStyle: { borderTop: i ? '1px solid #f2f4f8' : 'none' } as CSSProperties
-  })), []);
+  const withDividers = (rows: ReportTableRow[]) => rows.map((r, i) => ({
+    ...r, rowStyle: { borderTop: i ? '1px solid #f2f4f8' : 'none' } as CSSProperties,
+  }));
+  const recipientTableRows = useMemo(() => withDividers(recipientRows), [recipientRows]);
+  const docTableRows = useMemo(() => withDividers(docRows), [docRows]);
+  const tplTableRows = useMemo(() => withDividers(tplRows), [tplRows]);
 
-  const docReportRows = useMemo(() => DOCS.slice(0, 6).map((d: any, i: number) => ({
-    title: d.title, id: d.id,
-    cells: [
-      { v: String(d.total) }, { v: String(d.signed) }, { v: STATUS[d.status].label },
-      { v: d.updated }, { v: Math.round(d.signed / d.total * 100) + '%' }
-    ],
-    rowStyle: { borderTop: i ? '1px solid #f2f4f8' : 'none' } as CSSProperties
-  })), []);
-
-  const tplReportRows = useMemo(() => TEMPLATES.map((t: any, i: number) => ({
-    title: t.title, id: t.id,
-    cells: [{ v: String(t.uses) }, { v: String(t.fields) }, { v: t.owner }, { v: t.updated }],
-    rowStyle: { borderTop: i ? '1px solid #f2f4f8' : 'none' } as CSSProperties
-  })), []);
-
-  const allReportCards = ALL_REPORT_CARDS.map(([label, meta]) => ({
-    label, meta,
-    onClick: () => flash(label + ' generated · ready to export'),
+  /* Each "All reports" card is a real report key, so it downloads for real. */
+  const allReportCards = REPORT_CARDS.map(card => ({
+    label: card.label, meta: card.meta,
+    onClick: () => { void downloadCsv(card.key); },
     style: { display:'flex', flexDirection:'column', gap:'5px', alignItems:'flex-start', textAlign:'left', padding:'14px', borderRadius:'13px',
       border:'1px solid #e3e7ee', background:'#fbfcfd', cursor:'pointer' } as CSSProperties
   }));
 
-  const customFields = CUSTOM_REPORT_FIELDS.map(label => ({
-    label,
-    style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fff', fontSize:'11.5px', color:'#475569', cursor:'pointer' } as CSSProperties,
-    onClick: () => flash(label + ' added to the custom report')
-  }));
+  /* ── custom report builder ─────────────────────────────────────────────
+     The draft resumes the most recently saved definition, so "Run report"
+     works on a return visit without re-picking every dimension. */
+  const latest = savedReports[0];
+  const [definitionId, setDefinitionId] = useState<string | null>(latest?.id ?? null);
+  const [picked, setPicked] = useState<string[]>(latest?.fields ?? []);
+  const [runFields, setRunFields] = useState<string[]>([]);
+  const [runRows, setRunRows] = useState<Record<string, unknown>[]>([]);
+  const [busy, setBusy] = useState(false);
 
-  const sec = s.reportsSection;
+  const togglePicked = (field: string) => {
+    setDefinitionId(null);          // the saved definition no longer matches
+    setPicked(prev => (prev.includes(field) ? prev.filter(f => f !== field) : prev.concat(field)));
+  };
+
+  /** Create the definition on first use; `POST /api/reports/custom`. */
+  const ensureDefinition = async (): Promise<string | null> => {
+    if (definitionId) return definitionId;
+    if (!picked.length) { flash('Pick at least one dimension first'); return null; }
+    const res = await reportsApi.customCreate(apiCall, {
+      name: latest?.name ?? `Custom report · ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+      fields: picked,
+    });
+    if (!res.ok) { flash('Could not save · ' + res.error.message); return null; }
+    setDefinitionId(res.data.id);
+    return res.data.id;
+  };
+
+  const runReport = async () => {
+    setBusy(true);
+    const id = await ensureDefinition();
+    if (id) {
+      const res = await reportsApi.customRun(apiCall, id);
+      if (res.ok) {
+        setRunFields(res.data.fields);
+        setRunRows(res.data.rows ?? []);
+        flash(`${res.data.name} · ${res.data.row_count} rows`);
+      } else {
+        flash('Could not run · ' + res.error.message);
+      }
+    }
+    setBusy(false);
+  };
+
+  const saveDefinition = async () => {
+    setBusy(true);
+    const id = definitionId
+      ? (await reportsApi.customUpdate(apiCall, definitionId, { fields: picked })).ok ? definitionId : null
+      : await ensureDefinition();
+    if (id) { flash('Definition saved'); router.refresh(); }
+    else flash('Could not save the definition');
+    setBusy(false);
+  };
+
+  const scheduleWeekly = async () => {
+    setBusy(true);
+    const id = await ensureDefinition();
+    if (id) {
+      const res = await reportsApi.customSchedule(apiCall, id, { cadence: 'weekly', format: 'csv' });
+      flash(res.ok ? 'Scheduled weekly · CSV' : 'Could not schedule · ' + res.error.message);
+    }
+    setBusy(false);
+  };
+
+  const customFieldChips = customFields.map(field => {
+    const on = picked.includes(field);
+    return {
+      field,
+      label: reportFieldLabel(field),
+      prefix: on ? '−' : '+',
+      style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? '#f5f7ff' : '#fff', fontSize:'11.5px', color: on ? A : '#475569', cursor:'pointer' } as CSSProperties,
+      onClick: () => togglePicked(field),
+    };
+  });
+
   const rpAnalytics = sec === 'analytics';
   const rpAll = sec === 'all';
   const rpDocuments = sec === 'documents';
@@ -131,10 +246,12 @@ export default function Reports() {
           </tr>
         </thead>
         <tbody>
-          {recipientRows.map(r => (
-            <tr key={r.email} style={r.rowStyle}>
-              <td style={td}><span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.email}</span></td>
-              {r.cells.map((c, ci) => <td key={ci} style={td}>{c.v}</td>)}
+          {recipientTableRows.length === 0 ? (
+            <tr><td colSpan={9} style={emptyCell}>No invites went out in this period.</td></tr>
+          ) : recipientTableRows.map(r => (
+            <tr key={r.key} style={r.rowStyle}>
+              <td style={td}><span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.label}</span></td>
+              {r.cells.map((c, ci) => <td key={ci} style={td}>{c}</td>)}
             </tr>
           ))}
         </tbody>
@@ -152,7 +269,7 @@ export default function Reports() {
           </div>
           <div style={{ display:'flex', gap:'7px', flex:'0 0 auto', alignItems:'center' }}>
             <select
-              value={s.reportRange}
+              value={range}
               onChange={onReportRange}
               aria-label="Date range"
               style={{ height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'12.5px', background:'#fff', color:'#334155', outline:'none' }}
@@ -162,6 +279,15 @@ export default function Reports() {
             <button type="button" onClick={exportReport} style={ghostBtn}>Export report</button>
           </div>
         </div>
+
+        {scopeNotice ? (
+          <div
+            data-sf-scope={scope}
+            style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:'13px', padding:'12px 14px', fontSize:'12px', color:'#c2410c', lineHeight:1.6 }}
+          >
+            {scopeNotice}
+          </div>
+        ) : null}
 
         {rpAnalytics ? (
           <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
@@ -181,7 +307,7 @@ export default function Reports() {
             </div>
 
             <div style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0,1fr))', gap:'12px' }}>
-              {REPORT_TILES.map(t => (
+              {tiles.map(t => (
                 <div key={t.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'6px' }}>
                   <span style={{ fontSize:'10.5px', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{t.label}</span>
                   <span style={{ fontSize:'21px', fontWeight:700, letterSpacing:'-.7px' }}>{t.value}</span>
@@ -193,7 +319,7 @@ export default function Reports() {
             <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
               <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
                 <span style={{ fontSize:'13.5px', fontWeight:600 }}>Recipients who received invites</span>
-                <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>7 recipients</span>
+                <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{recipientTotal} recipients</span>
               </div>
               {recipientTable}
             </div>
@@ -226,15 +352,17 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {docReportRows.map(r => (
-                    <tr key={r.id} style={r.rowStyle}>
+                  {docTableRows.length === 0 ? (
+                    <tr><td colSpan={6} style={emptyCell}>No envelopes were created in this period.</td></tr>
+                  ) : docTableRows.map(r => (
+                    <tr key={r.key} style={r.rowStyle}>
                       <td style={td}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
-                          <span style={{ fontWeight:600 }}>{r.title}</span>
-                          <span style={{ fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.id}</span>
+                          <span style={{ fontWeight:600 }}>{r.label}</span>
+                          <span style={{ fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.sub}</span>
                         </div>
                       </td>
-                      {r.cells.map((c, ci) => <td key={ci} style={td}>{c.v}</td>)}
+                      {r.cells.map((c, ci) => <td key={ci} style={td}>{c}</td>)}
                     </tr>
                   ))}
                 </tbody>
@@ -257,15 +385,17 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {tplReportRows.map(r => (
-                    <tr key={r.id} style={r.rowStyle}>
+                  {tplTableRows.length === 0 ? (
+                    <tr><td colSpan={5} style={emptyCell}>No templates were created in this period.</td></tr>
+                  ) : tplTableRows.map(r => (
+                    <tr key={r.key} style={r.rowStyle}>
                       <td style={td}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
-                          <span style={{ fontWeight:600 }}>{r.title}</span>
-                          <span style={{ fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.id}</span>
+                          <span style={{ fontWeight:600 }}>{r.label}</span>
+                          <span style={{ fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.sub}</span>
                         </div>
                       </td>
-                      {r.cells.map((c, ci) => <td key={ci} style={td}>{c.v}</td>)}
+                      {r.cells.map((c, ci) => <td key={ci} style={td}>{c}</td>)}
                     </tr>
                   ))}
                 </tbody>
@@ -284,18 +414,47 @@ export default function Reports() {
           <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'14px' }}>
             <span style={railHead}>Available dimensions</span>
             <div style={{ display:'flex', gap:'7px', flexWrap:'wrap' }}>
-              {customFields.map(f => (
-                <button key={f.label} type="button" onClick={f.onClick} style={f.style}>+ {f.label}</button>
+              {customFieldChips.map(f => (
+                <button key={f.field} type="button" onClick={f.onClick} style={f.style}>{f.prefix} {f.label}</button>
               ))}
             </div>
-            <div style={{ border:'1px dashed #cbd5e1', borderRadius:'13px', padding:'28px', textAlign:'center', color:'#94a3b8', fontSize:'12.5px', lineHeight:1.6 }}>
-              Drop dimensions here to compose a report.<br />Group by any field, then save the definition or schedule a recurring export.
-            </div>
+            {picked.length === 0 ? (
+              <div style={{ border:'1px dashed #cbd5e1', borderRadius:'13px', padding:'28px', textAlign:'center', color:'#94a3b8', fontSize:'12.5px', lineHeight:1.6 }}>
+                Drop dimensions here to compose a report.<br />Group by any field, then save the definition or schedule a recurring export.
+              </div>
+            ) : (
+              <div style={{ border:'1px dashed #cbd5e1', borderRadius:'13px', padding:'14px', display:'flex', gap:'7px', flexWrap:'wrap' }}>
+                {picked.map(field => (
+                  <span key={field} style={{ padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + A, background:'#f5f7ff', fontSize:'11.5px', color:A }}>{reportFieldLabel(field)}</span>
+                ))}
+              </div>
+            )}
             <div style={{ display:'flex', gap:'8px' }}>
-              <button type="button" onClick={exportReport} style={primaryBtn}>Run report</button>
-              <button type="button" onClick={exportReport} style={ghostBtn}>Save definition</button>
-              <button type="button" onClick={exportReport} style={ghostBtn}>Schedule weekly</button>
+              <button type="button" onClick={() => { void runReport(); }} disabled={busy} style={primaryBtn}>Run report</button>
+              <button type="button" onClick={() => { void saveDefinition(); }} disabled={busy} style={ghostBtn}>Save definition</button>
+              <button type="button" onClick={() => { void scheduleWeekly(); }} disabled={busy} style={ghostBtn}>Schedule weekly</button>
             </div>
+
+            {runFields.length ? (
+              <div data-sf-scroll="1" style={{ overflowX:'auto', border:'1px solid #eef1f6', borderRadius:'13px' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
+                  <thead>
+                    <tr style={{ textAlign:'left', color:'#64748b' }}>
+                      {runFields.map(field => <th key={field} scope="col" style={th}>{reportFieldLabel(field)}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runRows.length === 0 ? (
+                      <tr><td colSpan={runFields.length} style={emptyCell}>No rows matched this definition.</td></tr>
+                    ) : runRows.map((row, ri) => (
+                      <tr key={ri} style={{ borderTop: ri ? '1px solid #f2f4f8' : '1px solid #eef1f6' }}>
+                        {toCustomReportCells(row, runFields).map((cell, ci) => <td key={ci} style={td}>{cell}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

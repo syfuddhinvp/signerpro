@@ -1,78 +1,103 @@
 'use client';
 
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { btn, pill, railHead } from '@/lib/sf/ui';
+import { apiCall } from '@/lib/api/browser';
+import { organizations as organizationsApi, revenue as revenueApi } from '@/lib/api/resources';
+import type { BillingEventRow, PlatformStatTile } from '@/lib/sf/adapters';
 
-/* ── revenue (platform) ── */
-const REVENUE_STATS: { label: string; value: string; meta: string; good: boolean }[] = [
-  { label:'MRR', value:'$74.7k', meta:'+4.2% MoM', good:true },
-  { label:'ARR', value:'$896k', meta:'118% NRR', good:true },
-  { label:'GROSS VOLUME · 30D', value:'$81.3k', meta:'42 charges', good:true },
-  { label:'FAILED PAYMENTS', value:'2', meta:'$4.6k at risk', good:false }
-];
+/**
+ * Server data, adapted in `app/(app)/platform/revenue/page.tsx`:
+ * `GET /api/saas/revenue` (seat-aware MRR + plan mix),
+ * `GET /api/saas/revenue/churn`, `GET /api/saas/balance`,
+ * `GET /api/saas/billing-events`, and `live_mode_enabled` from
+ * `GET /api/organizations/me/api-settings`.
+ */
+export type RevenueProps = {
+  stats: PlatformStatTile[];
+  balanceTiles: { label: string; value: string; meta: string }[];
+  subsByPlan: { name: string; meta: string; pct: number }[];
+  churnRows: { k: string; v: string; tone: string }[];
+  events: BillingEventRow[];
+  /** `payout_destination` from the balance endpoint (the provider's name). */
+  payoutDestination: string;
+  /** Delivery success rate across the fetched provider events. */
+  deliveredPct: string;
+  /** Available balance, for the payout confirmation copy. */
+  availableLabel: string;
+  /** The organization's `live_mode_enabled` setting. */
+  liveMode: boolean;
+};
 
-const BALANCE_TILES: { label: string; value: string; meta: string }[] = [
-  { label:'AVAILABLE', value:'$62,418', meta:'usd · instant payout eligible' },
-  { label:'PENDING', value:'$18,905', meta:'settles in 2 days' },
-  { label:'NEXT PAYOUT', value:'$62,418', meta:'29 Aug · Chase •••• 3391' },
-  { label:'DISPUTES', value:'$0', meta:'0 open · 0.0% rate' }
-];
-
-const SUBS_BY_PLAN: { name: string; count: number; mrr: number; pct: number }[] = [
-  { name:'Enterprise', count:3, mrr:70080, pct:94 },
-  { name:'Business', count:2, mrr:4320, pct:22 },
-  { name:'Team', count:1, mrr:288, pct:6 }
-];
-
-const CHURN_ROWS: { k: string; v: string; tone: string }[] = [
-  { k:'Gross churn (logo)', v:'1.2%', tone:'good' }, { k:'Net revenue retention', v:'118%', tone:'good' },
-  { k:'Involuntary churn (payments)', v:'0.4%', tone:'warn' }, { k:'Trial → paid conversion', v:'62%', tone:'good' }
-];
-
-const STRIPE_WEBHOOKS: [string, string, string, string, string][] = [
-  ['invoice.paid', 'evt_1QhT7a', '200', '11:58:02', 'good'],
-  ['customer.subscription.updated', 'evt_1QhT52', '200', '11:41:18', 'good'],
-  ['checkout.session.completed', 'evt_1QhSz9', '200', '10:22:47', 'good'],
-  ['invoice.payment_failed', 'evt_1QhSw1', '502', '09:47:11', 'bad'],
-  ['payment_intent.succeeded', 'evt_1QhSm4', '200', '09:12:36', 'good'],
-  ['customer.subscription.trial_will_end', 'evt_1QhSg8', '200', '08:04:52', 'good']
-];
-
-export default function Revenue() {
-  const { s, set, flash, accent } = useSF();
+export default function Revenue({
+  stats, balanceTiles, subsByPlan, churnRows, events, payoutDestination, deliveredPct, availableLabel, liveMode: initialLiveMode,
+}: RevenueProps) {
+  const { flash, accent } = useSF();
+  const router = useRouter();
   const A = accent();
+
+  /* `live_mode_enabled` is server state; this mirror exists only so the pill
+     flips with the click before the PATCH comes back. */
+  const [live, setLive] = useState(initialLiveMode);
+  const [replaying, setReplaying] = useState<string | null>(null);
 
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const emptyNote: CSSProperties = { fontSize:'11.5px', color:'#94a3b8', lineHeight:1.6 };
 
-  const revenueStats = REVENUE_STATS.map(x => ({
+  const revenueStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
-    metaStyle: { fontSize:'11px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: x.good ? '#047857' : '#c2410c' } as CSSProperties
+    metaStyle: { fontSize:'11px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: x.good ? '#047857' : '#c2410c' } as CSSProperties,
   }));
 
-  const subsByPlan = SUBS_BY_PLAN.map(p => ({
-    name: p.name,
-    meta: p.count + ' subs · $' + (p.mrr / 1000).toFixed(1) + 'k',
-    bar: { width: p.pct + '%', height:'100%', borderRadius:'99px', background: A } as CSSProperties
+  const planBars = subsByPlan.map(p => ({
+    name: p.name, meta: p.meta,
+    bar: { width: p.pct + '%', height:'100%', borderRadius:'99px', background: A } as CSSProperties,
   }));
 
-  const churnRows = CHURN_ROWS.map(r => ({
+  const churn = churnRows.map(r => ({
     k: r.k, v: r.v,
-    style: { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontWeight:600, color: r.tone === 'good' ? '#047857' : '#c2410c' } as CSSProperties
+    style: { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontWeight:600, color: r.tone === 'good' ? '#047857' : '#c2410c' } as CSSProperties,
   }));
 
-  const webhooks = STRIPE_WEBHOOKS.map(([type, id, status, ts, tone]) => ({
-    type, id, status, ts,
-    pill: pill(tone === 'good' ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : { bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' }),
+  const replayEvent = (row: BillingEventRow) => {
+    flash(row.type + ' replayed · ' + row.ref);
+    setReplaying(row.id);
+    void revenueApi.replayBillingEvent(apiCall, row.id).then(res => {
+      setReplaying(null);
+      if (!res.ok) { flash('Replay failed · ' + res.error.message); return; }
+      flash(res.data.event_type + ' · ' + (res.data.error ? 'failed: ' + res.data.error : 'processed'));
+      router.refresh();
+    });
+  };
+
+  const webhooks = events.map(e => ({
+    id: e.id, type: e.type, ref: e.ref, status: e.status, ts: e.ts,
+    label: replaying === e.id ? 'Replaying…' : 'Replay',
+    pill: pill(e.good ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : { bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' }),
     rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'10px 15px', borderTop:'1px solid #f2f4f8', flexWrap:'wrap' } as CSSProperties,
-    onReplay: () => flash(type + ' replayed · ' + id)
+    onReplay: () => replayEvent(e),
   }));
 
-  const liveMode = s.liveMode ? 'LIVE MODE' : 'TEST MODE';
-  const liveModePill = pill(s.liveMode ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : { bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' });
-  const toggleLiveMode = () => { set({ liveMode: !s.liveMode }); flash(s.liveMode ? 'Switched to test mode · no live charges' : 'Switched to live mode'); };
-  const payout = () => flash('Payout of $62,418.00 created · arrives 29 Aug');
+  const liveModeLabel = live ? 'LIVE MODE' : 'TEST MODE';
+  const liveModePill = pill(live ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : { bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' });
+
+  const toggleLiveMode = () => {
+    const next = !live;
+    setLive(next);
+    flash(next ? 'Switched to live mode' : 'Switched to test mode · no live charges');
+    void organizationsApi.updateApiSettings(apiCall, { live_mode_enabled: next }).then(res => {
+      if (!res.ok) { setLive(!next); flash('Could not change mode · ' + res.error.message); return; }
+      router.refresh();
+    });
+  };
+
+  /* FALLBACK: there is no payout endpoint yet — `GET /api/saas/balance` reports
+     the payable amount but nothing creates a payout, so this stays a toast
+     until a `POST /api/saas/payouts` exists. */
+  const payout = () => flash('Payout of ' + availableLabel + ' requested · ' + payoutDestination);
 
   return (
     <section data-screen-label="Revenue" style={{ padding:'22px 22px 40px', display:'flex', flexDirection:'column', gap:'16px' }}>
@@ -89,11 +114,11 @@ export default function Revenue() {
       <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <div style={railHead}>Stripe balance &amp; payouts</div>
-            <span style={liveModePill}>{liveMode}</span>
+            <div style={railHead}>{payoutDestination} balance &amp; payouts</div>
+            <span style={liveModePill}>{liveModeLabel}</span>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'11px' }}>
-            {BALANCE_TILES.map(b => (
+            {balanceTiles.map(b => (
               <div key={b.label} style={{ border:'1px solid #eef1f6', borderRadius:'12px', padding:'12px', background:'#fbfcfd', display:'flex', flexDirection:'column', gap:'4px' }}>
                 <span style={{ fontSize:'10.5px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{b.label}</span>
                 <span style={{ fontSize:'18px', fontWeight:700, letterSpacing:'-.4px' }}>{b.value}</span>
@@ -109,15 +134,15 @@ export default function Revenue() {
 
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Subscriptions by plan</div>
-          {subsByPlan.map(p => (
+          {planBars.length ? planBars.map(p => (
             <div key={p.name} style={{ display:'flex', alignItems:'center', gap:'11px' }}>
               <span style={{ width:'88px', fontSize:'12.5px', color:'#334155', flex:'0 0 88px' }}>{p.name}</span>
               <div style={{ flex:1, height:'8px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={p.bar}></div></div>
               <span style={{ width:'118px', textAlign:'right', fontSize:'11.5px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#475569', flex:'0 0 118px' }}>{p.meta}</span>
             </div>
-          ))}
+          )) : (<span style={emptyNote}>No subscriptions yet.</span>)}
           <div style={{ borderTop:'1px solid #f2f4f8', paddingTop:'11px', display:'flex', flexDirection:'column', gap:'7px' }}>
-            {churnRows.map(c => (
+            {churn.map(c => (
               <div key={c.k} style={{ display:'flex', justifyContent:'space-between', fontSize:'12px' }}>
                 <span style={{ color:'#64748b' }}>{c.k}</span><span style={c.style}>{c.v}</span>
               </div>
@@ -128,18 +153,20 @@ export default function Revenue() {
 
       <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
         <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }}>
-          <div style={railHead}>Stripe webhook events</div>
-          <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>endpoint we_1Qh… · 99.8% delivered</span>
+          <div style={railHead}>{payoutDestination} webhook events</div>
+          <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{events.length} events · {deliveredPct} delivered</span>
         </div>
-        {webhooks.map(w => (
+        {webhooks.length ? webhooks.map(w => (
           <div key={w.id} style={w.rowStyle}>
             <span style={w.pill}>{w.status}</span>
             <span style={{ fontSize:'12px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#0f172a', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{w.type}</span>
-            <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto' }}>{w.id}</span>
+            <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto' }}>{w.ref}</span>
             <span style={{ fontSize:'11px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto' }}>{w.ts}</span>
-            <button type="button" onClick={w.onReplay} style={ghostBtn}>Replay</button>
+            <button type="button" onClick={w.onReplay} style={ghostBtn}>{w.label}</button>
           </div>
-        ))}
+        )) : (
+          <div style={{ padding:'22px 15px', fontSize:'12.5px', color:'#64748b' }}>No provider events received yet.</div>
+        )}
       </div>
     </section>
   );

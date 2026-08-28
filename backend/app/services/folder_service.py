@@ -35,6 +35,7 @@ class FolderService:
     def to_response(self, folder: Folder, *, counts: dict[str | None, int], team_names: dict[str, str]) -> FolderResponse:
         return FolderResponse(
             id=folder.id,
+            organization_id=folder.organization_id,
             name=folder.name,
             parent_id=folder.parent_id,
             team_id=folder.team_id,

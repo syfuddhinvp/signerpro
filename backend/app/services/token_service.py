@@ -16,7 +16,22 @@ def _as_aware_utc(value: datetime) -> datetime:
 
 
 class TokenService:
-    def create_for_recipient(self, db: Session, *, document_id: str, recipient_id: str) -> tuple[str, SigningToken]:
+    def create_for_recipient(
+        self,
+        db: Session,
+        *,
+        document_id: str,
+        recipient_id: str,
+        expires_at: datetime | None = None,
+    ) -> tuple[str, SigningToken]:
+        """Mint a signing link, superseding any live link for this recipient.
+
+        ``expires_at`` is the envelope's own deadline (``Document.expires_at``,
+        derived from the per-document ``expires_in_days``). A signing link must
+        never outlive the envelope it signs, so callers pass it through. When it
+        is omitted -- or already in the past -- the global
+        ``SIGNING_TOKEN_EXPIRE_DAYS`` default applies.
+        """
         settings = get_settings()
         # Supersede any live link previously issued to this recipient so a reminder
         # does not leave an extra valid signing URL in an inbox.
@@ -32,10 +47,17 @@ class TokenService:
             document_id=document_id,
             recipient_id=recipient_id,
             token_hash=hash_signing_token(raw_token),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.signing_token_expire_days),
+            expires_at=self._resolve_expiry(expires_at, now=now, settings=settings),
         )
         db.add(signing_token)
         return raw_token, signing_token
+
+    def _resolve_expiry(self, expires_at: datetime | None, *, now: datetime, settings) -> datetime:
+        fallback = now + timedelta(days=settings.signing_token_expire_days)
+        if expires_at is None:
+            return fallback
+        deadline = _as_aware_utc(expires_at)
+        return deadline if deadline > now else fallback
 
     def get_valid_token(self, db: Session, raw_token: str) -> SigningToken:
         token_hash = hash_signing_token(raw_token)

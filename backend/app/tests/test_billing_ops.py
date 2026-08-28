@@ -237,10 +237,13 @@ def test_usage_rows_render_every_metered_dimension(client: TestClient) -> None:
     assert rows["max_documents_per_month"]["limit"] == 5
     assert rows["max_documents_per_month"]["pct"] == 20
     assert rows["max_documents_per_month"]["display"] == "1 of 5"
-    # No plan declares an API-call ceiling yet, so it reads as unlimited.
-    assert rows["max_api_calls_per_month"]["limit"] is None
-    assert rows["max_api_calls_per_month"]["pct"] == 0
-    assert "unlimited" in rows["max_api_calls_per_month"]["display"]
+    # Every plan now declares the metered ceilings, so the rows have a real
+    # denominator instead of reading as unlimited.
+    assert rows["max_api_calls_per_month"]["limit"] == 5_000
+    assert rows["max_api_calls_per_month"]["used"] == 0
+    assert rows["max_api_calls_per_month"]["display"] == "0 of 5,000"
+    assert rows["max_sms_per_month"]["limit"] == 100
+    assert rows["max_sms_per_month"]["display"] == "0 of 100"
 
 
 # ------------------------------------------------------------ settings / cycle
@@ -721,7 +724,12 @@ def test_platform_health_reports_derived_components(client: TestClient) -> None:
     headers = auth_headers(client)
     _promote(client, headers)
     components = client.get("/api/saas/health", headers=headers).json()
+    # One derivation (platform_service.component_health) feeds both this
+    # endpoint and GET /api/saas/overview.
     assert {c["component"] for c in components} == {
+        "API",
+        "Signing",
+        "Tenants",
         "Webhook delivery",
         "Payment provider",
         "Collections",

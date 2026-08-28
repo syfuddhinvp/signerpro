@@ -2,8 +2,27 @@
 
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
-import { SANDBOX_RESPONSES, SB_FALLBACK_RESPONSE, SB_LANG_TABS, SB_PATH_OPTIONS } from '@/lib/sf/data';
+import { SB_LANG_TABS } from '@/lib/sf/data';
 import { btn, inputStyle, jsonBoxStyle, lbl, linkBtn, pill, railHead, TONE_BAD, TONE_GOOD } from '@/lib/sf/ui';
+import { apiCall } from '@/lib/api/browser';
+
+/**
+ * Real endpoints on this deployment's own API, in the order the design lists
+ * them. Every send below is an actual request through `/api/proxy`, so these
+ * have to be paths the backend serves — not the prototype's `/v1/...` mock
+ * catalogue.
+ */
+const SB_PATH_OPTIONS: string[] = [
+  '/api/me',
+  '/api/contacts',
+  '/api/documents/library',
+  '/api/templates',
+  '/api/embed/sessions',
+  '/api/api-keys/usage',
+];
+
+/** Only the app's own API is reachable through the proxy. */
+const API_PREFIX = '/api/';
 
 export default function Sandbox() {
   const { s, set, flash, accent } = useSF();
@@ -17,13 +36,24 @@ export default function Sandbox() {
   const codeArea: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'10px', padding:'10px 11px', fontSize:'11.5px', lineHeight:1.7,
     fontFamily:"'Inter', 'Google Sans Flex', sans-serif", resize:'vertical', outline:'none', width:'100%', color:'#0f172a', background:'#fbfcfd' };
 
-  const sbKey = st.sbMethod + ' ' + st.sbPath;
-  const sbSample = (SANDBOX_RESPONSES as any)[sbKey] || SB_FALLBACK_RESPONSE;
+  /* The request the Send button will actually issue — the snippets are generated
+     from exactly these values, so what a developer copies is what just ran. */
+  const sbQuery: [string, string][] = (st.sbParams as { k: string; v: string }[])
+    .filter(p => p.k.trim() !== '')
+    .map(p => [p.k.trim(), p.v] as [string, string]);
+  const sbQueryString = sbQuery.length
+    ? '?' + sbQuery.map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&')
+    : '';
+  /* The store's initial `sbPath` is the prototype's `/v1/contacts`; fall back to
+     the first real endpoint until the select is touched. */
+  const sbPath: string = SB_PATH_OPTIONS.indexOf(String(st.sbPath)) > -1 ? String(st.sbPath) : SB_PATH_OPTIONS[0];
+  const sbFullPath = sbPath + sbQueryString;
+  const sbBodyLine = String(st.sbBody).replace(/\n\s*/g, ' ');
   const sbSnippets: Record<string, string> = {
-    curl: 'curl -X ' + st.sbMethod + ' "https://api.signforge.com' + st.sbPath + '" \\\n  -H "Authorization: Bearer sk_' + st.sbEnv + '_…" \\\n  -H "Content-Type: application/json"' + (st.sbMethod === 'GET' ? '' : " \\\n  -d '" + st.sbBody.replace(/\n\s*/g, ' ') + "'"),
-    node: 'const sf = new SignForge(process.env.SIGNFORGE_KEY);\nconst res = await sf.request("' + st.sbMethod + '", "' + st.sbPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + st.sbBody.replace(/\n\s*/g, ' ')) + ');\nconsole.log(res);',
-    python: 'import signforge\n\nsf = signforge.Client(os.environ["SIGNFORGE_KEY"])\nres = sf.request("' + st.sbMethod + '", "' + st.sbPath + '"' + (st.sbMethod === 'GET' ? '' : ', json=' + st.sbBody.replace(/\n\s*/g, ' ')) + ')\nprint(res)',
-    php: '$sf = new \\SignForge\\Client(getenv("SIGNFORGE_KEY"));\n$res = $sf->request("' + st.sbMethod + '", "' + st.sbPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + st.sbBody.replace(/\n\s*/g, ' ')) + ');\nprint_r($res);'
+    curl: 'curl -X ' + st.sbMethod + ' "https://api.signforge.com' + sbFullPath + '" \\\n  -H "Authorization: Bearer sk_' + st.sbEnv + '_…" \\\n  -H "Content-Type: application/json"' + (st.sbMethod === 'GET' ? '' : " \\\n  -d '" + sbBodyLine + "'"),
+    node: 'const sf = new SignForge(process.env.SIGNFORGE_KEY);\nconst res = await sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nconsole.log(res);',
+    python: 'import signforge\n\nsf = signforge.Client(os.environ["SIGNFORGE_KEY"])\nres = sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', json=' + sbBodyLine) + ')\nprint(res)',
+    php: '$sf = new \\SignForge\\Client(getenv("SIGNFORGE_KEY"));\n$res = $sf->request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nprint_r($res);'
   };
   const sbLangTabs = SB_LANG_TABS.map(([id, label]) => {
     const on = st.sbLang === id;
@@ -40,7 +70,7 @@ export default function Sandbox() {
   }));
   const sbHistory = st.sbHistory.map((h: any, i: number) => ({
     key: i, label: h.method + ' ' + h.path, meta: h.status + ' · ' + h.ms + 'ms · ' + h.env,
-    onClick: () => set({ sbMethod: h.method, sbPath: h.path, sbResponse: h.body, sbEnv: h.env } as any),
+    onClick: () => set({ sbMethod: h.method, sbResponse: { status: h.status, ms: h.ms, body: h.body }, sbEnv: h.env } as any),
     pill: pill(h.status < 300 ? TONE_GOOD : TONE_BAD),
     style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'9px 10px', borderRadius:'10px', border:'1px solid #eef1f6', background:'#fbfcfd', cursor:'pointer', textAlign:'left' } as CSSProperties
   }));
@@ -52,15 +82,39 @@ export default function Sandbox() {
   const sbKeyLabel = 'sk_' + st.sbEnv + '_' + (st.sbEnv === 'test' ? '41ab••••02de' : '9f2b••••4c71');
   const sbBodyVisible = st.sbMethod !== 'GET';
   const sbSendLabel = st.sbSending ? 'Sending…' : 'Send request';
+  /** A real call through `/api/proxy`; the status, latency and body are the API's. */
   const sbSend = () => {
     if (st.sbEnv === 'live') { flash('Live mode blocked in the sandbox — switch to test'); return; }
+    if (st.sbSending) return;
+    const method = st.sbMethod as 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    const path = sbPath;
+    if (!path.startsWith(API_PREFIX)) { flash('Only this deployment\u2019s own /api paths can be called'); return; }
+
+    let body: unknown;
+    if (method !== 'GET' && String(st.sbBody).trim()) {
+      try {
+        body = JSON.parse(st.sbBody);
+      } catch {
+        flash('The request body is not valid JSON');
+        return;
+      }
+    }
+
+    const query: Record<string, string> = {};
+    for (const [k, v] of sbQuery) query[k] = v;
+
     set({ sbSending: true, sbResponse: null } as any);
-    const ms = 60 + Math.round(Math.random() * 180);
-    const status = (SANDBOX_RESPONSES as any)[sbKey] ? (st.sbMethod === 'POST' ? 201 : 200) : 404;
-    setTimeout(() => {
-      set((x: any) => ({ sbSending: false, sbResponse: { status, ms, body: sbSample },
-        sbHistory: [{ method: st.sbMethod, path: st.sbPath, status, ms, env: st.sbEnv, body: { status, ms, body: sbSample } }].concat(x.sbHistory).slice(0, 6) } as any));
-    }, 420);
+    const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    void apiCall<unknown>(path, { method, query, body }).then(res => {
+      const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - started;
+      const ms = Math.max(1, Math.round(elapsed));
+      const status = res.ok ? res.status : res.error.status;
+      const payload = res.ok ? res.data : { error: { status: res.error.status, kind: res.error.kind, message: res.error.message } };
+      const rendered = payload === undefined ? '' : JSON.stringify(payload, null, 2);
+      const entry = { method, path: sbFullPath, status, ms, env: st.sbEnv, body: rendered };
+      set((x: any) => ({ sbSending: false, sbResponse: { status, ms, body: rendered },
+        sbHistory: [entry].concat(x.sbHistory).slice(0, 6) } as any));
+    });
   };
   const resp: any = st.sbResponse;
   const hasSbResponse = !!resp;
@@ -69,7 +123,14 @@ export default function Sandbox() {
   const sbLatency = resp ? resp.ms + 'ms' : '';
   const sbResponseBody = resp ? resp.body : '';
   const sbStatusPill = pill(resp && resp.status < 300 ? TONE_GOOD : TONE_BAD);
-  const sbHeaders = ([['content-type','application/json'],['request-id','req_' + (resp ? resp.ms : '000') + 'a41'],['x-ratelimit-remaining','498'],['signforge-mode', st.sbEnv]] as [string, string][]).map(([k, v]) => ({ k, v }));
+  /* Only what the transport actually knows. `lib/api/browser#apiCall` returns
+     the parsed body, not the response headers, so nothing here is invented. */
+  const sbHeaders = ([
+    ['content-type','application/json'],
+    ['signforge-mode', st.sbEnv],
+    ['status', sbStatus],
+    ['duration', sbLatency]
+  ] as [string, string][]).map(([k, v]) => ({ k, v }));
   const sbEmptyNote = 'Send a request to see the response, headers and timing.';
 
   return (
@@ -94,7 +155,7 @@ export default function Sandbox() {
               <option value="PATCH">PATCH</option>
               <option value="DELETE">DELETE</option>
             </select>
-            <select value={st.sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'12.5px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", background:'#fff', color:'#0f172a', outline:'none' }}>
+            <select value={sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'12.5px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", background:'#fff', color:'#0f172a', outline:'none' }}>
               {sbPathOptions.map(o => (<option key={o.id} value={o.id}>{o.label}</option>))}
             </select>
             <button type="button" onClick={sbSend} style={primaryBtn}>{sbSendLabel}</button>

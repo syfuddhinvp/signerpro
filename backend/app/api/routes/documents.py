@@ -449,7 +449,12 @@ def remind_document(document_id: str, db: Session = Depends(get_db), user: User 
     links: list[dict[str, str]] = []
     for recipient in document.recipients:
         if recipient.status in {RecipientStatus.sent, RecipientStatus.viewed}:
-            raw_token, _ = token_service.create_for_recipient(db, document_id=document.id, recipient_id=recipient.id)
+            raw_token, _ = token_service.create_for_recipient(
+                db,
+                document_id=document.id,
+                recipient_id=recipient.id,
+                expires_at=document.expires_at,
+            )
             link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token)
             links.append({"recipient_id": recipient.id, "email": recipient.email, "signing_link": link})
             audit_service.log(

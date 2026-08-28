@@ -182,6 +182,111 @@ def set_user_id(user_id: str | None) -> None:
         _user_id.set(user_id)
 
 
+# ---------------------------------------------------------------------------
+# system_logs persistence (ACT-1)
+#
+# ``GET /api/logs`` (tenant) and ``GET /api/saas/logs`` (platform) read the
+# ``system_logs`` table; the middleware is its writer. Three rules keep it
+# honest and cheap:
+#
+# 1. Volume: only requests that changed something (POST/PUT/PATCH/DELETE) or
+#    failed (>=400) are persisted. Read traffic is already on stdout and would
+#    otherwise add a write to every GET.
+# 2. Secrecy: nothing but method, redacted path and status is stored. Query
+#    strings, headers and bodies are never touched, so tokens, passwords and
+#    MFA codes cannot reach the table. Path segments that *are* secrets (the
+#    signing link, invitation and embed tokens) are redacted by prefix.
+# 3. Safety: every failure is swallowed. A log row is never worth a 500.
+# ---------------------------------------------------------------------------
+
+#: Path prefixes whose next segment is a bearer secret, not an id.
+_SECRET_PATH_PREFIXES = ("/api/sign/", "/api/invitations/", "/api/embed/sessions/")
+
+#: Paths never persisted: the health probe and the log readers themselves.
+_UNLOGGED_PATHS = ("/api/health", "/api/logs", "/api/saas/logs")
+
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def redact_path(path: str) -> str:
+    """Replace secret path segments with ``<token>``."""
+
+    for prefix in _SECRET_PATH_PREFIXES:
+        if path.startswith(prefix):
+            rest = path[len(prefix):].split("/")
+            rest[0] = "<token>"
+            return prefix + "/".join(rest)
+    return path
+
+
+def log_source_for(path: str) -> str:
+    """Map a path onto a ``system_logs.source`` bucket."""
+
+    if path.startswith("/api/webhooks"):
+        return "webhook"
+    if path.startswith("/api/sign"):
+        return "signing"
+    if path.startswith("/api/auth"):
+        return "auth"
+    if path.startswith("/api/billing") or path.startswith("/api/invoices"):
+        return "billing"
+    if path.startswith("/api/saas"):
+        return "admin"
+    return "api"
+
+
+def should_persist_request(method: str, path: str, status_code: int) -> bool:
+    if any(path == unlogged or path.startswith(unlogged + "/") for unlogged in _UNLOGGED_PATHS):
+        return False
+    return method.upper() in _MUTATING_METHODS or status_code >= 400
+
+
+def persist_request_log(
+    *,
+    method: str,
+    path: str,
+    status_code: int,
+    duration_ms: float,
+    request_id: str,
+    client_ip: str | None,
+    user_id: str | None,
+) -> None:
+    """Append one ``system_logs`` row. Never raises.
+
+    The tenant is resolved from the bearer token's subject rather than from a
+    context variable: FastAPI runs sync endpoints in a worker thread, so
+    anything the dependencies bind there is invisible here. That costs one
+    primary-key lookup, and only on requests that are actually persisted.
+    API-key traffic carries no user, so those rows are platform-scoped.
+    """
+
+    try:
+        from app.core.database import background_session
+        from app.models.user import User
+        from app.services import platform_service
+
+        safe_path = redact_path(path)
+        level = "error" if status_code >= 500 else "warn" if status_code >= 400 else "info"
+        with background_session() as db:
+            actor = db.get(User, user_id) if user_id else None
+            platform_service.record_system_log(
+                db,
+                message=f"{method} {safe_path} -> {status_code}",
+                source=log_source_for(path),
+                level=level,
+                organization_id=actor.organization_id if actor else None,
+                actor_email=actor.email if actor else None,
+                status_code=status_code,
+                latency_ms=int(duration_ms),
+                request_id=request_id,
+                ip_address=client_ip,
+                payload={"method": method, "path": safe_path, "duration_ms": duration_ms},
+            )
+            db.commit()
+    except Exception:  # pragma: no cover - logging must never break a request
+        logging.getLogger("signflow.request").debug("system_log.write_failed", exc_info=True)
+
+
 class RequestLoggingMiddleware:
     """Pure-ASGI middleware: request id propagation + access logging.
 
@@ -205,6 +310,10 @@ class RequestLoggingMiddleware:
         user_id = _user_id_from_authorization(headers.get("authorization"))
 
         tokens = bind_request_context(request_id=request_id, user_id=user_id)
+        # Explicitly clear the tenant for this request: get_current_user sets it
+        # without a token, and a recycled task context must not let one request
+        # inherit the previous caller's organization.
+        tokens.append((_organization_id, _organization_id.set(None)))
         started = time.perf_counter()
         status_holder = {"status": 500}
 
@@ -216,17 +325,30 @@ class RequestLoggingMiddleware:
                 message = {**message, "headers": raw_headers}
             await send(message)
 
+        def persist(status_code: int, duration_ms: float) -> None:
+            persist_request_log(
+                method=(scope.get("method") or "GET"),
+                path=scope.get("path") or "",
+                status_code=status_code,
+                duration_ms=duration_ms,
+                request_id=request_id,
+                client_ip=(scope.get("client") or [None])[0],
+                user_id=user_id,
+            )
+
         try:
             await self.app(scope, receive, send_wrapper)
         except Exception:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
             self.logger.exception(
                 "request.failed",
                 extra={
                     "http_method": scope.get("method"),
                     "http_path": scope.get("path"),
-                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "duration_ms": duration_ms,
                 },
             )
+            persist(500, duration_ms)
             raise
         else:
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
@@ -242,6 +364,8 @@ class RequestLoggingMiddleware:
                     "client_ip": (scope.get("client") or [None])[0],
                 },
             )
+            if should_persist_request(scope.get("method") or "GET", scope.get("path") or "", status):
+                persist(status, duration_ms)
         finally:
             reset_request_context(tokens)
 

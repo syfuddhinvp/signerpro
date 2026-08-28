@@ -1,11 +1,18 @@
 'use client';
-/* SignForge — PREPARE / BUILDER screen (isBuilder), ported verbatim from the prototype. */
+/* SignForge — PREPARE / BUILDER screen (isBuilder), ported verbatim from the prototype.
+
+   The markup is unchanged; the data behind it is the real document. Field
+   authoring stays entirely local while the pointer is down — `useBuilderInteractions`
+   still owns every gesture — and `useDocumentPersistence` writes the whole field
+   set back through `PUT /api/documents/{id}/fields` once the canvas is quiet. */
 import React, { type CSSProperties } from 'react';
-import { useSF } from '@/lib/sf/state';
+import { reorderRecips, useSF, type Recipient, type SFField } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import { TYPES } from '@/lib/sf/data';
 import { btn, inputStyle, lbl, railHead, linkBtn } from '@/lib/sf/ui';
-import { useBuilderInteractions } from '@/lib/sf/builderInteractions';
+import { useBuilderInteractions, useDocumentPersistence } from '@/lib/sf/builderInteractions';
+import { toBuilderFields, toBuilderRecipients, type BuilderRouting } from '@/lib/sf/adapters';
+import type { FieldResponse, RecipientResponse, RecipientRole } from '@/lib/api/types';
 
 const ROLE_LABEL: { [k: string]: string } = { sign:'Needs to sign', approve:'Approver', copy:'Receives a copy', inperson:'In-person signer' };
 const REGEX_MAP: { [k: string]: string } = {
@@ -17,11 +24,89 @@ const REGEX_MAP: { [k: string]: string } = {
 };
 const COND_OP_LABEL: { [k: string]: string } = { checked:'is checked', equals:'equals', notEmpty:'is not empty' };
 
-export default function Builder() {
-  const { s, set, flash, accent, recips, recip, meta, initials, sel, setField, reorder } = useSF();
+export type BuilderProps = {
+  /** null when the tenant has no draft to open — the screen shows its empty state. */
+  documentId: string | null;
+  title: string;
+  pageCount: number;
+  fields: FieldResponse[];
+  recipients: RecipientResponse[];
+  routing: BuilderRouting | null;
+};
+
+export default function Builder({ documentId, title, pageCount, fields, recipients, routing }: BuilderProps) {
+  const { s, set, flash, accent, recips, meta, initials, sel, setField } = useSF();
   const { go } = useNav();
   const A = accent();
   const I = useBuilderInteractions();
+
+  /* The document's own field set and recipients, in the shapes the canvas reads.
+     Memoised on the props so the identities are stable across renders — the
+     autosave uses `seededFields` by identity to tell hydration from an edit. */
+  const seededFields = React.useMemo<SFField[]>(() => toBuilderFields(fields), [fields]);
+  const seededRecipients = React.useMemo<Recipient[]>(() => toBuilderRecipients(recipients), [recipients]);
+
+  const P = useDocumentPersistence({
+    documentId,
+    serverFields: fields,
+    serverRecipients: recipients,
+    seededFields,
+  });
+
+  /* Hydrate the store from the server data. The builder's editing model *is*
+     `s.fields` / `s.recipients` — the pointer machinery mutates them directly —
+     so the document has to be seeded into the store rather than kept in props.
+     Ephemeral UI (zoom, palette tab, selection) is left alone. */
+  const [subject, setSubject] = React.useState(routing ? routing.subject : '');
+  const [hydrated, setHydrated] = React.useState(false);
+  React.useEffect(() => {
+    if (!documentId) return;
+    setSubject(routing ? routing.subject : '');
+    setHydrated(true);
+    set({
+      fields: seededFields,
+      recipients: seededRecipients,
+      activeRecipient: seededRecipients.length ? seededRecipients[0].id : '',
+      selected: [],
+      page: 1,
+      routing: routing ? routing.routing : 'sequential',
+      cadence: routing ? routing.cadence : '48h',
+      expiry: routing ? routing.expiry : '14',
+      message: routing ? routing.message : '',
+    });
+    // `set` and `routing` are stable for a given server payload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, seededFields, seededRecipients, routing]);
+
+  /* Until the seeding effect has run, the store still holds `INITIAL_STATE`'s
+     sample fields, so the first paint renders the server data directly rather
+     than flashing the prototype's mock envelope. */
+  const F: SFField[] = hydrated ? s.fields : seededFields;
+  const R: Recipient[] = hydrated ? recips() : seededRecipients;
+  const recipIn = (id: string): Recipient => R.find(x => x.id === id) || R[0];
+
+  /* Local list mutations that must also be persisted. */
+  const reorderRecipient = (id: string, dir: number) => {
+    const next = reorderRecips(s, id, dir);
+    if (!next) return;
+    set({ recipients: next });
+    P.saveRecipientOrder(next);
+  };
+  const changeRole = (id: string, role: string) => {
+    const list = recips().map(x => (x.id === id ? Object.assign({}, x, { role }) : x));
+    set({ recipients: list });
+    P.patchRecipient(id, { role: role as RecipientRole });
+  };
+  const changeRouting = (patch: Partial<BuilderRouting>) => {
+    if (patch.subject !== undefined) setSubject(patch.subject);
+    const local: { [k: string]: string } = {};
+    if (patch.routing !== undefined) local.routing = patch.routing;
+    if (patch.cadence !== undefined) local.cadence = patch.cadence;
+    if (patch.expiry !== undefined) local.expiry = patch.expiry;
+    if (patch.message !== undefined) local.message = patch.message;
+    if (Object.keys(local).length) set(local);
+    P.saveRouting(patch);
+  };
 
   /* ── wizard ── */
   const wizardStepStyle1: CSSProperties = { display:'flex', alignItems:'center', gap:'7px', fontSize:'12px', fontWeight: s.wizardStep === 1 ? 600 : 500, color: s.wizardStep === 1 ? '#0f172a' : '#94a3b8', background:'none', border:'none', cursor:'pointer' };
@@ -32,8 +117,18 @@ export default function Builder() {
   const wizardCta = s.wizardStep === 1 ? 'Continue' : 'Send envelope';
   const goStep1 = () => set({ wizardStep: 1 });
   const goStep2 = () => set({ wizardStep: 2 });
+  // Step 2 still opens the design's send confirmation; the modal in
+  // `components/sf/Modals.tsx` (owned elsewhere) is what has to call
+  // `POST /api/documents/{id}/send`. The workflow screen sends for real.
   const wizardNext = () => { if (s.wizardStep === 1) set({ wizardStep: 2 }); else set({ modal: 'send' }); };
-  const saveClose = () => { go('dashboard'); flash('Draft saved · returned to documents'); };
+  const saveClose = () => {
+    void P.saveFieldsNow().then(ok => {
+      if (!ok) return;                       // the failure toast is already up
+      void P.flushRouting();
+      go('dashboard');
+      flash('Draft saved · returned to documents');
+    });
+  };
   const prepareRowStyle: CSSProperties = { flex:'1', minHeight:0, display: s.wizardStep === 1 ? 'flex' : 'none' };
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
@@ -48,11 +143,11 @@ export default function Builder() {
   const textareaStyle: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'9px', padding:'8px 10px', fontSize:'12.5px', resize:'vertical', outline:'none', width:'100%', color:'#0f172a' };
 
   /* ── recipient cards ── */
-  const recipientCards = recips().map(r => {
+  const recipientCards = R.map(r => {
     const on = s.activeRecipient === r.id;
     return {
       id: r.id,
-      name: r.name, order: String(r.order), fieldCount: String(s.fields.filter(f => f.to === r.id).length), state: r.status,
+      name: r.name, order: String(r.order), fieldCount: String(F.filter(f => f.to === r.id).length), state: r.status,
       role: ROLE_LABEL[r.role],
       onClick: () => set({ activeRecipient: r.id }),
       style: { display:'flex', alignItems:'center', gap:'9px', padding:'9px', borderRadius:'11px', cursor:'pointer',
@@ -80,8 +175,9 @@ export default function Builder() {
   }));
 
   /* ── page thumbs ── */
-  const thumbs = [1,2,3].map(n => {
-    const cnt = s.fields.filter(f => f.page === n).length;
+  const pages = Array.from({ length: Math.max(1, pageCount) }, (_, i) => i + 1);
+  const thumbs = pages.map(n => {
+    const cnt = F.filter(f => f.page === n).length;
     const on = s.page === n;
     return { n: String(n), key: n,
       onClick: () => set({ page: n, selected: [] }),
@@ -115,8 +211,8 @@ export default function Builder() {
     ? { position:'absolute', left:g.at + 'px', top:0, bottom:0, width:'1px', background:'#f43f5e', pointerEvents:'none' }
     : { position:'absolute', top:g.at + 'px', left:0, right:0, height:'1px', background:'#f43f5e', pointerEvents:'none' }) as CSSProperties }));
 
-  const pageFields = s.fields.filter(f => f.page === s.page).map(f => {
-    const r = recip(f.to), t = meta(f.type);
+  const pageFields = F.filter(f => f.page === s.page).map(f => {
+    const r = recipIn(f.to), t = meta(f.type);
     const on = s.selected.indexOf(f.id) > -1;
     return {
       id: f.id,
@@ -141,44 +237,41 @@ export default function Builder() {
   /* ── inspector ── */
   const selection = sel();
   const one = selection.length === 1 ? selection[0] : null;
-  const condOptions = s.fields.filter(f => one && f.id !== one.id && f.page === (one ? one.page : 1))
+  const condOptions = F.filter(f => one && f.id !== one.id && f.page === (one ? one.page : 1))
     .map(f => ({ id: f.id, label: f.label + ' (' + meta(f.type).label + ')' }));
   const mergeSuggestions = ['{{client.name}}','{{client.email}}','{{contract.amount}}','{{contract.signedAt}}'].map(tag => ({
     tag, onClick: () => { if (one) setField(one.id, { merge: tag }); },
     style: { padding:'4px 8px', borderRadius:'7px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'10.5px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#475569', cursor:'pointer' } as CSSProperties
   }));
   const cond = one && one.cond ? one.cond : { field:'', op:'checked', value:'' };
-  const condTrigger = cond.field ? s.fields.find(f => f.id === cond.field) : null;
+  const condTrigger = cond.field ? F.find(f => f.id === cond.field) : null;
   const condSummary = condTrigger
     ? 'Show “' + (one ? one.label : '') + '” only when “' + condTrigger.label + '” ' +
       (cond.op === 'equals' ? 'equals “' + cond.value + '”' : COND_OP_LABEL[cond.op]) + '.'
     : 'Always visible to the assigned recipient.';
   const condSummaryStyle: CSSProperties = { fontSize:'11.5px', color: condTrigger ? '#3730a3' : '#64748b', background: condTrigger ? '#eef2ff' : '#f5f6f8', border:'1px solid ' + (condTrigger ? '#c7d2fe' : '#e3e7ee'), borderRadius:'8px', padding:'8px 9px', lineHeight:1.5 };
-  const inspIcon: CSSProperties = { width:'30px', height:'30px', borderRadius:'9px', background: one ? recip(one.to).color : '#e3e7ee', color:'#fff', display:'grid', placeItems:'center', fontSize:'11px', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
+  const inspIcon: CSSProperties = { width:'30px', height:'30px', borderRadius:'9px', background: one ? recipIn(one.to).color : '#e3e7ee', color:'#fff', display:'grid', placeItems:'center', fontSize:'11px', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
   const regexBox: CSSProperties = { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'10.5px', color:'#475569', background:'#f5f6f8', border:'1px solid #e3e7ee', borderRadius:'8px', padding:'8px 9px', wordBreak:'break-all' };
   const rowBtn: CSSProperties = { display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', background:'transparent', border:'none', cursor:'pointer', padding:'2px 0' };
   const reqSwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: one && one.required ? '#10b981' : '#cbd5e1', position:'relative', transition:'background .15s' };
   const reqKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.required ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
   const roSwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: one && one.readOnly ? A : '#cbd5e1', position:'relative' };
   const roKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.readOnly ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff' };
-  const recipientOptions = recips().map(r => ({ id: r.id, label: r.name + ' — ' + r.status }));
+  const recipientOptions = R.map(r => ({ id: r.id, label: r.name + ' — ' + r.status }));
 
   /* ── step 2: routing / send setup ── */
-  const routingRows = recips().map((r, i, arr) => ({
+  const routingRows = R.map(r => ({
     id: r.id,
     name: r.name, email: r.email, role: r.role, order: s.routing === 'parallel' ? '=' : String(r.order), status: r.status,
     rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'11px', border:'1px solid #eef1f6', borderRadius:'12px', background:'#fbfcfd' } as CSSProperties,
     orderStyle: { width:'26px', height:'26px', borderRadius:'8px', background:r.color, color:'#fff', display:'grid', placeItems:'center', fontSize:'11.5px', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
     selectStyle: Object.assign({}, inputStyle, { width:'160px' }) as CSSProperties,
-    onRole: (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const v = e.target.value;
-      set({ recipients: arr.map(x => (x.id === r.id ? Object.assign({}, x, { role: v }) : x)) });
-    },
-    onUp: () => reorder(r.id, -1),
-    onDown: () => reorder(r.id, 1)
+    onRole: (e: React.ChangeEvent<HTMLSelectElement>) => changeRole(r.id, e.target.value),
+    onUp: () => reorderRecipient(r.id, -1),
+    onDown: () => reorderRecipient(r.id, 1)
   }));
   const cadences = ['24h','48h','7 days','none'].map(c => ({
-    id: c, label: c === 'none' ? 'No reminders' : 'Every ' + c, onClick: () => set({ cadence: c }),
+    id: c, label: c === 'none' ? 'No reminders' : 'Every ' + c, onClick: () => changeRouting({ cadence: c }),
     style: btn(s.cadence === c ? '#eef2ff' : '#fff', s.cadence === c ? '#3730a3' : '#475569', s.cadence === c ? '#c7d2fe' : '#e3e7ee')
   }));
   const routeNote = s.routing === 'sequential'
@@ -187,22 +280,60 @@ export default function Builder() {
   const routeNoteStyle: CSSProperties = { fontSize:'12px', color:'#3730a3', background:'#eef2ff', border:'1px solid #c7d2fe', borderRadius:'10px', padding:'10px 11px', lineHeight:1.55 };
   const seqStyle: CSSProperties = { height:'28px', padding:'0 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'12.5px', fontWeight: s.routing === 'sequential' ? 600 : 500, background: s.routing === 'sequential' ? '#fff' : 'transparent', color: s.routing === 'sequential' ? '#0f172a' : '#64748b', boxShadow: s.routing === 'sequential' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
   const parStyle: CSSProperties = { height:'28px', padding:'0 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'12.5px', fontWeight: s.routing === 'parallel' ? 600 : 500, background: s.routing === 'parallel' ? '#fff' : 'transparent', color: s.routing === 'parallel' ? '#0f172a' : '#64748b', boxShadow: s.routing === 'parallel' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
+  /* The pre-send checklist, read off the real field set. `document_service.
+     validate_for_send` is the authority — a failure there comes back as the
+     400 the send call surfaces — so these are advisory. */
+  const recipientIds = R.map(r => r.id);
+  const orphanFields = F.filter(f => recipientIds.indexOf(f.to) < 0);
+  const mergeFields = F.filter(f => !!f.merge);
+  const mergePages = mergeFields.map(f => f.page).filter((n, i, a) => a.indexOf(n) === i).sort((a, b) => a - b);
   const sendChecks = ([
-    ['9 fields assigned', 'Every required field has a recipient', '#10b981'],
-    ['Disclosure attached', 'ESIGN consent v4.2 shown before signing', '#10b981'],
-    ['2 merge tags unresolved', '{{contract.amount}} on page 2 will render empty', '#f59e0b'],
+    [F.length + (F.length === 1 ? ' field assigned' : ' fields assigned'),
+      orphanFields.length
+        ? orphanFields.length + ' field(s) have no recipient on this envelope'
+        : 'Every required field has a recipient',
+      orphanFields.length ? '#f59e0b' : '#10b981'],
+    // FALLBACK: the consent disclosure version is not exposed by any endpoint.
+    ['Disclosure attached', 'ESIGN consent shown before signing', '#10b981'],
+    [mergeFields.length
+      ? mergeFields.length + (mergeFields.length === 1 ? ' merge tag' : ' merge tags') + ' unresolved'
+      : 'No merge tags',
+      mergeFields.length
+        ? mergeFields[0].merge + ' on page ' + mergePages.join(', ') + ' will render empty'
+        : 'Nothing is bound to external data',
+      mergeFields.length ? '#f59e0b' : '#10b981'],
     ['Certificate enabled', 'Sealed PDF and audit trail on completion', '#10b981']
   ] as [string, string, string][]).map(([label, metaText, c]) => ({
     label, meta: metaText,
     dot: { width:'8px', height:'8px', borderRadius:'99px', background:c, marginTop:'5px', flex:'0 0 8px' } as CSSProperties
   }));
 
+  /* A fresh tenant has no draft to open, and `?document=` can name a document
+     that has been deleted or belongs to another tenant (the API answers 404). */
+  if (!documentId) {
+    return (
+      <section data-screen-label="Builder" style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0, background:'#eceff4' }}>
+        <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'#fff', borderBottom:'1px solid #e3e7ee' }}>
+          <span style={{ width:'24px', height:'24px', borderRadius:'7px', background:'#eef2ff', color:'#3730a3', display:'grid', placeItems:'center', fontSize:'9px', fontWeight:700, flex:'0 0 24px' }}>DOC</span>
+          <span style={{ fontSize:'13px', fontWeight:600 }}>Prepare document</span>
+        </div>
+        <div style={{ flex:1, minHeight:0, display:'grid', placeItems:'center', padding:'26px' }}>
+          <div style={{ maxWidth:'420px', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'22px', display:'flex', flexDirection:'column', gap:'10px', textAlign:'center' }}>
+            <span style={{ fontSize:'13.5px', fontWeight:600, color:'#0f172a' }}>No document to prepare</span>
+            <span style={{ fontSize:'12px', lineHeight:1.6, color:'#64748b' }}>Upload a PDF from the documents list to create a draft, then open it here to place fields and assign recipients.</span>
+            <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, primaryBtn, { justifyContent:'center' })}>Go to documents</button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section data-screen-label="Builder" style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0 }}>
       <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'#fff', borderBottom:'1px solid #e3e7ee' }}>
         <button type="button" onClick={() => flash('Rename — inline title editing')} style={{ display:'flex', alignItems:'center', gap:'8px', background:'none', border:'none', cursor:'pointer', minWidth:0 }}>
           <span style={{ width:'24px', height:'24px', borderRadius:'7px', background:'#eef2ff', color:'#3730a3', display:'grid', placeItems:'center', fontSize:'9px', fontWeight:700, flex:'0 0 24px' }}>DOC</span>
-          <span style={{ fontSize:'13px', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>Master Services Agreement — Acme Corp ✎</span>
+          <span style={{ fontSize:'13px', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{title + ' ✎'}</span>
         </button>
         <div style={{ display:'flex', alignItems:'center', gap:'12px', margin:'0 auto' }}>
           <button type="button" onClick={goStep1} style={wizardStepStyle1}><span style={wizardDot1}></span>Prepare</button>
@@ -255,7 +386,7 @@ export default function Builder() {
           <div>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'8px' }}>
               <div style={railHead}>Pages</div>
-              <button type="button" onClick={() => flash('Blank page appended · page ' + (3 + 1))} style={linkBtn(A)}>+ Add page</button>
+              <button type="button" onClick={() => flash('Blank page appended · page ' + (pages.length + 1))} style={linkBtn(A)}>+ Add page</button>
             </div>
             <div style={{ display:'flex', flexDirection:'column', gap:'8px', marginTop:'9px' }}>
               {thumbs.map(p => (
@@ -304,8 +435,8 @@ export default function Builder() {
             <div style={sheetWrapStyle}>
               <div ref={I.sheetRef} onPointerDown={I.onSheetDown} style={sheetStyle}>
                 <div style={{ position:'absolute', inset:0, pointerEvents:'none', opacity:.55, padding:'64px 72px', display:'flex', flexDirection:'column', gap:'13px' }}>
-                  <div style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'10px', letterSpacing:'.14em', color:'#94a3b8' }}>EXHIBIT A — PAGE {String(s.page)} OF 3</div>
-                  <div style={{ fontSize:'21px', fontWeight:700, letterSpacing:'-.4px', color:'#0f172a' }}>Master Services Agreement</div>
+                  <div style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'10px', letterSpacing:'.14em', color:'#94a3b8' }}>EXHIBIT A — PAGE {String(s.page)} OF {String(pages.length)}</div>
+                  <div style={{ fontSize:'21px', fontWeight:700, letterSpacing:'-.4px', color:'#0f172a' }}>{title}</div>
                   <div style={{ fontSize:'11.5px', lineHeight:1.75, color:'#475569', maxWidth:'600px' }}>This Master Services Agreement (the “Agreement”) is entered into as of the Effective Date by and between Northwind Analytics, Inc., a Delaware corporation, and the Client identified in the signature block below. The parties agree that electronic signatures affixed hereto carry the same force and effect as manual signatures under the ESIGN Act and UETA.</div>
                   <div style={{ fontSize:'11.5px', lineHeight:1.75, color:'#475569', maxWidth:'600px' }}>1. Scope of Services. Provider shall perform the services described in each mutually executed Statement of Work. 2. Fees. Client shall pay the amounts set out in the applicable Order Form within thirty (30) days of invoice. 3. Confidentiality. Each party shall protect the other’s Confidential Information using no less than reasonable care.</div>
                   <div style={{ fontSize:'11.5px', lineHeight:1.75, color:'#475569', maxWidth:'600px' }}>4. Term and Termination. This Agreement commences on the Effective Date and continues for twelve (12) months unless terminated earlier for material breach. 5. Limitation of Liability. Neither party&apos;s aggregate liability shall exceed the fees paid in the preceding twelve months. 6. Governing Law. Delaware law governs, excluding its conflict-of-law rules.</div>
@@ -437,8 +568,8 @@ export default function Builder() {
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }}>
                 <div style={railHead}>Recipients &amp; signing order</div>
                 <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px' }}>
-                  <button type="button" onClick={() => set({ routing: 'sequential' })} style={seqStyle}>Sequential</button>
-                  <button type="button" onClick={() => set({ routing: 'parallel' })} style={parStyle}>Parallel</button>
+                  <button type="button" onClick={() => changeRouting({ routing: 'sequential' })} style={seqStyle}>Sequential</button>
+                  <button type="button" onClick={() => changeRouting({ routing: 'parallel' })} style={parStyle}>Parallel</button>
                 </div>
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:'9px' }}>
@@ -468,10 +599,10 @@ export default function Builder() {
             <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
               <div style={railHead}>Invite email</div>
               <label style={lbl}>Subject
-                <input type="text" defaultValue="Master Services Agreement: signature request from Priya Raman" style={input} />
+                <input type="text" value={subject} onChange={e => changeRouting({ subject: e.target.value })} placeholder={title + ': signature request'} style={input} />
               </label>
               <label style={lbl}>Message
-                <textarea rows={4} onChange={e => set({ message: e.target.value })} value={s.message} style={textareaStyle}></textarea>
+                <textarea rows={4} onChange={e => changeRouting({ message: e.target.value })} value={s.message} style={textareaStyle}></textarea>
               </label>
             </div>
           </div>
@@ -485,7 +616,7 @@ export default function Builder() {
                 ))}
               </div>
               <label style={lbl}>Expires after
-                <select value={s.expiry} onChange={e => set({ expiry: e.target.value })} style={input}>
+                <select value={s.expiry} onChange={e => changeRouting({ expiry: e.target.value })} style={input}>
                   <option value="7">7 days</option>
                   <option value="14">14 days</option>
                   <option value="30">30 days</option>

@@ -218,3 +218,259 @@ export function useBuilderInteractions() {
     deleteSel, duplicateSel, alignLeft, alignCenterX, distribute
   }), [onToolDown, onFieldDown, onResizeDown, onSheetDown, deleteSel, duplicateSel, alignLeft, alignCenterX, distribute]);
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Persistence for the prepare/builder and workflow screens.
+
+   `useBuilderInteractions` above is untouched: it still owns every pointer and
+   keyboard gesture and still writes straight into `s.fields`, so dragging stays
+   a purely local, 60 fps operation. This hook wraps persistence *around* that —
+   it watches the field set and pushes a full replace through
+   `PUT /api/documents/{id}/fields` once the user has stopped moving, and offers
+   explicit savers for recipients, routing and send.
+
+   Why full replace: `s.fields` already *is* the whole field set, which is
+   exactly the shape `field_service.bulk_save` takes. Trying to diff it into
+   per-field PATCHes would mean tracking creates/deletes the interaction layer
+   deliberately does not report.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+import { apiCall } from '@/lib/api/browser';
+import { documents as documentsApi, fields as fieldsApi, recipients as recipientsApi } from '@/lib/api/resources';
+import {
+  builderFieldKey,
+  fieldResponseKey,
+  toBuilderExtrasMap,
+  toBuilderFields,
+  toFieldBulkItems,
+  toRecipientOrder,
+  toRecipientSetItems,
+  toRoutingUpdate,
+  type BuilderFieldExtras,
+  type BuilderRouting,
+} from './adapters';
+import type { Dict } from './data';
+import type { Recipient } from './state';
+import type { FieldResponse, RecipientCreate, RecipientResponse, WorkflowType } from '@/lib/api/types';
+
+/** How long the field set must be quiet before it is written back. A pointer
+ *  drag emits a change per `pointermove`, so this also serves as the drag
+ *  boundary: nothing is sent until the gesture has ended. */
+const FIELD_SAVE_DELAY_MS = 700;
+/** Routing text inputs (subject, message) fire per keystroke. */
+const ROUTING_SAVE_DELAY_MS = 600;
+
+export type DocumentPersistenceInput = {
+  documentId: string | null;
+  /** The field rows as loaded, for the extras `SFField` cannot carry. */
+  serverFields: FieldResponse[];
+  serverRecipients: RecipientResponse[];
+  /**
+   * The exact array the screen seeds `s.fields` with. Comparing by identity is
+   * how the autosave knows hydration has landed: until `s.fields` *is* this
+   * array the store still holds the prototype's mock set, and writing that back
+   * would replace the document's real fields with sample data.
+   */
+  seededFields: SFField[];
+  /**
+   * Whether this screen authors fields. The workflow screen only touches
+   * recipients and routing, so it opts out and the field autosave stays off.
+   */
+  autosaveFields?: boolean;
+};
+
+export function useDocumentPersistence({ documentId, serverFields, serverRecipients, seededFields, autosaveFields = true }: DocumentPersistenceInput) {
+  const { s, set, flash } = useSF();
+
+  const sRef = useRef<SFState>(s);
+  sRef.current = s;
+
+  /** Ids the API has confirmed. Anything else was created locally and must be
+   *  sent without an id — `bulk_save` rejects an id it does not own with a 400. */
+  const serverFieldIds = useRef<Set<string>>(new Set(serverFields.map(f => f.id)));
+  const serverRecipientIds = useRef<Set<string>>(new Set(serverRecipients.map(r => r.id)));
+  const extras = useRef<Dict<BuilderFieldExtras>>(toBuilderExtrasMap(serverFields));
+
+  /** Bumped on every local field change; lets a completed save tell whether the
+   *  user has edited again while it was in flight. */
+  const revision = useRef(0);
+  const savedRevision = useRef(0);
+  const inFlight = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const routingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRouting = useRef<Partial<BuilderRouting>>({});
+  const baselined = useRef(false);
+
+  /* Re-seed when the page hands us a different document (or fresh server data). */
+  useEffect(() => {
+    serverFieldIds.current = new Set(serverFields.map(f => f.id));
+    serverRecipientIds.current = new Set(serverRecipients.map(r => r.id));
+    extras.current = toBuilderExtrasMap(serverFields);
+    revision.current = 0;
+    savedRevision.current = 0;
+    baselined.current = false;
+  }, [documentId, serverFields, serverRecipients, seededFields]);
+
+  /* ── fields ── */
+
+  const pushFields = useCallback(async (): Promise<boolean> => {
+    if (!documentId || inFlight.current) return false;
+    const atRevision = revision.current;
+    if (atRevision === savedRevision.current) return true;
+    const fields = sRef.current.fields;
+    const items = toFieldBulkItems(fields, extras.current, id => serverFieldIds.current.has(id));
+    inFlight.current = true;
+    const result = await fieldsApi.bulkSave(apiCall, documentId, items);
+    inFlight.current = false;
+    if (!result.ok) {
+      // A 400 from field validation ("Field must fit inside the PDF page",
+      // "Upload a PDF before placing fields", a bad condition target…) is the
+      // API's own message and is shown verbatim.
+      flash('Fields not saved · ' + result.error.message);
+      return false;
+    }
+    savedRevision.current = atRevision;
+    const saved = result.data;
+    extras.current = toBuilderExtrasMap(saved);
+    serverFieldIds.current = new Set(saved.map(f => f.id));
+
+    // Newly created rows come back with server ids, and the response is sorted
+    // by page/y/x rather than in request order — so local ids are re-keyed by
+    // geometry, which is exactly what was sent. Only safe while the user has
+    // not touched anything since; otherwise the next save recreates them (the
+    // call is a full replace, so that cannot duplicate a row).
+    if (revision.current !== atRevision) return true;
+    const byKey: Dict<string[]> = {};
+    for (const row of saved) {
+      const key = fieldResponseKey(row);
+      (byKey[key] || (byKey[key] = [])).push(row.id);
+    }
+    const remap: Dict<string> = {};
+    let complete = true;
+    for (const f of fields) {
+      const bucket = byKey[builderFieldKey(f)];
+      const next = bucket && bucket.length ? bucket.shift() : undefined;
+      if (!next) { complete = false; break; }
+      remap[f.id] = next;
+    }
+    if (!complete || fields.length !== saved.length) {
+      // Could not line the two sets up (identical overlapping rectangles, or a
+      // page the server clamped). Keep the local ids and let the canonical set
+      // arrive on the next page load rather than shuffling the canvas.
+      set({ fields: toBuilderFields(saved), selected: [] });
+      return true;
+    }
+    if (fields.every(f => remap[f.id] === f.id)) return true;
+    set(prev => ({
+      fields: prev.fields.map(f => (remap[f.id] ? Object.assign({}, f, { id: remap[f.id] }) : f)),
+      selected: prev.selected.map(id => remap[id] || id),
+    }));
+    return true;
+  }, [documentId, flash, set]);
+
+  /** Save right now — the "Save and close" button, and leaving the screen. */
+  const saveFieldsNow = useCallback(() => {
+    if (!autosaveFields) return Promise.resolve(true);
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    return pushFields();
+  }, [autosaveFields, pushFields]);
+
+  /* Debounced autosave. `s.fields` gets a new array identity on every field
+     mutation — including each `pointermove` of a drag — so the timer keeps
+     being pushed out and the write lands once the gesture settles. */
+  useEffect(() => {
+    if (!documentId || !autosaveFields) return;
+    if (!baselined.current) {
+      // Nothing is written until the store holds the document's own fields.
+      if (s.fields !== seededFields) return;
+      baselined.current = true;
+      return;
+    }
+    revision.current += 1;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { timer.current = null; void pushFields(); }, FIELD_SAVE_DELAY_MS);
+    return () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
+  }, [s.fields, seededFields, documentId, autosaveFields, pushFields]);
+
+  /* ── recipients ── */
+
+  const patchRecipient = useCallback((recipientId: string, body: Partial<RecipientCreate>) => {
+    if (!documentId) return;
+    // A row the server has never seen cannot be PATCHed; replace the set instead.
+    if (!serverRecipientIds.current.has(recipientId)) { void saveRecipientsRef.current(); return; }
+    void recipientsApi.update(apiCall, documentId, recipientId, body).then(result => {
+      if (!result.ok) flash('Recipient not saved · ' + result.error.message);
+    });
+  }, [documentId, flash]);
+
+  /** Full replace, order included — used when the local list holds a row the
+   *  server has never seen. */
+  const saveRecipients = useCallback(async (list?: Recipient[]) => {
+    if (!documentId) return;
+    const current = list || sRef.current.recipients || [];
+    const items = toRecipientSetItems(current, id => serverRecipientIds.current.has(id));
+    const result = await recipientsApi.setAll(apiCall, documentId, items, sRef.current.routing as WorkflowType);
+    if (!result.ok) { flash('Recipients not saved · ' + result.error.message); return; }
+    serverRecipientIds.current = new Set(result.data.map(r => r.id));
+  }, [documentId, flash]);
+  const saveRecipientsRef = useRef(saveRecipients);
+  saveRecipientsRef.current = saveRecipients;
+
+  const saveRecipientOrder = useCallback((list: Recipient[]) => {
+    if (!documentId) return;
+    const ids = toRecipientOrder(list);
+    if (!ids.length || ids.some(id => !serverRecipientIds.current.has(id))) { void saveRecipients(list); return; }
+    void recipientsApi.reorder(apiCall, documentId, ids).then(result => {
+      if (!result.ok) flash('Order not saved · ' + result.error.message);
+    });
+  }, [documentId, flash, saveRecipients]);
+
+  /* ── routing ── */
+
+  const pushRouting = useCallback(async () => {
+    if (!documentId) return;
+    const patch = pendingRouting.current;
+    pendingRouting.current = {};
+    if (!Object.keys(patch).length) return;
+    const result = await documentsApi.updateRouting(apiCall, documentId, toRoutingUpdate(patch));
+    if (!result.ok) flash('Routing not saved · ' + result.error.message);
+  }, [documentId, flash]);
+
+  /** Queue a routing change; the screen has already applied it locally. */
+  const saveRouting = useCallback((patch: Partial<BuilderRouting>, immediate = false) => {
+    pendingRouting.current = Object.assign({}, pendingRouting.current, patch);
+    if (routingTimer.current) clearTimeout(routingTimer.current);
+    if (immediate) { void pushRouting(); return; }
+    routingTimer.current = setTimeout(() => { routingTimer.current = null; void pushRouting(); }, ROUTING_SAVE_DELAY_MS);
+  }, [pushRouting]);
+
+  const flushRouting = useCallback(() => {
+    if (routingTimer.current) { clearTimeout(routingTimer.current); routingTimer.current = null; }
+    return pushRouting();
+  }, [pushRouting]);
+
+  /* ── send ── */
+
+  /** `POST /api/documents/{id}/send`. Everything pending is flushed first so the
+   *  envelope goes out with the fields and routing on screen. */
+  const sendEnvelope = useCallback(async (): Promise<boolean> => {
+    if (!documentId) { flash('No document to send'); return false; }
+    const fieldsOk = await saveFieldsNow();
+    if (!fieldsOk) return false;
+    await flushRouting();
+    const result = await documentsApi.send(apiCall, documentId);
+    if (!result.ok) { flash('Not sent · ' + result.error.message); return false; }
+    const count = result.data.signing_links ? result.data.signing_links.length : 0;
+    flash('Envelope sent · ' + count + (count === 1 ? ' invitation' : ' invitations') + ' delivered');
+    return true;
+  }, [documentId, flash, saveFieldsNow, flushRouting]);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+    if (routingTimer.current) clearTimeout(routingTimer.current);
+  }, []);
+
+  return useMemo(() => ({
+    saveFieldsNow, patchRecipient, saveRecipients, saveRecipientOrder, saveRouting, flushRouting, sendEnvelope,
+  }), [saveFieldsNow, patchRecipient, saveRecipients, saveRecipientOrder, saveRouting, flushRouting, sendEnvelope]);
+}

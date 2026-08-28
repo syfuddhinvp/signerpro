@@ -379,3 +379,37 @@ def test_expiry_batches(db_session) -> None:
     report = expiry_service.run(db_session, batch_size=2)
     assert report.documents_expired == 2
     assert expiry_service.run(db_session, batch_size=2).documents_expired == 1
+
+
+# --------------------------------------------------------------- route registry
+def test_every_route_is_registered_exactly_once_and_nothing_is_shadowed() -> None:
+    """Six routers merged concurrently; a duplicated ``include_router`` or a
+    parameterised path declared before a literal one is invisible until a
+    request 404s. Assert the registry instead of trusting the diff."""
+    import re
+
+    from app.main import app
+
+    seen: dict[tuple[str, str], list[str]] = {}
+    ordered: list[tuple[str, set[str], str]] = []
+    for route in app.routes:
+        methods = set(getattr(route, "methods", None) or [])
+        path = getattr(route, "path", "")
+        for method in methods:
+            seen.setdefault((method, path), []).append(getattr(route, "name", ""))
+        ordered.append((path, methods, getattr(route, "name", "")))
+
+    duplicates = {key: names for key, names in seen.items() if len(names) > 1}
+    assert duplicates == {}, f"duplicate route registrations: {duplicates}"
+
+    def matcher(path: str) -> re.Pattern:
+        return re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", path) + "$")
+
+    shadowed = [
+        (path, name, later_path, later_name)
+        for index, (path, methods, name) in enumerate(ordered)
+        if "{" in path
+        for later_path, later_methods, later_name in ordered[index + 1 :]
+        if "{" not in later_path and methods & later_methods and matcher(path).match(later_path)
+    ]
+    assert shadowed == [], f"literal paths shadowed by earlier parameterised ones: {shadowed}"

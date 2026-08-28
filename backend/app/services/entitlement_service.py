@@ -20,8 +20,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.plan import (
+    ENTITLEMENT_MAX_API_CALLS_PER_MONTH,
     ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH,
     ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT,
+    ENTITLEMENT_MAX_SMS_PER_MONTH,
     ENTITLEMENT_MAX_STORAGE_BYTES,
     ENTITLEMENT_MAX_USERS,
     FALLBACK_ENTITLEMENTS,
@@ -35,10 +37,10 @@ from app.models.user import User
 
 PAYMENT_REQUIRED = status.HTTP_402_PAYMENT_REQUIRED
 
-#: BIL-11: optional metered dimensions. These keys are absent from the seeded
-#: plan catalogue, so they read as unlimited until a plan row declares them.
-ENTITLEMENT_MAX_API_CALLS_PER_MONTH = "max_api_calls_per_month"
-ENTITLEMENT_MAX_SMS_PER_MONTH = "max_sms_per_month"
+#: BIL-11 metered dimensions. Defined in ``app.models.plan`` alongside the rest
+#: of the catalogue and re-exported here for the callers that already import
+#: them from this module.
+__all__ = ["entitlement_service", "EntitlementService", "EntitlementContext"]
 
 #: (entitlement key, row label, usage event backing it) for the usage table.
 _USAGE_ROW_DEFS: tuple[tuple[str, str, str], ...] = (
@@ -67,6 +69,8 @@ _USAGE_SOURCES: dict[str, tuple[UsageEventType, bool]] = {
     # key -> (usage event type, scoped to the current billing period?)
     ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH: (UsageEventType.document_created, True),
     ENTITLEMENT_MAX_STORAGE_BYTES: (UsageEventType.storage_bytes_added, False),
+    ENTITLEMENT_MAX_API_CALLS_PER_MONTH: (UsageEventType.api_call, True),
+    ENTITLEMENT_MAX_SMS_PER_MONTH: (UsageEventType.sms_sent, True),
 }
 
 
@@ -212,6 +216,8 @@ class EntitlementService:
             ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH,
             ENTITLEMENT_MAX_USERS,
             ENTITLEMENT_MAX_STORAGE_BYTES,
+            ENTITLEMENT_MAX_API_CALLS_PER_MONTH,
+            ENTITLEMENT_MAX_SMS_PER_MONTH,
         ):
             limit = context.limit(key)
             used = self.usage_for(db, context, key)
@@ -382,6 +388,21 @@ class EntitlementService:
                 },
             )
         return context
+
+    def has_headroom(self, db: Session, organization_id: str, key: str, amount: int = 1) -> bool:
+        """Non-raising form of :meth:`check_entitlement`.
+
+        For metered work that must degrade rather than fail -- an exhausted SMS
+        allowance falls back to emailing the code instead of blocking a signer
+        mid-session.
+        """
+        context = self.resolve(db, organization_id)
+        limit = context.limit(key)
+        if isinstance(limit, bool):
+            return limit
+        if limit is None:
+            return True
+        return self.usage_for(db, context, key) + amount <= limit
 
     def has_feature(self, db: Session, organization_id: str, key: str) -> bool:
         return bool(self.resolve(db, organization_id).entitlements.get(key))

@@ -20,6 +20,10 @@ ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT = "max_recipients_per_document"
 ENTITLEMENT_CUSTOM_BRANDING = "custom_branding"
 ENTITLEMENT_API_ACCESS = "api_access"
 ENTITLEMENT_WEBHOOKS = "webhooks"
+# Metered dimensions (BIL-11). Every plan declares a ceiling so the usage table
+# has a real denominator; ``None`` still means unlimited.
+ENTITLEMENT_MAX_API_CALLS_PER_MONTH = "max_api_calls_per_month"
+ENTITLEMENT_MAX_SMS_PER_MONTH = "max_sms_per_month"
 
 # The catalogue mirrors the product design: three per-seat plans.
 # Prices are per seat per month, in integer cents.
@@ -46,6 +50,8 @@ DEFAULT_PLANS: list[dict] = [
             ENTITLEMENT_MAX_USERS: 2,
             ENTITLEMENT_MAX_STORAGE_BYTES: 100 * 1024 * 1024,
             ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT: 3,
+            ENTITLEMENT_MAX_API_CALLS_PER_MONTH: 5_000,
+            ENTITLEMENT_MAX_SMS_PER_MONTH: 100,
             ENTITLEMENT_CUSTOM_BRANDING: False,
             ENTITLEMENT_API_ACCESS: False,
             ENTITLEMENT_WEBHOOKS: False,
@@ -73,6 +79,8 @@ DEFAULT_PLANS: list[dict] = [
             ENTITLEMENT_MAX_USERS: 10,
             ENTITLEMENT_MAX_STORAGE_BYTES: 25 * 1024 * 1024 * 1024,
             ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT: 10,
+            ENTITLEMENT_MAX_API_CALLS_PER_MONTH: 100_000,
+            ENTITLEMENT_MAX_SMS_PER_MONTH: 2_000,
             ENTITLEMENT_CUSTOM_BRANDING: True,
             ENTITLEMENT_API_ACCESS: True,
             ENTITLEMENT_WEBHOOKS: True,
@@ -100,6 +108,8 @@ DEFAULT_PLANS: list[dict] = [
             ENTITLEMENT_MAX_USERS: None,
             ENTITLEMENT_MAX_STORAGE_BYTES: None,
             ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT: None,
+            ENTITLEMENT_MAX_API_CALLS_PER_MONTH: None,
+            ENTITLEMENT_MAX_SMS_PER_MONTH: None,
             ENTITLEMENT_CUSTOM_BRANDING: True,
             ENTITLEMENT_API_ACCESS: True,
             ENTITLEMENT_WEBHOOKS: True,
