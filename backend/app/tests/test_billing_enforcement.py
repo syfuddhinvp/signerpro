@@ -1071,3 +1071,52 @@ def test_provisioning_dry_run_touches_nothing(client: TestClient, monkeypatch) -
     assert any("would ensure product" in line for line in lines)
     assert all(plan.external_price_id is None for plan in db.scalars(select(Plan)).all())
     generator.close()
+
+
+# --------------------------------------------------------------------------
+# set_default_payment_method used to be a no-op on the Stripe adapter: the ABC
+# signature carried no customer id, so the local default moved and the
+# provider's never did. Stripe bills subscription renewals against
+# `invoice_settings.default_payment_method`, and this application always names
+# the instrument explicitly when *it* charges -- so the divergence stayed
+# invisible until something billed on Stripe's side.
+def test_stripe_sets_the_customers_default_payment_method(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    fake = FakeStripe({"/v1/customers/cus_123": (200, {"id": "cus_123"})})
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(fake))
+    from app.models.payment_method import PaymentMethod
+
+    stripe_provider.set_default_payment_method(
+        organization_id="org_1",
+        payment_method=PaymentMethod(
+            organization_id="org_1", type="card", label="Visa •••• 4242",
+            provider_payment_method_id="pm_abc",
+        ),
+        customer_id="cus_123",
+    )
+    params = fake.params_for("POST", "/v1/customers/cus_123")
+    assert params["invoice_settings[default_payment_method]"] == "pm_abc"
+
+
+def test_stripe_default_payment_method_is_a_no_op_without_a_customer(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    """No customer exists until the org has been through checkout.
+
+    The instrument is still persisted locally, and this must not provision a
+    Stripe customer as a side effect of a settings change.
+    """
+    fake = FakeStripe({})
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(fake))
+    from app.models.payment_method import PaymentMethod
+
+    stripe_provider.set_default_payment_method(
+        organization_id="org_1",
+        payment_method=PaymentMethod(
+            organization_id="org_1", type="card", label="Visa •••• 4242",
+            provider_payment_method_id="pm_abc",
+        ),
+        customer_id=None,
+    )
+    assert fake.calls == []

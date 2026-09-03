@@ -237,8 +237,15 @@ class PaymentProvider(ABC):
         raise NotImplementedError
 
     def set_default_payment_method(
-        self, *, organization_id: str, payment_method: "PaymentMethod"
+        self, *, organization_id: str, payment_method: "PaymentMethod", customer_id: str | None
     ) -> None:
+        """Make ``payment_method`` the provider-side default for the customer.
+
+        ``customer_id`` is threaded through because the provider needs it and
+        only the caller can look it up. It was previously absent from this
+        signature, which left the Stripe implementation unable to do anything
+        at all -- the local default moved and the provider's did not.
+        """
         raise NotImplementedError
 
     def update_seats(self, *, subscription: Subscription, seats: int) -> None:
@@ -374,7 +381,7 @@ class NullPaymentProvider(PaymentProvider):
         return None
 
     def set_default_payment_method(
-        self, *, organization_id: str, payment_method: "PaymentMethod"
+        self, *, organization_id: str, payment_method: "PaymentMethod", customer_id: str | None
     ) -> None:
         return None
 
@@ -952,10 +959,29 @@ class StripePaymentProvider(PaymentProvider):
         return None
 
     def set_default_payment_method(
-        self, *, organization_id: str, payment_method: "PaymentMethod"
+        self, *, organization_id: str, payment_method: "PaymentMethod", customer_id: str | None
     ) -> None:
-        # Requires a customer id, which lives on the subscription; the caller
-        # persists the instrument regardless, so a missing id is not fatal.
+        # Sets `invoice_settings.default_payment_method`, which is what Stripe
+        # itself bills against -- subscription renewals and anything raised in
+        # the customer portal. Without it the local default and the provider's
+        # silently disagree: this application always names the instrument
+        # explicitly when it charges (see charge_invoice), so the divergence is
+        # invisible until something bills on Stripe's side.
+        #
+        # A missing customer id is not fatal and must not be: no customer
+        # exists until the organization has been through checkout, and the
+        # instrument is still persisted locally. Deliberately does NOT create
+        # one -- a write path that silently provisions billing objects as a
+        # side effect of a settings change is worse than the divergence.
+        if not customer_id or not payment_method.provider_payment_method_id:
+            return None
+        self._request(
+            "POST",
+            f"/v1/customers/{customer_id}",
+            {
+                "invoice_settings[default_payment_method]": payment_method.provider_payment_method_id
+            },
+        )
         return None
 
     # -------------------------------------------------------------- charging
@@ -2305,8 +2331,17 @@ class BillingService:
         org = self.organization(db, organization_id)
         org.default_payment_method_id = payment_method.id
         db.add(org)
+        # Read the customer id off the existing subscription rather than
+        # creating one; see the Stripe implementation for why.
+        subscription = (
+            db.query(Subscription)
+            .filter(Subscription.organization_id == organization_id)
+            .one_or_none()
+        )
         self.provider.set_default_payment_method(
-            organization_id=organization_id, payment_method=payment_method
+            organization_id=organization_id,
+            payment_method=payment_method,
+            customer_id=subscription.provider_customer_id if subscription else None,
         )
 
     def set_default_payment_method(
