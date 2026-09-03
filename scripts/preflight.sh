@@ -33,10 +33,15 @@ echo "== Required secrets =="
 req POSTGRES_PASSWORD 16
 req JWT_SECRET 32
 req SECRET_ENCRYPTION_KEY 32
+# Also 32-char guarded, in billing_service.InsecureBillingWebhookSecret. This
+# one is easy to miss: .env.prod.example does not mark it REQUIRED, and the
+# failure lands as a worker-boot loop inside a lifespan traceback rather than
+# as a config error -- the stack simply reports the backend "unhealthy".
+req BILLING_WEBHOOK_SECRET 32
 
 echo
 echo "== Secrets must not be the published defaults =="
-for var in JWT_SECRET SECRET_ENCRYPTION_KEY POSTGRES_PASSWORD; do
+for var in JWT_SECRET SECRET_ENCRYPTION_KEY POSTGRES_PASSWORD BILLING_WEBHOOK_SECRET; do
   case "${!var:-}" in
     *change-me*|*changeme*|*ci-placeholder*|*not-a-real-secret*|signforge|postgres|secret)
       red "$var looks like a placeholder, not a generated secret (openssl rand -base64 32)" ;;

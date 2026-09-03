@@ -69,6 +69,40 @@ check that otherwise fails at deploy time rather than in CI.
 **W19 (new, P3):** there is no ESLint configuration, so CI's lint step warns and skips by design.
 Add `eslint.config.mjs` with `eslint-config-next` to turn it on.
 
+### 1c. Production stack — full round trip, 4 September 2026
+
+`docker-compose.prod.yml` built and came up under project `sfsmoke` against a real empty volume,
+and the whole sender→signer→executed-PDF journey was driven through the API inside the network
+(no ports are published; the containers are meant to sit behind an ingress).
+
+| Check | Result |
+|---|---|
+| Stack health | `postgres`, `backend`, `frontend` **healthy**; all four schedulers running |
+| Migrations on deploy | applied under the advisory lock to `f2b7c81e4a90`, **49 tables** |
+| Readiness probe | `{"status":"ready"}` with live DB pool and storage detail |
+| Schedulers actually swept | expiry, webhook-retry, billing/dunning and log-retention each logged a completed sweep — not merely "running" |
+| register → document → upload → recipient → field → send | 201/201/200/201/201/200 |
+| **Consent gate** | before consent the session returns **0 fields and an empty `pdf_url`** — a signer cannot see the paper before agreeing to sign electronically |
+| Signer fetches the real PDF | 200, `%PDF-` — C2's fix, live |
+| Drawn signature → complete | 200/200, document `completed` |
+| Executed PDF | 200, 6,649 bytes, `%PDF-` |
+| Document + certificate PDF | 200 |
+| Audit chain verify | `valid: true`, 12 entries, **persisted** `chain_head` |
+| **Tamper probe (C6)** | `UPDATE audit_logs SET event_message = … \|\| ' [TAMPERED]'` directly in Postgres → **`valid: false`, `broken_at_index: 0`, "entry contents do not match its stored checksum"** |
+
+The tamper probe is the exact query the audit ran when it returned `valid: true`. It now fails
+closed. (A first attempt at this probe edited the *oldest row in the database*, which belongs to a
+different document's chain, and correctly reported `valid: true` — the chain is scoped per
+document. Worth knowing before anyone re-runs it and misreads the result.)
+
+**Found by doing this:** the backend crashlooped on first boot with
+`InsecureBillingWebhookSecret: BILLING_WEBHOOK_SECRET must be at least 32 characters` — and
+`preflight.sh` had **passed**. The guard exists in the app, the preflight did not know about it,
+and `.env.prod.example` did not mark the variable REQUIRED. The failure surfaces as a worker-boot
+loop inside a lifespan traceback, so the operator-visible symptom is only "backend unhealthy".
+Both are fixed. This is precisely the class of thing a preflight exists to catch, and it was caught
+by running the stack rather than reading it.
+
 ---
 
 ## 2. Definition of done for v1
@@ -106,7 +140,7 @@ resolved are marked **stale** — the docs are behind the code.
 
 | # | Item | Evidence | Size |
 |---|---|---|---|
-| **W3** | Stand the prod stack up end to end and record the run | `docker-compose.prod.yml` untracked, never exercised as a whole in this environment | 3–5 h |
+| ~~W3~~ | ~~Stand the prod stack up end to end~~ | **Done** — see §1c | ✅ |
 | ~~W4~~ | ~~Schedule the four jobs~~ | **Already done** — all four are services in `docker-compose.prod.yml` (`expiry-`, `webhook-retry-`, `billing-cycle-`, `log-retention-scheduler`), each `RUN_MIGRATIONS=0` and gated on `backend: service_healthy`. Verifying they are *alive* after a deploy is now a step in `DEPLOYMENT.md` §3 | ✅ |
 | **W4b** | Run `provision_stripe_plans.py` once against the real Stripe account | Products and prices must exist before a plan change can be charged | escalate (money) |
 | **W5** | Coordinate data migration decision for pre-C1 field rows | Stored `y` is now read under a new origin; a deployment with real data needs an explicit call | 2 h (see `DECISIONS.md` D4) |
