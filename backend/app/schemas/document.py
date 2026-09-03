@@ -80,6 +80,13 @@ class DocumentListItem(DocumentResponse):
 
 
 class DocumentCounts(BaseModel):
+    """Sidebar/library badge counts.
+
+    The first block is the original status-oriented set (kept for backwards
+    compatibility). The second block mirrors the library's `quick` filters
+    one-for-one, so a badge can never disagree with the list it links to.
+    """
+
     all: int = 0
     action: int = 0
     waiting: int = 0
@@ -89,6 +96,14 @@ class DocumentCounts(BaseModel):
     archived: int = 0
     trashed: int = 0
     templates: int = 0
+    # quick-filter buckets (`quick=<name>` on GET /api/documents/library)
+    inbox: int = 0
+    outbox: int = 0
+    drafts: int = 0
+    favorites: int = 0
+    expiring: int = 0
+    shared: int = 0
+    mine: int = 0
 
 
 class DocumentLibraryPage(BaseModel):

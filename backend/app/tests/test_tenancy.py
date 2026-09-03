@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.core.database import get_db
 from app.models.user import User
+from app.tests.conftest import upgrade_plan
 
 
 def register(client: TestClient, *, org: str, name: str, email: str) -> dict[str, str]:
@@ -103,7 +104,7 @@ def test_invitation_requires_org_admin_and_unique_email(client: TestClient) -> N
     # This test is about permission scoping, not seat limits: lift the org off the
     # 2-seat entry plan so the entitlement check never masks the assertions below.
     client.get("/api/billing/plans")
-    assert client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=h).status_code == 200
+    assert upgrade_plan(client, h, "business")["plan_code"] == "business"
 
     dup = client.post("/api/invitations/", headers=h, json={"email": "gus@guard.com"})
     assert dup.status_code == status.HTTP_409_CONFLICT
@@ -221,5 +222,5 @@ def test_invitation_is_capped_by_the_plan_seat_limit(client: TestClient) -> None
     assert client.post("/api/invitations/", headers=h, json={"email": "three@seat.com"}).status_code == 402
 
     # ...and raising the plan lifts the cap.
-    assert client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=h).status_code == 200
+    assert upgrade_plan(client, h, "business")["plan_code"] == "business"
     assert client.post("/api/invitations/", headers=h, json={"email": "three@seat.com"}).status_code == 201

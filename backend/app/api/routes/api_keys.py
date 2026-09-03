@@ -14,7 +14,9 @@ from app.schemas.api_key import (
     ApiSettingsResponse,
     ApiSettingsUpdate,
 )
+from app.models.plan import ENTITLEMENT_API_ACCESS
 from app.services.api_key_service import api_key_service
+from app.services.entitlement_service import EntitlementContext, entitlement_service
 from app.services.embed_service import embed_service
 
 
@@ -42,13 +44,29 @@ def list_keys(db: Session = Depends(get_db), user: User = Depends(get_current_us
 
 
 @router.post("", response_model=ApiKeyCreated, status_code=201)
-def create_key(payload: ApiKeyCreate, db: Session = Depends(get_db), user: User = Depends(require_org_admin)) -> ApiKeyCreated:
+def create_key(
+    payload: ApiKeyCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+    _entitlement: EntitlementContext = Depends(
+        entitlement_service.requires(ENTITLEMENT_API_ACCESS)
+    ),
+) -> ApiKeyCreated:
+    """Issue a key. ``api_access`` is a Business-and-above entitlement; it was
+    sold but never checked (AUDIT_REPORT.md section 7, finding 2)."""
     api_key, secret = api_key_service.create(db, user=user, label=payload.label, mode=payload.mode, scopes=payload.scopes)
     return _created(api_key, secret)
 
 
 @router.post("/{key_id}/roll", response_model=ApiKeyCreated)
-def roll_key(key_id: str, db: Session = Depends(get_db), user: User = Depends(require_org_admin)) -> ApiKeyCreated:
+def roll_key(
+    key_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+    _entitlement: EntitlementContext = Depends(
+        entitlement_service.requires(ENTITLEMENT_API_ACCESS)
+    ),
+) -> ApiKeyCreated:
     api_key = api_key_service.get_for_organization(db, key_id=key_id, organization_id=user.organization_id)
     api_key, secret = api_key_service.roll(db, api_key=api_key)
     return _created(api_key, secret)

@@ -11,10 +11,14 @@ class Notification(Base, UUIDPrimaryKeyMixin):
     """Bell-feed entry (ACT-4)."""
 
     __tablename__ = "notifications"
-    __table_args__ = (Index("ix_notifications_user_unread", "user_id", "read_at"),)
+    __table_args__ = (
+        Index("ix_notifications_user_unread", "user_id", "read_at"),
+        # Tenant fan-out and the ON DELETE CASCADE from organizations.
+        Index("ix_notifications_organization_id", "organization_id"),
+    )
 
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     detail: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # info | good | warn | bad
@@ -31,7 +35,7 @@ class NotificationPreference(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "notification_preferences"
     __table_args__ = (Index("uq_notif_pref", "user_id", "event_key", unique=True),)
 
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     event_key: Mapped[str] = mapped_column(String(60), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     extra_recipients: Mapped[list | None] = mapped_column(JSON, nullable=True)

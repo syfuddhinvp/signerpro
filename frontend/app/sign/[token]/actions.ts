@@ -15,6 +15,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { apiFetchPublic } from '@/lib/api/client';
+import { backendUrl } from '@/lib/auth/session';
 import type { CompletionResponse, ReassignResponse, SigningSessionResponse } from './types';
 
 export type ActionResult = { ok: boolean; message: string };
@@ -63,6 +64,39 @@ export async function saveSignature(
   payload: { signature_type: 'typed' | 'drawn'; signature_text?: string | null; signature_image_base64?: string | null },
 ): Promise<ActionResult> {
   return run(token, `${base(token)}/fields/${fieldId}/signature`, payload, 'Signature applied · sealed with SHA-256 and logged');
+}
+
+/**
+ * A signer's file upload for an `attachment` field
+ * (`POST /api/sign/{token}/fields/{id}/attachment`, multipart).
+ *
+ * This one cannot go through `apiFetchPublic`, which serialises JSON bodies —
+ * the endpoint takes a `multipart/form-data` part named `upload`. The `File`
+ * arrives here inside a `FormData` the client built, and is streamed straight
+ * on; the `content-type` header is deliberately not set so `fetch` generates
+ * the multipart boundary.
+ */
+export async function uploadAttachment(token: string, fieldId: string, form: FormData): Promise<ActionResult> {
+  const file = form.get('upload');
+  if (!(file instanceof File) || !file.size) return { ok: false, message: 'Choose a file first' };
+  const outbound = new FormData();
+  outbound.append('upload', file, file.name);
+  let response: Response;
+  try {
+    response = await fetch(
+      `${backendUrl()}${base(token)}/fields/${encodeURIComponent(fieldId)}/attachment`,
+      { method: 'POST', body: outbound, cache: 'no-store' },
+    );
+  } catch {
+    return { ok: false, message: 'The signing service is unreachable.' };
+  }
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const message = detail && typeof detail.detail === 'string' ? detail.detail : 'The file could not be uploaded.';
+    return { ok: false, message };
+  }
+  refresh(token);
+  return { ok: true, message: `${file.name} attached · sealed with SHA-256 and logged` };
 }
 
 export async function completeSigning(token: string): Promise<ActionResult> {

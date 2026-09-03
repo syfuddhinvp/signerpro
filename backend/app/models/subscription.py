@@ -29,8 +29,8 @@ class Subscription(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_subscriptions_plan_id", "plan_id"),
     )
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
-    plan_id: Mapped[str] = mapped_column(ForeignKey("plans.id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    plan_id: Mapped[str] = mapped_column(ForeignKey("plans.id", ondelete="RESTRICT"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SubscriptionStatus.active)
     current_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

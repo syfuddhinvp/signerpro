@@ -6,7 +6,13 @@
 
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { SESSION_COOKIE, backendUrl, encodeSession, type SessionUser } from './session';
+import {
+  SESSION_COOKIE,
+  backendUrl,
+  encodeSession,
+  sessionCookieOptions,
+  type SessionUser,
+} from './cookie';
 
 export type AuthResult =
   | {
@@ -18,11 +24,24 @@ export type AuthResult =
       next: string;
     }
   | { ok: true; mfaRequired: true; mfaToken: string; delivery: string; maskedTarget: string }
-  | { ok: false; error: string; code: 'bad_request' | 'invalid_credentials' | 'conflict' | 'backend_unreachable' | 'backend_error' };
+  | { ok: false; error: string; code: AuthErrorCode };
 
-const COOKIE_MAX_AGE = 60 * 60 * 12;
+/** Every failure the auth route handlers can report to the browser. */
+export type AuthErrorCode =
+  | 'bad_request'
+  | 'invalid_credentials'
+  | 'forbidden'
+  | 'not_found'
+  | 'gone'
+  | 'conflict'
+  | 'rate_limited'
+  | 'backend_unreachable'
+  | 'backend_error';
 
-function jsonError(code: Extract<AuthResult, { ok: false }>['code'], error: string, status: number) {
+/** A hung backend must not hang the login request. */
+export const AUTH_TIMEOUT_MS = 10_000;
+
+export function jsonError(code: AuthErrorCode, error: string, status: number) {
   return NextResponse.json({ ok: false, code, error } satisfies AuthResult, { status });
 }
 
@@ -52,7 +71,12 @@ function detailOf(payload: unknown, fallback: string): string {
  * POST `path` on the backend with `body`; on success set the session cookie.
  * An unreachable backend yields a clean 503 payload rather than a stack trace.
  */
-export async function forwardAuth(path: string, body: unknown, next: string) {
+export async function forwardAuth(
+  path: string,
+  body: unknown,
+  next: string,
+  options: { remember?: boolean } = {},
+) {
   const url = `${backendUrl()}${path}`;
 
   let upstream: Response;
@@ -62,6 +86,7 @@ export async function forwardAuth(path: string, body: unknown, next: string) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
       cache: 'no-store',
+      signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
     });
   } catch {
     return jsonError(
@@ -75,7 +100,11 @@ export async function forwardAuth(path: string, body: unknown, next: string) {
 
   if (!upstream.ok) {
     if (upstream.status === 401) return jsonError('invalid_credentials', detailOf(payload, 'Incorrect email or password.'), 401);
+    if (upstream.status === 403) return jsonError('forbidden', detailOf(payload, 'This account cannot sign in.'), 403);
+    if (upstream.status === 404) return jsonError('not_found', detailOf(payload, 'That link is not valid.'), 404);
     if (upstream.status === 409) return jsonError('conflict', detailOf(payload, 'That account already exists.'), 409);
+    if (upstream.status === 410) return jsonError('gone', detailOf(payload, 'That link has expired or has already been used.'), 410);
+    if (upstream.status === 429) return jsonError('rate_limited', detailOf(payload, 'Too many attempts. Please wait a moment and try again.'), 429);
     if (upstream.status === 400 || upstream.status === 422) return jsonError('bad_request', detailOf(payload, 'Please check the details you entered.'), 400);
     return jsonError('backend_error', detailOf(payload, 'The SignForge API returned an unexpected error.'), 502);
   }
@@ -118,14 +147,18 @@ export async function forwardAuth(path: string, body: unknown, next: string) {
     next,
   } satisfies AuthResult);
 
+  const refreshToken = (payload as { refresh_token?: unknown } | null)?.refresh_token;
+
+  // The cookie lives as long as the backend's session row (12h, or 30d when
+  // remembered) — not as long as the access token inside it, which expires in
+  // minutes and is rotated by `middleware.ts` via the refresh token below.
   response.cookies.set({
     name: SESSION_COOKIE,
-    value: encodeSession(token, enriched),
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: COOKIE_MAX_AGE,
+    value: encodeSession(token, enriched, {
+      refreshToken: typeof refreshToken === 'string' ? refreshToken : null,
+      remember: options.remember === true,
+    }),
+    ...sessionCookieOptions(options.remember),
   });
 
   return response;
@@ -135,5 +168,44 @@ export async function forwardAuth(path: string, body: unknown, next: string) {
 export function safeNext(candidate: unknown, fallback = '/overview'): string {
   if (typeof candidate !== 'string' || !candidate.startsWith('/') || candidate.startsWith('//')) return fallback;
   if (candidate === '/login' || candidate.startsWith('/login/') || candidate === '/register') return fallback;
+  if (candidate.startsWith('/reset-password') || candidate.startsWith('/invite')) return fallback;
   return candidate;
+}
+
+/** Clear the session cookie on a response (logout, or a dead refresh token). */
+export function clearSessionCookie(response: NextResponse): NextResponse {
+  response.cookies.set({
+    name: SESSION_COOKIE,
+    value: '',
+    ...sessionCookieOptions(false),
+    maxAge: 0,
+  });
+  return response;
+}
+
+/** POST an unauthenticated backend endpoint that mints nothing (forgot password). */
+export async function forwardPlain(path: string, body: unknown) {
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${backendUrl()}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+    });
+  } catch {
+    return jsonError('backend_unreachable', 'Cannot reach the SignForge API. Please try again in a moment.', 503);
+  }
+
+  if (upstream.ok) return NextResponse.json({ ok: true });
+
+  const payload = await upstream.json().catch(() => null);
+  if (upstream.status === 429) {
+    return jsonError('rate_limited', detailOf(payload, 'Too many requests. Please wait a moment and try again.'), 429);
+  }
+  if (upstream.status === 400 || upstream.status === 422) {
+    return jsonError('bad_request', detailOf(payload, 'Please check the details you entered.'), 400);
+  }
+  return jsonError('backend_error', detailOf(payload, 'The SignForge API returned an unexpected error.'), 502);
 }

@@ -3,11 +3,8 @@
 import { usePathname } from 'next/navigation';
 import { workspaceForPath } from './routes';
 /* SignForge state container — ported from the prototype app.js `state` object and helper methods. */
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import {
-  ACCENT_DEFAULT, AUDIT, DOCS, GROUP_LABELS, RECIPIENTS, STATUS, TEMPLATES, TENANTS, TYPES,
-  INVOICES, LOGS, FOLDER_STATUS_MAP, type Dict
-} from './data';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { ACCENT_DEFAULT, GROUP_LABELS, RECIPIENTS, RETIRED_TYPES, STATUS, TYPES, type Dict } from './data';
 
 export type Recipient = { id: string; name: string; email: string; role: string; color: string; order: number; status: string };
 export type SFField = {
@@ -26,7 +23,7 @@ export type Ticket = {
   category: string; priority: string; status: string; assignee: string; envelope: string; created: string;
   sla: string; tags: string[]; messages: TicketMessage[];
 };
-export type FieldType = { id: string; label: string; icon: string; w: number; h: number };
+export type FieldType = { id: string; label: string; icon: string; w: number; h: number; note?: string };
 
 export type SFState = {
   wide: boolean;
@@ -41,35 +38,26 @@ export type SFState = {
   sbResponse: string | null;
   sbSending: boolean;
   sbHistory: { method: string; path: string; status: number; ms: number; env: string; body: string }[];
-  libFolder: string;
+  /** Title of the envelope the current document route is about, published by
+   *  the document screens so the sidebar can name its contextual group. */
+  docTitle: string;
+  /** True while the open envelope is completed / voided / declined / expired. */
+  docSealed: boolean;
   libView: string;
   libSelected: string[];
-  libSort: string;
-  libStatus: string;
-  libType: string;
-  libTime: string;
-  libOwner: string;
-  reportsSection: string;
   reportRange: string;
   wizardStep: number;
   paletteTab: string;
   paletteQuery: string;
   favTypes: string[];
   pageMenu: string | null;
-  apiSection: string;
-  notifOpen: boolean;
   helpOpen: boolean;
-  orgOpen: boolean;
-  trialBanner: boolean;
-  org: string;
   authMode: string;
   authEmail: string;
   authPassword: string;
-  authRole: string;
   remember: boolean;
   mfaCode: string;
   reg: { name: string; company: string; email: string; password: string; size: string; terms: boolean };
-  user: { name: string; role: string };
   invoiceFilter: string;
   openInvoice: string;
   logSource: string;
@@ -82,8 +70,9 @@ export type SFState = {
   cycle: string;
   defaultPm: string;
   payTab: string;
-  card: { number: string; exp: string; cvc: string; zip: string };
-  ach: { routing: string; account: string };
+  /* No `card` or `ach` field: this application does not hold a PAN, an
+     expiry, a CVC or a bank account number, even transiently in memory. They
+     are typed into the provider's iframe (components/sf/StripeCheckout.tsx). */
   poNumber: string;
   addSeats: number;
   checkoutPlan: string;
@@ -92,9 +81,7 @@ export type SFState = {
   contactGroup: string;
   openContact: string;
   newContact: { name: string; company: string; email: string; title: string; role: string; group: string };
-  contacts: Contact[];
   apiTab: string;
-  apiKeys: ApiKey[];
   scopes: Dict<boolean>;
   embedOrigins: string;
   embedReturnUrl: string;
@@ -105,7 +92,6 @@ export type SFState = {
   replyDraft: string;
   replyInternal: boolean;
   newTicket: { subject: string; category: string; priority: string; envelope: string; body: string };
-  tickets: Ticket[];
   filter: string;
   query: string;
   menuDoc: string | null;
@@ -134,7 +120,6 @@ export type SFState = {
   uploadSrc: string | null;
   declineReason: string;
   toast: string | null;
-  platformTab: string;
   tenantQuery: string;
   tenantOverrides: Dict<string>;
   userRoles: Dict<string>;
@@ -157,136 +142,54 @@ export const INITIAL_STATE: SFState =
     sbResponse: null,
     sbSending: false,
     sbHistory: [],
-    libFolder: 'documents',
+    docTitle: '',
+    docSealed: false,
     libView: 'list',
     libSelected: [],
-    libSort: 'recent',
-    libStatus: 'all',
-    libType: 'all',
-    libTime: 'all',
-    libOwner: 'all',
-    reportsSection: 'analytics',
     reportRange: '30d',
     wizardStep: 1,
     paletteTab: 'all',
     paletteQuery: '',
     favTypes: ['signature','date','name','checkbox'],
     pageMenu: null,
-    apiSection: 'endpoints',
-    notifOpen: false,
     helpOpen: false,
-    orgOpen: false,
-    trialBanner: true,
-    org: 'Acme Corporation',
     authMode: 'signin',
-    authEmail: 'priya@acme.io',
+    authEmail: '',
     authPassword: '',
-    authRole: 'tenant',
     remember: true,
     mfaCode: '',
     reg: { name:'', company:'', email:'', password:'', size:'501-5000', terms:false },
-    user: { name:'Jordan Mehta', role:'Legal Ops · Admin' },
     invoiceFilter: 'all',
-    openInvoice: 'INV-2026-0841',
+    openInvoice: '',
     logSource: 'all',
     logLevel: 'all',
     logQuery: '',
     openLog: null,
     autopay: true,
-    billingEmail: 'ap@acme.io',
-    taxId: 'US-EIN 84-2201993',
+    billingEmail: '',
+    taxId: '',
     cycle: 'monthly',
     defaultPm: 'pm_visa',
     payTab: 'card',
-    card: { number:'', exp:'', cvc:'', zip:'' },
-    ach: { routing:'', account:'' },
     poNumber: '',
     addSeats: 60,
     checkoutPlan: 'Enterprise',
     liveMode: true,
     contactQuery: '',
     contactGroup: 'all',
-    openContact: 'ct1',
+    openContact: '',
     newContact: { name:'', company:'', email:'', title:'', role:'sign', group:'customers' },
-    contacts: [
-      { id:'ct1', name:'Alex Rivera', email:'alex.rivera@acme.io', company:'Acme Corporation', title:'VP Operations', phone:'+1 512 555 0142', role:'sign', group:'customers', source:'CRM', tags:['MSA','Renewal 2026'], envelopes:14, lastSigned:'14 Aug 2026', color:'#10b981' },
-      { id:'ct2', name:'Dana Whitfield', email:'dana@northwind-legal.com', company:'Northwind Legal', title:'General Counsel', phone:'+1 206 555 0197', role:'approve', group:'counsel', source:'Manual', tags:['Approver','Legal'], envelopes:38, lastSigned:'26 Aug 2026', color:'#6366f1' },
-      { id:'ct3', name:'Marcus Bell', email:'m.bell@acme.io', company:'Acme Corporation', title:'Finance Director', phone:'+1 512 555 0188', role:'copy', group:'internal', source:'SCIM', tags:['CC only'], envelopes:22, lastSigned:'—', color:'#f59e0b' },
-      { id:'ct4', name:'Priya Raman', email:'priya@acme.io', company:'Acme Corporation', title:'Head of Legal Ops', phone:'+1 512 555 0110', role:'sign', group:'internal', source:'SCIM', tags:['Org admin'], envelopes:41, lastSigned:'22 Aug 2026', color:'#0ea5e9' },
-      { id:'ct5', name:'Sofia Lindqvist', email:'sofia@vertex.dev', company:'Vertex Robotics', title:'Procurement Lead', phone:'+46 8 555 0121', role:'sign', group:'vendors', source:'API', tags:['Vendor','NDA'], envelopes:6, lastSigned:'11 Aug 2026', color:'#8b5cf6' },
-      { id:'ct6', name:'Tobias Krause', email:'it@halden.de', company:'Halden GmbH', title:'IT Manager', phone:'+49 30 555 0173', role:'sign', group:'vendors', source:'CRM', tags:['Reseller','EU'], envelopes:9, lastSigned:'2 Aug 2026', color:'#f43f5e' },
-      { id:'ct7', name:'Elena Ruiz', email:'elena.ruiz@kestrel.health', company:'Kestrel Health', title:'Compliance Officer', phone:'+1 415 555 0164', role:'approve', group:'customers', source:'API', tags:['HIPAA','Approver'], envelopes:17, lastSigned:'19 Aug 2026', color:'#14b8a6' }
-    ],
     apiTab: 'users',
-    apiKeys: [
-      { id:'k1', label:'Host app — production', mode:'live', secret:'sk_live_9f2b••••••••••••••4c71', full:'sk_seed_REDACTED_ROTATE_ME', created:'12 Jun 2026', lastUsed:'2 min ago', revoked:false, revealed:false },
-      { id:'k2', label:'Host app — sandbox', mode:'test', secret:'sk_test_41ab••••••••••••••02de', full:'sk_seed_REDACTED_ROTATE_ME', created:'12 Jun 2026', lastUsed:'1 hour ago', revoked:false, revealed:false },
-      { id:'k3', label:'Zapier connector', mode:'live', secret:'sk_live_7d10••••••••••••••be93', full:'sk_seed_REDACTED_ROTATE_ME', created:'3 Mar 2026', lastUsed:'6 days ago', revoked:true, revealed:false }
-    ],
     scopes: { 'users:read':true, 'contacts:read':true, 'contacts:write':true, 'documents:read':true, 'documents:write':true, 'envelopes:send':true, 'audit:read':false },
-    embedOrigins: 'https://app.hostcrm.com, https://staging.hostcrm.com',
-    embedReturnUrl: 'https://app.hostcrm.com/deals/8842/agreements',
+    embedOrigins: '',
+    embedReturnUrl: '',
     embedSession: null,
-    openTicket: 'SF-4471',
+    openTicket: '',
     ticketFilter: 'all',
     ticketQuery: '',
     replyDraft: '',
     replyInternal: false,
     newTicket: { subject:'', category:'signing', priority:'normal', envelope:'', body:'' },
-    tickets: [
-      { id:'SF-4471', subject:'Signer cannot apply drawn signature on iPad', slug:'acme', tenant:'Acme Corporation',
-        requester:'Priya Raman', requesterEmail:'priya@acme.io', category:'signing', priority:'urgent', status:'escalated',
-        assignee:'ag2', envelope:'ENV-2291-KD', created:'28 Aug 09:12', sla:'1h 12m left', tags:['iPadOS 18.5','Safari','P1'],
-        messages:[
-          { author:'Priya Raman', role:'Org admin · Acme', ts:'28 Aug 09:12', internal:false, side:'customer',
-            body:'Two of our signers on iPad cannot complete the drawn signature — the canvas accepts strokes but "Adopt and sign" does nothing. Typed signature works. This is blocking the MSA renewal due today.' },
-          { author:'Marco Diaz', role:'Support engineer · SignForge', ts:'28 Aug 09:26', internal:false, side:'agent',
-            body:'Thanks Priya — reproduced on iPadOS 18.5 with Apple Pencil. The pointer capture is releasing early on stylus input. Escalating to the signing team and will send a workaround within the hour.' },
-          { author:'Marco Diaz', role:'Support engineer · SignForge', ts:'28 Aug 09:28', internal:true, side:'agent',
-            body:'Linked to SIGN-2210. Affects stylus pointerup only; touch and mouse unaffected. Flag signing.passkey_reuse not involved.' },
-          { author:'Priya Raman', role:'Org admin · Acme', ts:'28 Aug 09:41', internal:false, side:'customer',
-            body:'Understood. Typed signature is acceptable as an interim path — please confirm it is legally equivalent for the audit trail.' }
-        ] },
-      { id:'SF-4468', subject:'Webhook endpoint returning 502 for invoice.payment_failed', slug:'halden', tenant:'Halden GmbH',
-        requester:'Tobias Krause', requesterEmail:'it@halden.de', category:'api', priority:'high', status:'pending',
-        assignee:'ag3', envelope:'', created:'27 Aug 16:04', sla:'4h 30m left', tags:['webhooks','502'],
-        messages:[
-          { author:'Tobias Krause', role:'Viewer · Halden', ts:'27 Aug 16:04', internal:false, side:'customer',
-            body:'We stopped receiving billing webhooks last week. Our endpoint is up — can you confirm what SignForge is seeing?' },
-          { author:'Amelia Chen', role:'Support engineer · SignForge', ts:'27 Aug 16:48', internal:false, side:'agent',
-            body:'Our delivery log shows four attempts to https://halden.de/hooks/sf all returning 502 with a 30s timeout. Could you check the reverse proxy body-size limit? Our payloads can exceed 64 KB.' }
-        ] },
-      { id:'SF-4462', subject:'Request: bulk send from CSV for 4,000 contractors', slug:'kestrel', tenant:'Kestrel Health',
-        requester:'Security Team', requesterEmail:'security@kestrel.health', category:'api', priority:'normal', status:'open',
-        assignee:'ag1', envelope:'', created:'26 Aug 11:31', sla:'1d 6h left', tags:['bulk-send','feature'],
-        messages:[
-          { author:'Security Team', role:'Org admin · Kestrel', ts:'26 Aug 11:31', internal:false, side:'customer',
-            body:'We need to send 4,000 onboarding agreements in one batch with per-row merge tags. Is the bulk endpoint available on our plan?' }
-        ] },
-      { id:'SF-4455', subject:'Invoice INV-2026-0777 shows a late fee we dispute', slug:'halden', tenant:'Halden GmbH',
-        requester:'Tobias Krause', requesterEmail:'it@halden.de', category:'billing', priority:'high', status:'open',
-        assignee:'ag4', envelope:'', created:'25 Aug 08:55', sla:'2h 05m left', tags:['billing','dispute'],
-        messages:[
-          { author:'Tobias Krause', role:'Viewer · Halden', ts:'25 Aug 08:55', internal:false, side:'customer',
-            body:'The SEPA debit failed because of a bank-side hold, not insufficient funds. Please remove the €32 late fee and retry.' }
-        ] },
-      { id:'SF-4440', subject:'Certificate of completion missing geolocation for one signer', slug:'acme', tenant:'Acme Corporation',
-        requester:'Jordan Mehta', requesterEmail:'jordan.mehta@northwind.com', category:'security', priority:'normal', status:'resolved',
-        assignee:'ag2', envelope:'ENV-2280-LM', created:'21 Aug 14:20', sla:'met in 3h 12m', tags:['audit','resolved'],
-        messages:[
-          { author:'Jordan Mehta', role:'Legal ops · Acme', ts:'21 Aug 14:20', internal:false, side:'customer',
-            body:'The certificate for ENV-2280-LM lists IP but no city/country for the second signer. Our auditor needs it.' },
-          { author:'Marco Diaz', role:'Support engineer · SignForge', ts:'21 Aug 17:32', internal:false, side:'agent',
-            body:'The signer used a corporate VPN egress with no geo mapping. We have regenerated the certificate with the resolved ASN and noted the VPN in the audit entry. CSAT survey sent.' }
-        ] },
-      { id:'SF-4431', subject:'SSO users landing in the wrong tenant after IdP change', slug:'vertex', tenant:'Vertex Robotics',
-        requester:'Sofia Lindqvist', requesterEmail:'sofia@vertex.dev', category:'security', priority:'urgent', status:'open',
-        assignee:'ag3', envelope:'', created:'28 Aug 07:40', sla:'48m left', tags:['SSO','SAML','P1'],
-        messages:[
-          { author:'Sofia Lindqvist', role:'Sender · Vertex', ts:'28 Aug 07:40', internal:false, side:'customer',
-            body:'After our Okta migration two users are being provisioned into the trial tenant instead of vertex. Sign-in succeeds but they see no documents.' }
-        ] }
-    ],
     filter: 'all',
     query: '',
     menuDoc: null,
@@ -310,12 +213,11 @@ export const INITIAL_STATE: SFState =
     sigTab: 'draw',
     sigInk: '#0f172a',
     sigStroke: 3,
-    typedName: 'Alex Rivera',
+    typedName: '',
     typeFace: 'Caveat',
     uploadSrc: null,
     declineReason: '',
     toast: null,
-    platformTab: 'tenants',
     tenantQuery: '',
     tenantOverrides: {},
     userRoles: {},
@@ -344,83 +246,39 @@ export const INITIAL_STATE: SFState =
 
 export function accentOf(accent?: string): string { return accent || ACCENT_DEFAULT; }
 export function recipsOf(s: SFState): Recipient[] { return s.recipients || RECIPIENTS; }
+
+/**
+ * Stand-in for "this field is not assigned to anybody yet".
+ *
+ * An envelope with fields but no recipients is a real state — it is what a
+ * freshly uploaded PDF looks like the moment the first field is placed, and it
+ * is also what the builder sees when `GET /recipients` fails. `recipOf` used to
+ * fall back to `list[0]`, which is `undefined` for an empty list, so the very
+ * next `.name`/`.color` read threw and the whole prepare view was replaced by
+ * the "This view failed to load" boundary.
+ */
+export const UNASSIGNED_RECIPIENT: Recipient = {
+  id: '', name: 'Unassigned', email: '', role: 'sign', color: '#8492a6', order: 1, status: 'draft',
+};
+
 export function recipOf(s: SFState, id: string): Recipient {
   const list = recipsOf(s);
-  return list.find(r => r.id === id) || list[0];
+  return list.find(r => r.id === id) || list[0] || UNASSIGNED_RECIPIENT;
 }
-export function metaOf(t: string): FieldType { return TYPES.find(x => x.id === t) || TYPES[0]; }
+export function metaOf(t: string): FieldType {
+  // A withdrawn type still has to describe itself correctly on the documents
+  // that already carry it — see `RETIRED_TYPES`.
+  return TYPES.find(x => x.id === t) || RETIRED_TYPES.find(x => x.id === t) || TYPES[0];
+}
 export function snapOf(s: SFState, v: number): number { return s.grid ? Math.round(v / 8) * 8 : Math.round(v); }
 export function initials(n: string): string { return n.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase(); }
 export function money(n: number): string { return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 export function fmt(n: number): string { return n.toLocaleString(); }
 export function selOf(s: SFState): SFField[] { return s.fields.filter(f => s.selected.indexOf(f.id) > -1); }
 
-/* dashboard document counts + filtering */
-export function docCounts(): Dict<number> {
-  const counts: Dict<number> = { all: DOCS.length };
-  ['action', 'waiting', 'completed', 'draft', 'voided'].forEach(k => { counts[k] = DOCS.filter(d => d.status === k).length; });
-  return counts;
-}
-export function docsFiltered(s: SFState) {
-  const q = s.query.toLowerCase();
-  return DOCS.filter(d => (s.filter === 'all' || d.status === s.filter) && (!q || (d.title + d.id).toLowerCase().indexOf(q) > -1));
-}
-/* document-library filtering (two-pane) */
-export function libDocsFiltered(s: SFState) {
-  const q = s.query.toLowerCase();
-  const baseStatus = FOLDER_STATUS_MAP[s.libFolder] || 'all';
-  return DOCS.filter(d => {
-    if (baseStatus !== 'all' && d.status !== baseStatus) return false;
-    if (s.libStatus !== 'all' && d.status !== s.libStatus) return false;
-    if (!q) return true;
-    return (d.title + d.id).toLowerCase().indexOf(q) > -1;
-  });
-}
-export function isTemplateFolder(s: SFState): boolean { return s.libFolder === 'templates'; }
 
-/* contacts */
-export function contactCounts(s: SFState): Dict<number> {
-  const counts: Dict<number> = { all: s.contacts.length };
-  Object.keys(GROUP_LABELS).forEach(g => { counts[g] = s.contacts.filter(c => c.group === g).length; });
-  return counts;
-}
-export function contactsFiltered(s: SFState): Contact[] {
-  const cq = s.contactQuery.toLowerCase();
-  return s.contacts.filter(c => (s.contactGroup === 'all' || c.group === s.contactGroup) &&
-    (!cq || (c.name + c.email + c.company + c.tags.join(' ')).toLowerCase().indexOf(cq) > -1));
-}
 
-/* invoices / logs / tickets scoping */
-export function invoicesScoped(isPlat: boolean) { return INVOICES.filter(i => isPlat || i.slug === 'acme'); }
-export function invoicesFiltered(s: SFState, isPlat: boolean) {
-  return invoicesScoped(isPlat).filter(i => s.invoiceFilter === 'all' || i.status === s.invoiceFilter);
-}
-export function logsScoped(isPlat: boolean) { return LOGS.filter(l => isPlat || l.slug === 'acme'); }
-export function logsFiltered(s: SFState, isPlat: boolean) {
-  const lq = s.logQuery.toLowerCase();
-  return logsScoped(isPlat).filter(l => (s.logSource === 'all' || l.source === s.logSource) &&
-    (s.logLevel === 'all' || l.level === s.logLevel) &&
-    (!lq || (l.msg + l.source + l.payload).toLowerCase().indexOf(lq) > -1));
-}
-export function ticketsScoped(s: SFState, isPlat: boolean): Ticket[] { return s.tickets.filter(t => isPlat || t.slug === 'acme'); }
-export function ticketCounts(s: SFState, isPlat: boolean): Dict<number> {
-  const scoped = ticketsScoped(s, isPlat);
-  const counts: Dict<number> = { all: scoped.length };
-  ['open', 'pending', 'escalated', 'resolved'].forEach(k => { counts[k] = scoped.filter(t => t.status === k).length; });
-  return counts;
-}
-export function ticketsFiltered(s: SFState, isPlat: boolean): Ticket[] {
-  const tkq = s.ticketQuery.toLowerCase();
-  return ticketsScoped(s, isPlat).filter(t => (s.ticketFilter === 'all' || t.status === s.ticketFilter) &&
-    (!tkq || (t.subject + t.id + t.requester + t.tenant).toLowerCase().indexOf(tkq) > -1));
-}
 
-/* tenants */
-export function tenantsFiltered(s: SFState) {
-  const tq = s.tenantQuery.toLowerCase();
-  return TENANTS.filter(t => !tq || (t.name + t.slug + t.plan + t.region).toLowerCase().indexOf(tq) > -1);
-}
-export function tenantStatus(s: SFState, t: { slug: string; status: string }): string { return s.tenantOverrides[t.slug] || t.status; }
 
 /* signing */
 export function signable(s: SFState): SFField[] {
@@ -440,9 +298,6 @@ export function isDone(s: SFState, f: SFField): boolean {
   return f.type === 'checkbox' ? v === true : !!(v && String(v).length);
 }
 
-/* templates / audit convenience */
-export function templates() { return TEMPLATES; }
-export function auditEntries() { return AUDIT; }
 export function statusOf(key: string) { return STATUS[key]; }
 
 /* password strength (auth screens) */
@@ -479,17 +334,6 @@ export type SFContextValue = {
   sel: () => SFField[];
   setField: (id: string, patch: Partial<SFField>) => void;
   isPlat: () => boolean;
-  docCounts: () => Dict<number>;
-  docsFiltered: () => typeof DOCS;
-  libDocsFiltered: () => typeof DOCS;
-  contactCounts: () => Dict<number>;
-  contactsFiltered: () => Contact[];
-  invoicesFiltered: () => typeof INVOICES;
-  logsFiltered: () => typeof LOGS;
-  ticketCounts: () => Dict<number>;
-  ticketsFiltered: () => Ticket[];
-  tenantsFiltered: () => typeof TENANTS;
-  tenantStatus: (t: { slug: string; status: string }) => string;
   signable: () => SFField[];
   isDone: (f: SFField) => boolean;
   reorder: (id: string, dir: number) => void;
@@ -532,17 +376,6 @@ export function SFProvider({ children, accent }: { children: React.ReactNode; ac
       setField: (id: string, patch: Partial<SFField>) =>
         set(st => ({ fields: st.fields.map(f => (f.id === id ? Object.assign({}, f, patch) : f)) })),
       isPlat,
-      docCounts,
-      docsFiltered: () => docsFiltered(s),
-      libDocsFiltered: () => libDocsFiltered(s),
-      contactCounts: () => contactCounts(s),
-      contactsFiltered: () => contactsFiltered(s),
-      invoicesFiltered: () => invoicesFiltered(s, isPlat()),
-      logsFiltered: () => logsFiltered(s, isPlat()),
-      ticketCounts: () => ticketCounts(s, isPlat()),
-      ticketsFiltered: () => ticketsFiltered(s, isPlat()),
-      tenantsFiltered: () => tenantsFiltered(s),
-      tenantStatus: (t: { slug: string; status: string }) => tenantStatus(s, t),
       signable: () => signable(s),
       isDone: (f: SFField) => isDone(s, f),
       reorder: (id: string, dir: number) => {
@@ -553,6 +386,21 @@ export function SFProvider({ children, accent }: { children: React.ReactNode; ac
   }, [s, set, flash, accent]);
 
   return <SFContext.Provider value={value}>{children}</SFContext.Provider>;
+}
+
+/**
+ * Publishes the envelope's name so the sidebar's contextual group can be
+ * headed by the document you are actually working on rather than a generic
+ * label. Document screens call it; nothing else should.
+ */
+export function useDocumentTitle(title: string | null | undefined, sealed = false): void {
+  const { set } = useSF();
+  useEffect(() => {
+    // `docSealed` drives the sidebar: a sealed envelope offers its audit trail
+    // and nothing else, because the other stages redirect here anyway.
+    set({ docTitle: title || '', docSealed: sealed });
+    return () => set({ docTitle: '', docSealed: false });
+  }, [title, sealed, set]);
 }
 
 export function useSF(): SFContextValue {

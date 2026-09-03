@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import ApiKeyPrincipal, require_api_scope
+from app.api.deps import ApiKeyPrincipal, get_api_key_principal, require_api_scope
 from app.core.database import get_db
+from app.core.ratelimit import public_api_limiter
 from app.models.contact import Contact
 from app.models.document import Document
 from app.models.enums import DocumentStatus
@@ -21,7 +22,27 @@ from app.services.audit_service import audit_service
 from app.services.document_service import document_response
 
 
-router = APIRouter(prefix="/api/v1", tags=["public-api"])
+def rate_limit_api_key(
+    principal: ApiKeyPrincipal = Depends(get_api_key_principal),
+) -> ApiKeyPrincipal:
+    """Throttle every ``/api/v1`` call per API key.
+
+    Nothing imported ``app.core.ratelimit`` on this surface, so the only
+    ceiling was the monthly call quota — which a single key can burn through in
+    under a minute while saturating the database. Keyed by the key's id rather
+    than by IP so one tenant cannot be throttled by another's traffic, and
+    built on the ``RateLimitBackend`` protocol so a shared Redis backend can be
+    dropped in for multi-node deployments (the default backend is in-process).
+    """
+    public_api_limiter.check(principal.api_key.id)
+    return principal
+
+
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["public-api"],
+    dependencies=[Depends(rate_limit_api_key)],
+)
 
 
 def _document(db: Session, document_id: str, organization_id: str) -> Document:

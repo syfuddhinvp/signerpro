@@ -110,6 +110,17 @@ class LocalStorage:
     def open_stream(self, relative_path: str) -> BinaryIO:
         return self._resolve(relative_path).open("rb")
 
+    def health_check(self) -> None:
+        """Raise if the storage root is not present and writable.
+
+        Local storage is a mounted volume: it can vanish or go read-only under
+        a running process, and the failure surfaces as a 500 on the first
+        upload rather than as an unready replica. Readiness checks it directly.
+        """
+        probe = self.root / ".readiness"
+        probe.write_bytes(b"")
+        probe.unlink(missing_ok=True)
+
 
 class S3Storage:
     """S3-compatible backend (AWS S3, MinIO, R2, ...)."""
@@ -213,6 +224,10 @@ class S3Storage:
     def open_stream(self, relative_path: str) -> BinaryIO:
         response = self.client.get_object(Bucket=self.bucket, Key=self._object_key(relative_path))
         return response["Body"]
+
+    def health_check(self) -> None:
+        """Raise if the bucket is unreachable or the credentials are wrong."""
+        self.client.head_bucket(Bucket=self.bucket)
 
 
 def build_storage():

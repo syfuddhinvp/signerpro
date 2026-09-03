@@ -8,11 +8,13 @@ from app.models.document_version import DocumentVersion
 from app.models.embed_session import EmbedSession
 from app.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from app.models.field import Field
+from app.models.field_attachment import FieldAttachment
 from app.models.folder import Folder
 from app.models.impersonation import ImpersonationSession
 from app.models.integration import CloudTarget, Integration
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus
+from app.models.mfa_challenge import MfaChallenge
 from app.models.notification import Notification, NotificationPreference
 from app.models.organization import Organization
 from app.models.password_reset import PasswordResetToken
@@ -51,12 +53,14 @@ __all__ = [
     "FeatureFlag",
     "FeatureFlagOverride",
     "Field",
+    "FieldAttachment",
     "Folder",
     "ImpersonationSession",
     "Integration",
     "Invitation",
     "Invoice",
     "InvoiceStatus",
+    "MfaChallenge",
     "Notification",
     "NotificationPreference",
     "Organization",

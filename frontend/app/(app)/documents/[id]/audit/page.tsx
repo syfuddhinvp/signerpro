@@ -21,6 +21,7 @@ import {
 } from '@/lib/sf/adapters';
 import { STATUS, type Dict } from '@/lib/sf/data';
 import { documentPathFor } from '@/lib/sf/routes';
+import { isSealedStatus } from '@/lib/sf/sealed';
 import type {
   AuditChainVerification, AuditTrailEntry, CertificateSummaryResponse,
   RecipientResponse,
@@ -57,6 +58,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   return (
     <Audit
+      documentId={documentId}
       entries={toAuditRows(entries, emailById)}
       certificate={summary ? toCertificateCard(summary, statusKey, statusLabel) : null}
       chain={verification
@@ -64,6 +66,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         : null}
       attestations={toAttestations(recipientList, entries)}
       documentTitle={document.title}
+      sealed={isSealedStatus(summary?.document_status ?? document.status)}
       verifyUrl={verifyUrl}
     />
   );

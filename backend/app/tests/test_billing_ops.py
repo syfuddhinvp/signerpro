@@ -19,7 +19,7 @@ from app.models.payment_method import PaymentMethod
 from app.models.subscription import ProcessedWebhookEvent
 from app.models.user import User
 from app.services.billing_service import DEV_DECLINE_MARKER
-from app.tests.conftest import auth_headers
+from app.tests.conftest import auth_headers, upgrade_plan
 
 
 def _db():
@@ -154,7 +154,7 @@ def test_plan_change_preview_prorates_the_unused_period(client: TestClient) -> N
         "/api/billing/change-plan/preview", params={"plan_code": "team"}, headers=headers
     ).json()
     assert downgrade["is_downgrade"] is False  # already on team: no change
-    client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    upgrade_plan(client, headers, "business")
     back = client.get(
         "/api/billing/change-plan/preview", params={"plan_code": "team"}, headers=headers
     ).json()
@@ -166,7 +166,7 @@ def test_seat_changes_are_priced_and_cannot_strand_a_user(client: TestClient) ->
     headers = auth_headers(client)
     client.get("/api/billing/plans")
     org_id = _org_id(client, headers)
-    client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    upgrade_plan(client, headers, "business")
     _add_users(org_id, 2)
 
     added = client.post("/api/billing/seats", json={"delta": 2}, headers=headers)
@@ -201,7 +201,7 @@ def test_entitlements_tighten_again_after_a_downgrade(client: TestClient) -> Non
     headers = auth_headers(client)
     client.get("/api/billing/plans")
     org_id = _org_id(client, headers)
-    client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    upgrade_plan(client, headers, "business")
 
     # Business allows 10 users, so a third seat is invitable.
     _add_users(org_id, 2)
@@ -272,11 +272,14 @@ def test_billing_settings_round_trip_and_annual_cycle(client: TestClient) -> Non
     assert updated["tax_id"] == "GB123456789"
     assert updated["cycle"] == "annual"
 
-    # Annual is twelve monthly periods; nothing else about the plan changes.
+    # Annual is twelve monthly periods less the advertised 12% commitment
+    # discount. This used to assert a flat 12x, which is what made the
+    # pricing page's "Annual (save 12%)" a lie (AUDIT_REPORT.md section 7).
+    annual_cents = round(1200 * 12 * 0.88)
     upcoming = client.get("/api/billing/upcoming-invoice", headers=headers).json()
     assert upcoming["cycle"] == "annual"
-    assert upcoming["total_cents"] == 1200 * 12
-    assert upcoming["line_items"][0]["unit_cents"] == 1200 * 12
+    assert upcoming["total_cents"] == annual_cents
+    assert upcoming["line_items"][0]["unit_cents"] == annual_cents
     assert upcoming["tax_cents"] == 0
     assert upcoming["subtotal_cents"] == upcoming["total_cents"]
 
@@ -284,7 +287,7 @@ def test_billing_settings_round_trip_and_annual_cycle(client: TestClient) -> Non
 def test_upcoming_invoice_line_items_follow_seats(client: TestClient) -> None:
     headers = auth_headers(client)
     client.get("/api/billing/plans")
-    client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    upgrade_plan(client, headers, "business")
     client.post("/api/billing/seats", json={"delta": 3}, headers=headers)
 
     body = client.get("/api/billing/upcoming-invoice", headers=headers).json()
@@ -595,13 +598,13 @@ def test_mrr_aggregation_is_seat_and_plan_aware(client: TestClient) -> None:
     _promote(client, headers)
 
     # Acme: business, 4 seats -> 4 x 2800.
-    client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    upgrade_plan(client, headers, "business")
     _add_users(org_id, 1)
     client.post("/api/billing/seats", json={"delta": 2}, headers=headers)
 
     other_headers, _ = _second_org(client)
     # Northwind: enterprise, 1 seat -> 4400.
-    client.post("/api/billing/change-plan", json={"plan_code": "enterprise"}, headers=other_headers)
+    upgrade_plan(client, other_headers, "enterprise")
 
     body = client.get("/api/saas/revenue", headers=headers).json()
     assert body["mrr_cents"] == 4 * 2800 + 4400

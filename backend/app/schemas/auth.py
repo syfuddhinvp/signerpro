@@ -104,10 +104,18 @@ class MfaCodeRequest(BaseModel):
 
 
 class MfaDisableRequest(BaseModel):
-    """Disabling active MFA requires a current code; a pending (unconfirmed)
-    enrolment can be cleared without one."""
+    """Disabling MFA always requires the account password (re-authentication);
+    disabling an *active* enrolment additionally requires a current code. A
+    pending (unconfirmed) enrolment can be cleared with the password alone."""
 
+    password: str = Field(min_length=1, max_length=128)
     code: str | None = Field(default=None, max_length=32)
+
+
+class MfaRecoveryCodesRequest(MfaCodeRequest):
+    """Regenerating recovery codes invalidates the old set, so it re-authenticates."""
+
+    password: str = Field(min_length=1, max_length=128)
 
 
 class MfaStatusResponse(BaseModel):

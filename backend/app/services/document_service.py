@@ -5,7 +5,7 @@ from typing import Iterable
 from fastapi import HTTPException, UploadFile, status
 from pypdf import PdfReader
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.hashing import sha256_bytes, sha256_json
@@ -14,7 +14,15 @@ from app.models.document import Document
 from app.models.document_favorite import DocumentFavorite
 from app.models.folder import Folder
 from app.models.document_version import DocumentVersion
-from app.models.enums import DocumentStatus, DocumentVersionType, FieldType, RecipientStatus, WorkflowType
+from app.models.enums import (
+    DocumentStatus,
+    DocumentVersionType,
+    FieldType,
+    RecipientRole,
+    RecipientStatus,
+    WorkflowType,
+    is_signing_role,
+)
 from app.models.field import Field
 from app.models.recipient import Recipient
 from app.models.user import User
@@ -28,12 +36,34 @@ from app.schemas.document import (
     SendDocumentResponse,
 )
 from app.services.audit_service import audit_service
+from app.services.crm_service import crm_integration_service
 from app.services.email_service import signflow_email_service
 from app.services.token_service import token_service
 
 
+#: Ceiling on the endpoints that expose no pagination parameters of their own
+#: (``GET /api/documents``, ``GET /api/templates``). The paginated library
+#: endpoint has its own ``limit``; this only stops the unbounded ones from
+#: materialising an entire tenant's library into memory and into one JSON body.
+LIST_HARD_LIMIT = 500
+
 EDITABLE_STATUSES = {DocumentStatus.draft, DocumentStatus.prepared}
 ACTIVE_STATUSES = {DocumentStatus.sent, DocumentStatus.viewed, DocumentStatus.partially_completed}
+
+
+def _as_utc(value: datetime) -> datetime:
+    """SQLite hands back naive datetimes; treat those as UTC so the expiring
+    comparison matches what the SQL `expires_at <= horizon` filter does."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+# ``document_response`` reads ``document.recipients`` for every row, so listing a
+# library without this issues one lazy SELECT per document -- 201 queries for a
+# 200-document page. ``selectinload`` fetches them all in a second query keyed by
+# document id, making any list endpoint two queries regardless of page size.
+# (``joinedload`` would work too, but it multiplies the parent rows by the
+# recipient count and forces a de-duplicating pass over the whole result.)
+_WITH_RECIPIENTS = selectinload(Document.recipients)
 
 
 def document_response(document: Document) -> DocumentResponse:
@@ -70,27 +100,31 @@ class DocumentService:
             event_type="document_created",
             event_message=f"Document '{document.title}' was created.",
         )
+        crm_integration_service.trigger_document_created(db, document=document)
         db.commit()
         db.refresh(document)
         return document
 
     def list_for_user(self, db: Session, *, user: User, status_filter: DocumentStatus | None = None) -> list[Document]:
-        query = select(Document).where(
+        query = select(Document).options(_WITH_RECIPIENTS).where(
             Document.organization_id == user.organization_id,
             Document.is_template == False,
             Document.deleted_at.is_(None),
         ).order_by(Document.updated_at.desc())
         if status_filter:
             query = query.where(Document.status == status_filter)
-        return list(db.scalars(query).unique())
+        # Hard cap: this endpoint takes no pagination parameters, so without a
+        # bound a large tenant can make the API allocate its whole library --
+        # a denial of service against yourself. See LIST_HARD_LIMIT.
+        return list(db.scalars(query.limit(LIST_HARD_LIMIT)).unique())
 
     def list_templates(self, db: Session, *, user: User) -> list[Document]:
-        query = select(Document).where(
+        query = select(Document).options(_WITH_RECIPIENTS).where(
             Document.organization_id == user.organization_id,
             Document.is_template == True,
             Document.deleted_at.is_(None),
         ).order_by(Document.updated_at.desc())
-        return list(db.scalars(query).unique())
+        return list(db.scalars(query.limit(LIST_HARD_LIMIT)).unique())
 
     def use_template(self, db: Session, *, template_id: str, user: User) -> Document:
         template = self.get_for_user(db, document_id=template_id, user=user)
@@ -165,6 +199,7 @@ class DocumentService:
             event_type="document_created",
             event_message=f"Created document from template '{template.title}'."
         )
+        crm_integration_service.trigger_document_created(db, document=new_doc)
         db.commit()
         return new_doc
 
@@ -258,6 +293,14 @@ class DocumentService:
         for field in document.fields:
             self._validate_field_page_and_coords(document, field)
         for recipient in document.recipients:
+            # RTE-3: only a recipient with a signing obligation must own
+            # something to do. A `copy` recipient is a CC — requiring them to
+            # hold a signature field is what forced counsel to sign a contract
+            # they were only being sent for information. An `approve`
+            # recipient signals approval by completing the envelope and does
+            # not need a signature block either.
+            if recipient.role in {RecipientRole.copy, RecipientRole.approve}:
+                continue
             recipient_fields = [field for field in document.fields if field.recipient_id == recipient.id]
             has_required_or_signature = any(field.required or field.type == FieldType.signature for field in recipient_fields)
             if not has_required_or_signature:
@@ -345,23 +388,33 @@ class DocumentService:
             user_agent=user_agent,
             metadata={"workflow_type": document.workflow_type, "field_config_sha256": document.field_config_sha256},
         )
+        crm_integration_service.trigger_document_sent(db, document=document)
         db.commit()
         db.refresh(document)
         return SendDocumentResponse(document=document_response(document), signing_links=links)
 
     def _recipients_available_to_sign(self, recipients: Iterable[Recipient], workflow_type: WorkflowType) -> list[Recipient]:
+        """Who receives a link at send time.
+
+        RTE-3: CC (`copy`) recipients sit outside the routing sequence — they
+        are notified immediately regardless of workflow, and their link is a
+        read-only view link (``signing_service.session_response`` marks the
+        session ``read_only``). Only signing roles take turns.
+        """
         recipients = list(recipients)
-        if workflow_type == WorkflowType.parallel:
-            return recipients
-        first_order = min(recipient.signing_order for recipient in recipients)
-        return [recipient for recipient in recipients if recipient.signing_order == first_order]
+        copies = [recipient for recipient in recipients if not is_signing_role(recipient.role)]
+        signers = [recipient for recipient in recipients if is_signing_role(recipient.role)]
+        if workflow_type == WorkflowType.parallel or not signers:
+            return signers + copies
+        first_order = min(recipient.signing_order for recipient in signers)
+        return [recipient for recipient in signers if recipient.signing_order == first_order] + copies
 
     # ------------------------------------------------------------------
     # Library (DOC-1) and row actions (DOC-2…DOC-7)
     # ------------------------------------------------------------------
 
     def _library_base(self, user: User):
-        return select(Document).where(
+        return select(Document).options(_WITH_RECIPIENTS).where(
             Document.organization_id == user.organization_id,
             Document.is_template == False,  # noqa: E712
         )
@@ -375,10 +428,25 @@ class DocumentService:
 
     def library_counts(self, db: Session, *, user: User) -> DocumentCounts:
         """Sidebar badge counts. `action` is what needs *this user* to sign;
-        `waiting` is out for signature by anyone else."""
+        `waiting` is out for signature by anyone else.
+
+        Every `quick` bucket the library supports gets a count here, derived
+        with the same predicate `library()` applies for that bucket — one pass
+        over the tenant's documents plus two id lookups, because this runs on
+        every page load.
+        """
         rows = list(
             db.execute(
-                select(Document.id, Document.status, Document.archived_at, Document.deleted_at, Document.is_template)
+                select(
+                    Document.id,
+                    Document.status,
+                    Document.archived_at,
+                    Document.deleted_at,
+                    Document.is_template,
+                    Document.sender_id,
+                    Document.owner_user_id,
+                    Document.expires_at,
+                )
                 .where(Document.organization_id == user.organization_id)
             ).all()
         )
@@ -393,8 +461,19 @@ class DocumentService:
                 )
             ).all()
         )
+        favorites = self._favorite_ids(db, user=user)
+        horizon = datetime.now(timezone.utc) + timedelta(days=7)
         counts = DocumentCounts()
-        for doc_id, doc_status, archived_at, deleted_at, is_template in rows:
+        for (
+            doc_id,
+            doc_status,
+            archived_at,
+            deleted_at,
+            is_template,
+            sender_id,
+            owner_user_id,
+            expires_at,
+        ) in rows:
             if deleted_at is not None:
                 counts.trashed += 1
                 continue
@@ -405,16 +484,32 @@ class DocumentService:
                 counts.archived += 1
                 continue
             counts.all += 1
+            is_active = doc_status in ACTIVE_STATUSES
             if doc_status in {DocumentStatus.draft, DocumentStatus.prepared}:
                 counts.draft += 1
             elif doc_status == DocumentStatus.completed:
                 counts.completed += 1
             elif doc_status in {DocumentStatus.voided, DocumentStatus.declined, DocumentStatus.expired}:
                 counts.voided += 1
-            if doc_status in ACTIVE_STATUSES:
+            if is_active:
                 counts.waiting += 1
             if doc_id in action_ids:
                 counts.action += 1
+            # quick buckets — same predicates as library(quick=...)
+            if doc_id in action_ids:
+                counts.inbox += 1
+            if is_active:
+                counts.outbox += 1
+            if doc_status in {DocumentStatus.draft, DocumentStatus.prepared}:
+                counts.drafts += 1
+            if doc_id in favorites:
+                counts.favorites += 1
+            if is_active and expires_at is not None and _as_utc(expires_at) <= horizon:
+                counts.expiring += 1
+            if owner_user_id == user.id or sender_id == user.id:
+                counts.mine += 1
+            if sender_id != user.id and (owner_user_id is None or owner_user_id != user.id):
+                counts.shared += 1
         return counts
 
     def library(
@@ -622,6 +717,9 @@ class DocumentService:
             ),
             metadata={"source_document_id": document.id},
         )
+        # `trigger_document_created` filters templates itself, so a
+        # "duplicate as template" produces no envelope event.
+        crm_integration_service.trigger_document_created(db, document=copy)
         db.commit()
         db.refresh(copy)
         return copy
@@ -671,6 +769,12 @@ class DocumentService:
     def purge(self, db: Session, *, document: Document) -> None:
         if document.deleted_at is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only trashed documents can be purged")
+        # RETENTION (C6): the audit trail is evidence and is NOT purged with the
+        # document. ESIGN/UETA and eIDAS require it to be retained independently
+        # of the signed artefact. detach_document() records the purge as a final
+        # chain entry and severs the FK; the rows keep their denormalized
+        # document_ref/title/organization_id so the trail stays meaningful.
+        audit_service.detach_document(db, document)
         db.delete(document)
         db.commit()
 
@@ -684,6 +788,8 @@ class DocumentService:
             ).unique()
         )
         for document in documents:
+            # Audit trails are retained; see purge() above.
+            audit_service.detach_document(db, document)
             db.delete(document)
         db.commit()
         return len(documents)
@@ -796,6 +902,7 @@ class DocumentService:
             event_message="Document was voided.",
             metadata={"reason": reason},
         )
+        crm_integration_service.trigger_document_voided(db, document=document, reason=reason)
         db.commit()
         db.refresh(document)
         return document

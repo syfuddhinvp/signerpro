@@ -11,5 +11,20 @@ backend/uploads/
 frontend/.next/
 frontend/node_modules/
 .env
+.env.*
+!.env.example
+!.env.prod.example
 .DS_Store
 
+
+# TypeScript incremental build cache — machine-local, must not be committed
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+
+# Package-manager sources of truth other than npm (see AUDIT_REPORT.md finding 41)
+package-lock.json
+yarn.lock
+bun.lockb
+
+# Production environment file (see .env.prod.example)
+.env.prod

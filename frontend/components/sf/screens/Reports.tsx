@@ -4,9 +4,10 @@
    `GET /api/reports/*` via `app/(app)/reports/page.tsx`. */
 import React, { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
-import { btn, railHead } from '@/lib/sf/ui';
+import { SECTION_PARAM, sectionFor } from '@/lib/sf/routes';
+import { btn, railHead, TEXT_MUTED } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
 import { reports as reportsApi } from '@/lib/api/resources';
 import {
@@ -17,10 +18,10 @@ import {
   type ReportTileRow,
 } from '@/lib/sf/adapters';
 
-const th: CSSProperties = { padding:'10px 14px', fontSize:'11px', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
-const thRight: CSSProperties = { padding:'10px 14px', fontSize:'11px', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, textAlign:'right', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
+const th: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
+const thRight: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, textAlign:'right', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
 const td: CSSProperties = { padding:'11px 14px', verticalAlign:'middle' };
-const emptyCell: CSSProperties = { padding:'22px 14px', fontSize:'12.5px', color:'#94a3b8', textAlign:'center' };
+const emptyCell: CSSProperties = { padding:'22px 14px', fontSize:'.78125rem', color:TEXT_MUTED, textAlign:'center' };
 
 const REPORT_RANGES: [string, string][] = [
   ['7d','Last 7 days'], ['30d','Last 30 days'], ['90d','Last quarter'], ['12m','Last 12 months']
@@ -83,7 +84,10 @@ export default function Reports({
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
 
-  const sec = s.reportsSection;
+  /* The dashboard on screen is the URL, owned by the sidebar — so a report
+     view can be linked and shared instead of living in client state. */
+  const searchParams = useSearchParams();
+  const sec = sectionFor('reports', searchParams.get(SECTION_PARAM));
 
   /**
    * `GET /api/reports/{key}/csv` is a synchronous CSV; the browser gets it
@@ -117,11 +121,16 @@ export default function Reports({
 
   const exportReport = () => { void downloadCsv(SECTION_REPORT_KEY[sec] ?? 'documents'); };
 
-  /* The range lives in the URL, so the server component refetches on change. */
+  /* The range lives in the URL, so the server component refetches on change.
+     Merged into the existing query rather than replacing it — writing the
+     whole string dropped `?section=`, which bounced you back to the default
+     dashboard every time you changed the date range. */
   const onReportRange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value;
     set({ reportRange: next });
-    router.push(`${pathname}?range=${encodeURIComponent(next)}`);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('range', next);
+    router.push(pathname + '?' + params.toString());
   };
 
   const inviteBar = inviteSplit.filter(x => x[1] > 0).map(([label, n, c]) => ({
@@ -217,7 +226,7 @@ export default function Reports({
       field,
       label: reportFieldLabel(field),
       prefix: on ? '−' : '+',
-      style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? '#f5f7ff' : '#fff', fontSize:'11.5px', color: on ? A : '#475569', cursor:'pointer' } as CSSProperties,
+      style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? '#f5f7ff' : '#fff', fontSize:'.71875rem', color: on ? A : '#475569', cursor:'pointer' } as CSSProperties,
       onClick: () => togglePicked(field),
     };
   });
@@ -231,7 +240,7 @@ export default function Reports({
 
   const recipientTable = (
     <div data-sf-scroll="1" style={{ overflowX:'auto' }}>
-      <table style={{ width:'100%', minWidth:'900px', borderCollapse:'collapse', fontSize:'12.5px' }}>
+      <table style={{ width:'100%', minWidth:'900px', borderCollapse:'collapse', fontSize:'.78125rem' }}>
         <thead>
           <tr style={{ textAlign:'left', color:'#64748b' }}>
             <th scope="col" style={th}>Recipient</th>
@@ -264,15 +273,15 @@ export default function Reports({
       <div style={{ flex:1, minWidth:0, padding:'20px', display:'flex', flexDirection:'column', gap:'16px' }}>
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
           <div style={{ display:'flex', flexDirection:'column', gap:'4px', minWidth:0 }}>
-            <h2 style={{ margin:0, fontSize:'19px', fontWeight:700, letterSpacing:'-.4px' }}>{REPORT_TITLES[sec]}</h2>
-            <span style={{ fontSize:'12.5px', color:'#64748b', lineHeight:1.5, maxWidth:'560px' }}>{REPORT_SUBS[sec]}</span>
+            <h2 style={{ margin:0, fontSize:'1.1875rem', fontWeight:700, letterSpacing:'-.4px' }}>{REPORT_TITLES[sec]}</h2>
+            <span style={{ fontSize:'.78125rem', color:'#64748b', lineHeight:1.5, maxWidth:'560px' }}>{REPORT_SUBS[sec]}</span>
           </div>
           <div style={{ display:'flex', gap:'7px', flex:'0 0 auto', alignItems:'center' }}>
             <select
               value={range}
               onChange={onReportRange}
               aria-label="Date range"
-              style={{ height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'12.5px', background:'#fff', color:'#334155', outline:'none' }}
+              style={{ height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'.78125rem', background:'#fff', color:'#334155', outline:'none' }}
             >
               {REPORT_RANGES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
@@ -283,7 +292,7 @@ export default function Reports({
         {scopeNotice ? (
           <div
             data-sf-scope={scope}
-            style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:'13px', padding:'12px 14px', fontSize:'12px', color:'#c2410c', lineHeight:1.6 }}
+            style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:'13px', padding:'12px 14px', fontSize:'.75rem', color:'#c2410c', lineHeight:1.6 }}
           >
             {scopeNotice}
           </div>
@@ -293,13 +302,13 @@ export default function Reports({
           <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
             <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'12px' }}>
               <span style={railHead}>Total sent invites</span>
-              <span style={{ fontSize:'34px', fontWeight:700, letterSpacing:'-1.4px', lineHeight:1 }}>{String(inviteTotal)}</span>
+              <span style={{ fontSize:'2.125rem', fontWeight:700, letterSpacing:'-1.4px', lineHeight:1 }}>{String(inviteTotal)}</span>
               <div style={{ display:'flex', height:'8px', borderRadius:'99px', overflow:'hidden', background:'#eef1f6' }}>
                 {inviteBar.map(b => <span key={b.label} style={b.style} />)}
               </div>
               <div style={{ display:'flex', gap:'16px', flexWrap:'wrap' }}>
                 {inviteLegend.map(l => (
-                  <span key={l.label} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'12px', color:'#475569' }}>
+                  <span key={l.label} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'.75rem', color:'#475569' }}>
                     <span style={l.dot} />{l.label} <strong style={{ color:'#0f172a' }}>{l.value}</strong>
                   </span>
                 ))}
@@ -309,17 +318,17 @@ export default function Reports({
             <div style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0,1fr))', gap:'12px' }}>
               {tiles.map(t => (
                 <div key={t.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'6px' }}>
-                  <span style={{ fontSize:'10.5px', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{t.label}</span>
-                  <span style={{ fontSize:'21px', fontWeight:700, letterSpacing:'-.7px' }}>{t.value}</span>
-                  <span style={{ fontSize:'11px', color:'#94a3b8' }}>{t.meta}</span>
+                  <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{t.label}</span>
+                  <span style={{ fontSize:'1.3125rem', fontWeight:700, letterSpacing:'-.7px' }}>{t.value}</span>
+                  <span style={{ fontSize:'.6875rem', color:TEXT_MUTED }}>{t.meta}</span>
                 </div>
               ))}
             </div>
 
             <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
               <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
-                <span style={{ fontSize:'13.5px', fontWeight:600 }}>Recipients who received invites</span>
-                <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{recipientTotal} recipients</span>
+                <span style={{ fontSize:'.84375rem', fontWeight:600 }}>Recipients who received invites</span>
+                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{recipientTotal} recipients</span>
               </div>
               {recipientTable}
             </div>
@@ -330,8 +339,8 @@ export default function Reports({
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'12px' }}>
             {allReportCards.map(c => (
               <button key={c.label} type="button" onClick={c.onClick} style={c.style}>
-                <span style={{ fontSize:'13px', fontWeight:600, color:'#0f172a' }}>{c.label}</span>
-                <span style={{ fontSize:'11.5px', color:'#64748b', lineHeight:1.5 }}>{c.meta}</span>
+                <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a' }}>{c.label}</span>
+                <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{c.meta}</span>
               </button>
             ))}
           </div>
@@ -340,7 +349,7 @@ export default function Reports({
         {rpDocuments ? (
           <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
             <div data-sf-scroll="1" style={{ overflowX:'auto' }}>
-              <table style={{ width:'100%', minWidth:'760px', borderCollapse:'collapse', fontSize:'12.5px' }}>
+              <table style={{ width:'100%', minWidth:'760px', borderCollapse:'collapse', fontSize:'.78125rem' }}>
                 <thead>
                   <tr style={{ textAlign:'left', color:'#64748b' }}>
                     <th scope="col" style={th}>Document</th>
@@ -359,7 +368,7 @@ export default function Reports({
                       <td style={td}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
                           <span style={{ fontWeight:600 }}>{r.label}</span>
-                          <span style={{ fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.sub}</span>
+                          <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.sub}</span>
                         </div>
                       </td>
                       {r.cells.map((c, ci) => <td key={ci} style={td}>{c}</td>)}
@@ -374,7 +383,7 @@ export default function Reports({
         {rpTemplates ? (
           <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
             <div data-sf-scroll="1" style={{ overflowX:'auto' }}>
-              <table style={{ width:'100%', minWidth:'660px', borderCollapse:'collapse', fontSize:'12.5px' }}>
+              <table style={{ width:'100%', minWidth:'660px', borderCollapse:'collapse', fontSize:'.78125rem' }}>
                 <thead>
                   <tr style={{ textAlign:'left', color:'#64748b' }}>
                     <th scope="col" style={th}>Template</th>
@@ -392,7 +401,7 @@ export default function Reports({
                       <td style={td}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
                           <span style={{ fontWeight:600 }}>{r.label}</span>
-                          <span style={{ fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.sub}</span>
+                          <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.sub}</span>
                         </div>
                       </td>
                       {r.cells.map((c, ci) => <td key={ci} style={td}>{c}</td>)}
@@ -419,13 +428,13 @@ export default function Reports({
               ))}
             </div>
             {picked.length === 0 ? (
-              <div style={{ border:'1px dashed #cbd5e1', borderRadius:'13px', padding:'28px', textAlign:'center', color:'#94a3b8', fontSize:'12.5px', lineHeight:1.6 }}>
+              <div style={{ border:'1px dashed #8492a6', borderRadius:'13px', padding:'28px', textAlign:'center', color:TEXT_MUTED, fontSize:'.78125rem', lineHeight:1.6 }}>
                 Drop dimensions here to compose a report.<br />Group by any field, then save the definition or schedule a recurring export.
               </div>
             ) : (
-              <div style={{ border:'1px dashed #cbd5e1', borderRadius:'13px', padding:'14px', display:'flex', gap:'7px', flexWrap:'wrap' }}>
+              <div style={{ border:'1px dashed #8492a6', borderRadius:'13px', padding:'14px', display:'flex', gap:'7px', flexWrap:'wrap' }}>
                 {picked.map(field => (
-                  <span key={field} style={{ padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + A, background:'#f5f7ff', fontSize:'11.5px', color:A }}>{reportFieldLabel(field)}</span>
+                  <span key={field} style={{ padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + A, background:'#f5f7ff', fontSize:'.71875rem', color:A }}>{reportFieldLabel(field)}</span>
                 ))}
               </div>
             )}
@@ -437,7 +446,7 @@ export default function Reports({
 
             {runFields.length ? (
               <div data-sf-scroll="1" style={{ overflowX:'auto', border:'1px solid #eef1f6', borderRadius:'13px' }}>
-                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'.78125rem' }}>
                   <thead>
                     <tr style={{ textAlign:'left', color:'#64748b' }}>
                       {runFields.map(field => <th key={field} scope="col" style={th}>{reportFieldLabel(field)}</th>)}

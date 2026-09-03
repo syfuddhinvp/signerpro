@@ -3,12 +3,15 @@ import zipfile
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, request_ip, request_user_agent
+from app.api.deps import get_current_user, request_ip, request_user_agent, require_org_admin
 from app.core.database import get_db
 from app.core.storage import storage
 from app.models.enums import DocumentStatus, RecipientStatus
+from app.models.field_attachment import FieldAttachment
 from app.models.user import User
 from app.schemas.document import (
     BulkActionRequest,
@@ -35,14 +38,24 @@ from app.models.plan import (
 )
 from app.models.usage_event import UsageEventType
 from app.services.audit_service import audit_service
+from app.services.crm_service import crm_integration_service
 from app.services.entitlement_service import entitlement_service
 from app.services.document_service import document_response, document_service
+from app.services.expiry_service import expiry_service
 from app.services.email_service import signflow_email_service
 from app.services.pdf_service import pdf_service
 from app.services.token_service import token_service
 
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+
+
+class ExpirySweepResult(BaseModel):
+    """What one expiry sweep transitioned."""
+
+    documents_expired: int
+    recipients_expired: int
+    tokens_expired: int
 
 
 @router.post("", response_model=DocumentResponse, status_code=201)
@@ -178,6 +191,27 @@ def bulk_download(
 def empty_trash(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> BulkActionResult:
     purged = document_service.empty_trash(db, user=user)
     return BulkActionResult(action="purge", updated=purged, document_ids=[], skipped=[])
+
+
+@router.post("/expiry-sweep", response_model=ExpirySweepResult)
+def run_expiry_sweep(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+) -> ExpirySweepResult:
+    """Run the document/token expiry sweep on demand (RTE-1 / DOC-6).
+
+    ``expiry_service`` was correct but unreachable: nothing in ``app/`` ever
+    called it, so ``DocumentStatus.expired`` was unreachable and signing links
+    outlived their stated deadline. ``scripts/run_expiry.py`` remains the cron
+    entrypoint; this route is the ops/admin-triggerable path so the sweep can
+    be run (and verified) without shell access, and so a health check can prove
+    it works. The sweep is idempotent and batched, so calling it repeatedly is
+    safe.
+
+    Declared before ``/{document_id}`` so the literal path is not shadowed.
+    """
+    report = expiry_service.run(db)
+    return ExpirySweepResult(**report.as_dict())
 
 
 @router.get("/templates/all", response_model=list[DocumentResponse])
@@ -465,6 +499,8 @@ def remind_document(document_id: str, db: Session = Depends(get_db), user: User 
                 event_type="signer_email_sent",
                 event_message=f"Reminder signing link sent to {recipient.email}.",
             )
+    if links:
+        crm_integration_service.trigger_reminders(db, document=document)
     db.commit()
     return {"signing_links": links}
 
@@ -477,3 +513,33 @@ def generate_final_pdf(document_id: str, db: Session = Depends(get_db), user: Us
     db.refresh(document)
     return document_response(document)
 
+
+
+@router.get("/{document_id}/fields/{field_id}/attachment")
+def download_field_attachment(
+    document_id: str,
+    field_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    """Retrieve the file a signer uploaded into an ``attachment`` field.
+
+    Without this the signer-side upload would be write-only: the sender could
+    see a filename in the field and never the file (FLD-6).
+    """
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    field = next((item for item in document.fields if item.id == field_id), None)
+    if field is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Field not found")
+    attachment = db.scalar(
+        select(FieldAttachment)
+        .where(FieldAttachment.field_id == field.id)
+        .order_by(FieldAttachment.created_at.desc())
+    )
+    if attachment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No attachment has been uploaded for this field")
+    return FileResponse(
+        storage.path(attachment.file_path),
+        media_type=attachment.content_type or "application/octet-stream",
+        filename=attachment.filename or "attachment",
+    )

@@ -24,6 +24,12 @@ from app.services.webhook_service import (
 )
 
 
+from app.models.plan import ENTITLEMENT_WEBHOOKS  # noqa: E402
+from app.services.entitlement_service import (  # noqa: E402
+    EntitlementContext,
+    entitlement_service,
+)
+
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 
@@ -83,8 +89,16 @@ def create_endpoint(
     payload: WebhookEndpointCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    _entitlement: EntitlementContext = Depends(
+        entitlement_service.requires(ENTITLEMENT_WEBHOOKS)
+    ),
 ):
-    """Create an endpoint. The signing secret is returned here and never again."""
+    """Create an endpoint. The signing secret is returned here and never again.
+
+    ``webhooks`` is a Business-and-above entitlement and is enforced here: it
+    was sold but never checked, so a Team org could register endpoints
+    (AUDIT_REPORT.md section 7, finding 2).
+    """
     endpoint = WebhookEndpoint(
         organization_id=user.organization_id,
         url=_validate_url(payload.url),
@@ -170,6 +184,9 @@ def send_test_event(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    _entitlement: EntitlementContext = Depends(
+        entitlement_service.requires(ENTITLEMENT_WEBHOOKS)
+    ),
 ):
     """Fire a synthetic ``webhook.test`` event at this endpoint only."""
     endpoint = _get_endpoint(db, endpoint_id, user)

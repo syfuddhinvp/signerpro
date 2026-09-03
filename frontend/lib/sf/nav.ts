@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  type ScreenKey, type Workspace, pathFor, screenForPath, workspaceForPath, SCREEN_RAIL,
+  type ScreenKey, type Workspace, pathFor, screenForPath, workspaceForPath, areaForScreen,
   documentIdForPath, documentPathFor, isDocumentScreen,
 } from './routes';
 
@@ -63,7 +63,7 @@ export function useNav() {
     documentId,
     workspace,
     isPlat: workspace === 'platform',
-    rail: SCREEN_RAIL[screen],
+    area: areaForScreen(screen, workspace),
     pathname,
     go,
     switchWorkspace,

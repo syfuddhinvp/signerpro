@@ -9,6 +9,7 @@
 
 import type { Metadata } from 'next';
 import PlatformHome from '@/components/sf/screens/PlatformHome';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 import { serverCaller } from '@/lib/api/client';
 import {
   logs as logsApi,
@@ -34,7 +35,8 @@ const EMPTY_OVERVIEW: PlatformOverview = {
   envelopes_30d: 0,
   mrr_cents: 0,
   incidents_90d: 0,
-  uptime_pct: 100,
+  uptime_pct: null,
+  errors_24h: 0,
   mrr_series: [],
   health: [],
 };
@@ -64,8 +66,17 @@ export default async function Page() {
   const nrr = churn?.net_revenue_retention_pct ?? 0;
   const nrrLabel = churn ? (nrr >= 100 ? '+' : '') + nrr.toFixed(0) + '% NRR' : '—';
 
+  /* The tiles and the health table both come from `overview`. When that call
+     failed they would otherwise render as a healthy platform with zero of
+     everything, which is the audit's exact finding. */
   return (
-    <PlatformHome
+    <>
+      {overviewResult.ok ? null : (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Platform tiles and service health" detail={overviewResult.error.message} />
+        </div>
+      )}
+      <PlatformHome
       stats={toPlatformStats(overview)}
       mrrSeries={series}
       mrrTicks={[ticks[0] ?? '', mid, ticks[ticks.length - 1] ?? '']}
@@ -75,7 +86,8 @@ export default async function Page() {
       topTenants={toTopTenants(tenantRows)}
       dunning={toDunningRows(dunning)}
       health={toPlatformHealthRows(overview.health)}
-      audit={toPlatformAuditStream(audit)}
-    />
+        audit={toPlatformAuditStream(audit)}
+      />
+    </>
   );
 }

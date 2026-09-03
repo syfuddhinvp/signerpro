@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -13,6 +13,7 @@ from app.schemas.audit import (
 )
 from app.services.audit_service import audit_service
 from app.services.document_service import document_service
+from app.services.pdf_service import pdf_service
 
 
 router = APIRouter(prefix="/api/documents/{document_id}/audit-logs", tags=["audit"])
@@ -52,13 +53,19 @@ def verify_audit_chain(
     user: User = Depends(get_current_user),
 ) -> AuditChainVerification:
     document = document_service.get_for_user(db, document_id=document_id, user=user)
-    return AuditChainVerification(**audit_service.verify_chain(list(document.audit_logs), expected_head=expected_head))
+    result = audit_service.verify_for_document(db, document)
+    if result["valid"] and expected_head is not None and expected_head != result["chain_head"]:
+        result["valid"] = False
+        result["reason"] = "chain head does not match the expected head"
+    return AuditChainVerification(**result)
 
 
 @certificate_router.get("/summary", response_model=CertificateSummaryResponse)
 def certificate_summary(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> CertificateSummaryResponse:
     document = document_service.get_for_user(db, document_id=document_id, user=user)
     logs = list(document.audit_logs)
+    verification = audit_service.verify_for_document(db, document)
+    files = pdf_service.verify_stored_files(document)
     return CertificateSummaryResponse(
         envelope_id=document.id,
         document_title=document.title,
@@ -71,7 +78,54 @@ def certificate_summary(document_id: str, db: Session = Depends(get_db), user: U
         certificate_authority=CERTIFICATE_AUTHORITY,
         final_sha256=document.final_sha256,
         original_sha256=document.original_sha256,
-        chain_head=audit_service.chain_head(logs),
-        audit_entry_count=len(logs),
-        chain_valid=True,
+        chain_head=verification["chain_head"],
+        audit_entry_count=verification["entry_count"],
+        chain_valid=verification["valid"],
+        chain_invalid_reason=verification["reason"],
+        **files,
     )
+
+
+def _pdf_response(document, pdf_bytes: bytes, suffix: str) -> Response:
+    safe_title = "".join(ch for ch in document.title if ch.isalnum() or ch in " -_").strip() or "document"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}{suffix}.pdf"'},
+    )
+
+
+@certificate_router.get(
+    "/full",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}, "description": "Document and certificate in one PDF"}},
+)
+def document_with_certificate(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Response:
+    """The document and its certificate of completion in a single PDF.
+
+    For a sealed envelope this *is* ``final.pdf`` — the certificate is already
+    bound into it — so the bytes the ``final_sha256`` attests to are what gets
+    downloaded. For one still in flight the two are stitched on demand.
+    """
+
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    pdf_bytes = pdf_service.build_document_with_certificate(db, document)
+    return _pdf_response(document, pdf_bytes, "-signed-with-certificate")
+
+
+@certificate_router.get(
+    "/pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}, "description": "Certificate of completion"}},
+)
+def certificate_pdf(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Response:
+    """The certificate of completion as a PDF.
+
+    Built on demand from the live audit chain rather than served from storage,
+    so it is available for an in-flight envelope too and always reflects the
+    trail as it stands. The identical pages are what `generate_final_pdf`
+    appends to the sealed document.
+    """
+
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return _pdf_response(document, pdf_service.build_audit_certificate(db, document), "-certificate")

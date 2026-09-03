@@ -20,7 +20,21 @@ export type PublicRecipient = {
   name: string;
   email: string;
   role_name: string | null;
+  /** Typed role: sign | approve | copy | inperson. `role_name` is the free-text
+   *  label the sender typed and must never be tested against these values. */
+  role: 'sign' | 'approve' | 'copy' | 'inperson';
   status: RecipientStatus;
+};
+
+/** `backend/app/schemas/signer.py:FieldPlacementResponse` — geometry only. */
+export type FieldPlacement = {
+  id: string;
+  type: string;
+  page_number: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 export type SigningSessionResponse = {
@@ -28,6 +42,12 @@ export type SigningSessionResponse = {
   recipient: PublicRecipient;
   current_recipient_id: string;
   fields: FieldResponse[];
+  /**
+   * Other recipients' placements, redacted to geometry only
+   * (`FieldPlacementResponse`) — the signing surface needs to know a region of
+   * the page is spoken for without learning whose it is or what it says.
+   */
+  other_field_placements: FieldPlacement[];
   read_only: boolean;
   expires_at: string;
   pdf_url: string;

@@ -16,7 +16,7 @@ class SavedSignature(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_saved_signatures_recipient_email", "recipient_email"),
     )
 
-    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     recipient_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     label: Mapped[str] = mapped_column(String(120), nullable=False)
     # drawn | typed | uploaded

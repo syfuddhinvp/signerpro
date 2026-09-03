@@ -61,7 +61,9 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     subscription_status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")  # "active", "trialing", "past_due", "canceled", "expired"
     subscription_expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
-    users: Mapped[list["User"]] = relationship(back_populates="organization", cascade="all, delete-orphan")
+    users: Mapped[list["User"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan", passive_deletes=True
+    )
     # Signed documents are legally retained records: deleting a tenant must
     # never cascade into them. "save-update, merge" is the non-destructive
     # default, and passive_deletes="all" stops SQLAlchemy from nulling the FK,

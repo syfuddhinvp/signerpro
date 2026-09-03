@@ -1,0 +1,5 @@
+# Test/dev only. Deliberately NOT installed into the production image so that
+# test tooling is not part of the deployed attack surface.
+-r requirements.txt
+pytest==9.1.1
+pip-audit>=2.7.0

@@ -75,6 +75,7 @@ def list_organizations(
 def update_organization_subscription(
     org_id: str,
     payload: SaaSOrganizationUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_platform_admin),
 ) -> SaaSOrganizationResponse:
@@ -89,10 +90,23 @@ def update_organization_subscription(
         )
 
     update_data = payload.model_dump(exclude_unset=True)
+    # Captured *before* the assignment: this endpoint moves a tenant's plan
+    # tier, status and expiry, and used to leave no record at all that it had
+    # been used. The before/after pair is what makes the row evidence.
+    before = {field: getattr(org, field) for field in update_data}
     for field, val in update_data.items():
         setattr(org, field, val)
 
     db.add(org)
+    platform_service.record_platform_audit(
+        db,
+        action="tenant.subscription_updated",
+        actor=admin,
+        organization_id=org.id,
+        detail=" · ".join(f"{field}: {before[field]} -> {val}" for field, val in update_data.items()),
+        ip_address=request_ip(request),
+        metadata={"before": {k: str(v) for k, v in before.items()}, "after": {k: str(v) for k, v in update_data.items()}},
+    )
     db.commit()
     db.refresh(org)
 
@@ -158,16 +172,10 @@ def update_user_role(
             detail="User not found",
         )
 
-    user.role = payload.role
-    db.add(user)
-    platform_service.record_platform_audit(
-        db,
-        action="user.role_assigned",
-        actor=admin,
-        organization_id=user.organization_id,
-        detail=f"{user.email} -> {payload.role}",
-        ip_address=request_ip(request),
-        metadata={"user_id": user.id, "role": payload.role},
+    # One implementation, shared with PATCH /api/saas/directory/{id}/role.
+    # This route used to assign ``user.role`` directly with no guards at all.
+    platform_service.apply_role_assignment(
+        db, admin=admin, user=user, role=payload.role, ip_address=request_ip(request)
     )
     db.commit()
     db.refresh(user)

@@ -645,3 +645,131 @@ def test_routing_settings(client: TestClient) -> None:
         == 422
     )
     assert client.put(f"/api/documents/{document_id}/routing", json={"expires_in_days": 5}).status_code == 401
+
+
+# ------------------------------------------------- quick-bucket badge counts
+
+
+# quick filter name -> the DocumentCounts key that badges it. Only `trash`
+# differs, because the count key predates the filter name.
+QUICK_BUCKETS = {
+    "inbox": "inbox",
+    "outbox": "outbox",
+    "completed": "completed",
+    "drafts": "drafts",
+    "favorites": "favorites",
+    "expiring": "expiring",
+    "shared": "shared",
+    "mine": "mine",
+    "archived": "archived",
+    "trash": "trashed",
+}
+
+
+def _invite_colleague(client: TestClient, headers: dict[str, str]) -> dict[str, str]:
+    created = client.post("/api/invitations/", headers=headers, json={"email": "colleague@example.com", "role": "sender"})
+    assert created.status_code == 201, created.text
+    token = created.json()["invite_link"].rsplit("/", 1)[-1]
+    accepted = client.post(
+        "/api/invitations/accept",
+        json={"token": token, "name": "Colleague", "password": "another-strong-pass"},
+    )
+    assert accepted.status_code == 201, accepted.text
+    return {"Authorization": f"Bearer {accepted.json()['access_token']}"}
+
+
+def test_counts_cover_every_quick_bucket(client: TestClient, pdf_bytes: bytes) -> None:
+    """Every sidebar badge must equal the number of rows the same `quick`
+    filter returns — otherwise a badge can disagree with its own list."""
+    headers = auth_headers(client)
+    colleague = _invite_colleague(client, headers)
+
+    # Owned by the admin: a favourite draft, an archived and a trashed row.
+    # (The Free plan caps the org at five documents per cycle — stay inside it.)
+    favourite = _document(client, headers, "My favourite")
+    assert client.post(f"/api/documents/{favourite}/favorite", headers=headers).status_code == 204
+    archived = _document(client, headers, "My archive")
+    assert client.post(f"/api/documents/{archived}/archive", headers=headers).status_code == 200
+    trashed = _document(client, headers, "My trash")
+    assert client.delete(f"/api/documents/{trashed}", headers=headers).status_code == 204
+
+    # Owned by the colleague and out for the admin's signature: inbox + outbox
+    # + shared + expiring (short expiry window puts it inside the 7-day horizon).
+    inbound = create_uploaded_document(client, pdf_bytes, colleague)
+    recipient = add_recipient(client, inbound, colleague, "Admin User", "admin@example.com")
+    add_field(client, inbound, colleague, recipient, "signature", "Sign", 200)
+    assert client.put(
+        f"/api/documents/{inbound}/routing", headers=colleague, json={"expires_in_days": 2}
+    ).status_code == 200
+    assert client.post(f"/api/documents/{inbound}/send", headers=colleague).status_code == 200
+
+    # A colleague-owned draft the admin is not a recipient of: shared only.
+    colleague_draft = _document(client, colleague, "Colleague draft")
+
+    counts = client.get("/api/documents/counts", headers=headers).json()
+
+    for bucket, count_key in QUICK_BUCKETS.items():
+        page = client.get(
+            "/api/documents/library", headers=headers, params={"quick": bucket, "limit": 200}
+        ).json()
+        badge = counts[count_key]
+        assert badge == page["total"], f"{bucket}: badge {badge} != list {page['total']}"
+        assert badge == len(page["items"]), bucket
+
+    # Spot-check the absolute values so a shared-zero bug cannot pass the loop.
+    assert counts["mine"] == 1  # my favourite (archived/trashed are excluded)
+    assert counts["shared"] == 2  # inbound + colleague draft
+    assert counts["drafts"] == 2
+    assert counts["draft"] == counts["drafts"]
+    assert counts["favorites"] == 1
+    assert counts["inbox"] == 1
+    assert counts["outbox"] == 1
+    assert counts["expiring"] == 1
+    assert counts["archived"] == 1
+    assert counts["trashed"] == 1
+    assert counts["all"] == 3
+    # legacy aliases stay in step with their quick twins
+    assert counts["action"] == counts["inbox"]
+    assert counts["waiting"] == counts["outbox"]
+    assert colleague_draft
+
+
+def test_copy_link_issues_a_link_without_emailing(client: TestClient, pdf_bytes: bytes) -> None:
+    """`notify=false` is what "copy link" needs: a URL, and no second email.
+
+    Either way the recipient's previous link is superseded, so a signer never
+    has two live URLs — and the trail records which of the two happened.
+    """
+
+    from app.tests.test_document_flow import token_from_link
+
+    headers = auth_headers(client)
+    document_id = create_uploaded_document(client, pdf_bytes, headers)
+    created = client.post(
+        f"/api/documents/{document_id}/recipients",
+        headers=headers,
+        json={"name": "Buyer", "email": "buyer@example.com", "role": "sign", "signing_order": 1},
+    )
+    assert created.status_code == 201, created.text
+    recipient_id = created.json()["id"]
+    add_field(client, document_id, headers, recipient_id, "signature", "Sign here", 120)
+    sent = client.post(f"/api/documents/{document_id}/send", headers=headers)
+    assert sent.status_code == 200, sent.text
+    first_token = token_from_link(sent.json()["signing_links"][0]["signing_link"])
+
+    copied = client.post(
+        f"/api/documents/{document_id}/recipients/{recipient_id}/resend?notify=false",
+        headers=headers,
+    )
+    assert copied.status_code == 200, copied.text
+    assert copied.json()["email"] == "buyer@example.com"
+    copied_token = token_from_link(copied.json()["signing_link"])
+    assert copied_token != first_token
+
+    # The link that was emailed is dead; the copied one works.
+    assert client.get(f"/api/sign/{first_token}").status_code == 403
+    assert client.get(f"/api/sign/{copied_token}").status_code == 200
+
+    trail = client.get(f"/api/documents/{document_id}/audit-logs", headers=headers)
+    assert trail.status_code == 200
+    assert any(entry["event_type"] == "signing_link_issued" for entry in trail.json())

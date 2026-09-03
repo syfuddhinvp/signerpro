@@ -15,7 +15,7 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from fastapi import HTTPException, status
@@ -56,6 +56,14 @@ DEV_DECLINE_MARKER = "dev_decline"
 #: How many collection attempts before an invoice is handed to a human.
 MAX_DUNNING_STEP = 4
 
+#: Payment terms on a period-close invoice.
+INVOICE_DUE_DAYS = 7
+
+#: The annual-commitment discount the pricing page advertises ("save 12%").
+#: Every annual figure in this service derives from it, so the catalogue and
+#: the checkout can never disagree.
+ANNUAL_DISCOUNT_RATE = 0.12
+
 
 def webhook_secret() -> str:
     return get_settings().billing_webhook_secret
@@ -68,10 +76,53 @@ def webhook_secret() -> str:
 
 @dataclass
 class CheckoutSession:
+    """One checkout or setup session.
+
+    ``url`` and ``client_secret`` are alternatives, not both: Stripe's hosted
+    mode returns a redirect ``url`` and no client secret, embedded mode returns
+    a ``client_secret`` the browser mounts an iframe with and no url. Callers
+    must treat either as sufficient.
+    """
+
     session_id: str
-    url: str
     provider: str
     plan_code: str
+    url: str | None = None
+    client_secret: str | None = None
+    #: ``subscription`` (buy a plan) or ``setup`` (save an instrument only).
+    mode: str = "subscription"
+    #: ``hosted`` (redirect) or ``embedded`` (iframe in our own modal).
+    ui_mode: str = "hosted"
+    #: The provider customer the session was opened against, when there is one.
+    #: The caller persists it on ``subscriptions.provider_customer_id``.
+    customer_id: str | None = None
+    #: False for a Stripe *test-mode* session. Surfaced to the UI so a test
+    #: payment is never mistaken for a real one.
+    livemode: bool = False
+
+
+@dataclass
+class CheckoutSessionStatus:
+    """What the provider says about a session, read back after the return_url.
+
+    The browser landing on a return url proves nothing -- the user can type it.
+    Every claim of success in the UI is made from one of these, fetched
+    server-side with the secret key.
+    """
+
+    session_id: str
+    #: ``open`` | ``complete`` | ``expired``
+    status: str
+    mode: str = "subscription"
+    payment_status: str | None = None
+    subscription_id: str | None = None
+    customer_id: str | None = None
+    plan_code: str | None = None
+    payment_method_id: str | None = None
+
+    @property
+    def complete(self) -> bool:
+        return self.status == "complete"
 
 
 @dataclass
@@ -85,6 +136,12 @@ class ProviderEvent:
     organization_id: str | None = None
     plan_code: str | None = None
     period_end: datetime | None = None
+    #: Set on setup-mode checkout completions and setup_intent events, so the
+    #: instrument the user just saved can be persisted from the webhook alone.
+    payment_method_id: str | None = None
+    customer_id: str | None = None
+    #: ``subscription`` | ``setup`` | ``payment`` for a checkout session event.
+    mode: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -118,8 +175,35 @@ class PaymentProvider(ABC):
 
     @abstractmethod
     def create_checkout_session(
-        self, *, organization_id: str, plan: Plan, success_url: str, cancel_url: str
+        self,
+        *,
+        organization_id: str,
+        plan: Plan,
+        success_url: str,
+        cancel_url: str,
+        ui_mode: str = "hosted",
+        return_url: str | None = None,
+        customer_id: str | None = None,
     ) -> CheckoutSession: ...
+
+    def create_setup_session(
+        self,
+        *,
+        organization_id: str,
+        customer_id: str | None,
+        return_url: str,
+        ui_mode: str = "embedded",
+    ) -> CheckoutSession:
+        """A session that saves an instrument without taking a payment.
+
+        This is what replaces the card form the app used to render: the PAN is
+        entered in the provider's own iframe and never exists in our DOM.
+        """
+        raise NotImplementedError
+
+    def retrieve_checkout_session(self, session_id: str) -> CheckoutSessionStatus:
+        """Read a session back from the provider. Never trust the browser."""
+        raise NotImplementedError
 
     @abstractmethod
     def cancel_subscription(self, *, subscription: Subscription, at_period_end: bool) -> None: ...
@@ -145,6 +229,7 @@ class PaymentProvider(ABC):
         provider_token: str | None,
         holder_name: str | None = None,
         country: str | None = None,
+        customer_id: str | None = None,
     ) -> ProviderPaymentMethod:
         raise NotImplementedError
 
@@ -179,15 +264,61 @@ class NullPaymentProvider(PaymentProvider):
     name = "null"
 
     def create_checkout_session(
-        self, *, organization_id: str, plan: Plan, success_url: str, cancel_url: str
+        self,
+        *,
+        organization_id: str,
+        plan: Plan,
+        success_url: str,
+        cancel_url: str,
+        ui_mode: str = "hosted",
+        return_url: str | None = None,
+        customer_id: str | None = None,
     ) -> CheckoutSession:
         session_id = f"cs_null_{uuid4().hex}"
+        if ui_mode == "embedded":
+            # No provider iframe exists offline, so there is no client secret to
+            # invent. The caller sees `client_secret is None` and says so rather
+            # than mounting an empty frame.
+            return CheckoutSession(
+                session_id=session_id,
+                provider=self.name,
+                plan_code=plan.code,
+                mode="subscription",
+                ui_mode="embedded",
+                customer_id=customer_id,
+            )
         separator = "&" if "?" in success_url else "?"
         return CheckoutSession(
             session_id=session_id,
             url=f"{success_url}{separator}checkout_session={session_id}&plan={plan.code}",
             provider=self.name,
             plan_code=plan.code,
+        )
+
+    def create_setup_session(
+        self,
+        *,
+        organization_id: str,
+        customer_id: str | None,
+        return_url: str,
+        ui_mode: str = "embedded",
+    ) -> CheckoutSession:
+        return CheckoutSession(
+            session_id=f"seti_null_{uuid4().hex}",
+            provider=self.name,
+            plan_code="",
+            mode="setup",
+            ui_mode=ui_mode,
+            customer_id=customer_id or self._stable("cus_null", organization_id),
+        )
+
+    def retrieve_checkout_session(self, session_id: str) -> CheckoutSessionStatus:
+        """Offline sessions are never confirmed: there was no provider to
+        complete them. Reporting ``open`` keeps the UI honest."""
+        return CheckoutSessionStatus(
+            session_id=session_id,
+            status="open",
+            mode="setup" if session_id.startswith("seti_") else "subscription",
         )
 
     def cancel_subscription(self, *, subscription: Subscription, at_period_end: bool) -> None:
@@ -213,6 +344,7 @@ class NullPaymentProvider(PaymentProvider):
         provider_token: str | None,
         holder_name: str | None = None,
         country: str | None = None,
+        customer_id: str | None = None,
     ) -> ProviderPaymentMethod:
         seed = provider_token or f"{organization_id}:{type}"
         digest = hashlib.sha256(seed.encode()).hexdigest()
@@ -315,17 +447,738 @@ class NullPaymentProvider(PaymentProvider):
         )
 
 
+# --------------------------------------------------------------------------
+# Stripe provider
+# --------------------------------------------------------------------------
+#
+# Implemented against the documented Stripe REST API rather than the SDK, so
+# the adapter has no import-time dependency and -- more importantly -- so the
+# network call is a single injectable seam. ``StripePaymentProvider.transport``
+# follows exactly the pattern ``webhook_service._http_transport`` established:
+# production uses httpx, tests substitute a callable that returns canned
+# ``(status_code, json)`` pairs. No test in this repo touches the network.
+
+STRIPE_API_BASE = "https://api.stripe.com"
+STRIPE_REQUEST_TIMEOUT_SECONDS = 20.0
+#: Stripe rejects a signature whose timestamp is older than this.
+STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300
+
+#: (method, url, form params, headers) -> (http status, decoded JSON body)
+StripeTransport = Callable[[str, str, dict[str, Any], dict[str, str]], tuple[int, dict[str, Any]]]
+
+
+def _stripe_http_transport(
+    method: str, url: str, params: dict[str, Any], headers: dict[str, str]
+) -> tuple[int, dict[str, Any]]:
+    import httpx
+
+    # Stripe reads a form body on writes and the query string on reads; a GET
+    # with `expand[]`/`lookup_keys[]` in the body is silently ignored.
+    body = params if method.upper() not in {"GET", "HEAD"} else None
+    query = params if body is None else None
+    response = httpx.request(
+        method,
+        url,
+        data=body or None,
+        params=query or None,
+        headers=headers,
+        timeout=STRIPE_REQUEST_TIMEOUT_SECONDS,
+    )
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    return response.status_code, (body if isinstance(body, dict) else {})
+
+
+class StripeConfigurationError(RuntimeError):
+    """Raised when the Stripe provider is selected without its credentials."""
+
+
+class LiveStripeKeyOutsideProduction(StripeConfigurationError):
+    """A live secret key in a non-production environment.
+
+    This is the one misconfiguration that spends other people's money by
+    accident: a developer pastes the wrong key out of the dashboard and the
+    next click on "Upgrade" is a real charge on a real card. It is refused at
+    construction, loudly, rather than warned about.
+    """
+
+
+#: Stripe's own prefixes. ``rk_`` is a restricted key, which carries the same
+#: live/test split in its second segment.
+LIVE_STRIPE_KEY_PREFIXES = ("sk_live_", "rk_live_")
+TEST_STRIPE_KEY_PREFIXES = ("sk_test_", "rk_test_")
+
+
+def is_live_stripe_key(secret_key: str | None) -> bool:
+    return (secret_key or "").startswith(LIVE_STRIPE_KEY_PREFIXES)
+
+
+def stripe_key_mode(secret_key: str | None) -> str:
+    """``live`` | ``test`` | ``unknown``. Never guesses in favour of test."""
+    if is_live_stripe_key(secret_key):
+        return "live"
+    if (secret_key or "").startswith(TEST_STRIPE_KEY_PREFIXES):
+        return "test"
+    return "unknown"
+
+
+def verify_stripe_key_is_safe_here(secret_key: str, environment: str | None = None) -> None:
+    """Refuse a live key outside production; warn about a test key inside it.
+
+    The test/live distinction is otherwise invisible -- both keys work, both
+    return 200s, and only one of them moves money. Making it explicit at
+    construction is what stops a real payment being taken by accident.
+    """
+    import logging
+
+    from app.core.config import is_production
+
+    settings = get_settings()
+    environment = environment if environment is not None else getattr(settings, "environment", "development")
+    mode = stripe_key_mode(secret_key)
+    if mode == "live" and not is_production(environment):
+        raise LiveStripeKeyOutsideProduction(
+            f"STRIPE_SECRET_KEY is a LIVE key but ENVIRONMENT={environment!r}. "
+            "A live key outside production takes real payments from real cards. "
+            "Use a sk_test_… key from the Stripe dashboard's test mode, or set "
+            "ENVIRONMENT=production if this really is production."
+        )
+    if mode == "test" and is_production(environment):
+        logging.getLogger("app.billing").warning(
+            "billing.stripe.test_key_in_production",
+            extra={"environment": environment},
+        )
+    if mode == "unknown":
+        raise StripeConfigurationError(
+            "STRIPE_SECRET_KEY does not look like a Stripe secret key "
+            "(expected an sk_test_…/sk_live_…/rk_… prefix)."
+        )
+
+
+def _stripe_setting(name: str, env_name: str) -> str | None:
+    settings = get_settings()
+    value = getattr(settings, name, None)
+    if not value:
+        import os
+
+        value = os.environ.get(env_name)
+    return (value or "").strip() or None
+
+
+class StripePaymentProvider(PaymentProvider):
+    """Stripe adapter.
+
+    Selected with ``BILLING_PROVIDER=stripe``. Credentials come from
+    ``STRIPE_SECRET_KEY`` and ``STRIPE_WEBHOOK_SECRET`` (falling back to
+    ``BILLING_WEBHOOK_SECRET``); a missing secret key raises at construction so
+    a misconfigured deployment fails at boot rather than silently not billing.
+    """
+
+    name = "stripe"
+
+    #: Overridable seam. Tests replace this; production uses httpx.
+    transport: StripeTransport = staticmethod(_stripe_http_transport)
+
+    def __init__(self, *, secret_key: str | None = None, webhook_secret: str | None = None) -> None:
+        self._secret_key = secret_key or _stripe_setting("stripe_secret_key", "STRIPE_SECRET_KEY")
+        if not self._secret_key:
+            raise StripeConfigurationError(
+                "BILLING_PROVIDER=stripe requires STRIPE_SECRET_KEY to be set."
+            )
+        verify_stripe_key_is_safe_here(self._secret_key)
+        self._webhook_secret = (
+            webhook_secret
+            # `webhook_secret` is the parameter here, so the module-level
+            # function of the same name has to be reached explicitly -- it used
+            # to read `webhook_secret()`, which called None.
+            or _stripe_setting("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET")
+            or get_settings().billing_webhook_secret
+        )
+
+    @property
+    def is_live_key(self) -> bool:
+        """True when this adapter is holding real money's credentials."""
+        return is_live_stripe_key(self._secret_key)
+
+    @property
+    def mode(self) -> str:
+        return "live" if self.is_live_key else "test"
+
+    # ------------------------------------------------------------- transport
+    def _request(self, method: str, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        status_code, body = type(self).transport(
+            method,
+            f"{STRIPE_API_BASE}{path}",
+            _flatten_form(params or {}),
+            {
+                "Authorization": f"Bearer {self._secret_key}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Stripe-Version": "2024-06-20",
+            },
+        )
+        if status_code >= 400:
+            error = (body or {}).get("error") or {}
+            raise StripeApiError(
+                status_code=status_code,
+                message=str(error.get("message") or "Stripe request failed"),
+                code=error.get("code") or error.get("decline_code"),
+                body=body or {},
+            )
+        return body or {}
+
+    # ------------------------------------------------------------- customers
+    def _customer_id(self, subscription: Subscription) -> str:
+        if subscription.provider_customer_id:
+            return subscription.provider_customer_id
+        created = self._request(
+            "POST", "/v1/customers", {"metadata[organization_id]": subscription.organization_id}
+        )
+        subscription.provider_customer_id = created.get("id")
+        return subscription.provider_customer_id or ""
+
+    def _customer_for_organization(self, organization_id: str) -> str:
+        created = self._request(
+            "POST", "/v1/customers", {"metadata[organization_id]": organization_id}
+        )
+        return str(created.get("id") or "")
+
+    # -------------------------------------------------------------- checkout
+    def create_checkout_session(
+        self,
+        *,
+        organization_id: str,
+        plan: Plan,
+        success_url: str,
+        cancel_url: str,
+        ui_mode: str = "hosted",
+        return_url: str | None = None,
+        customer_id: str | None = None,
+    ) -> CheckoutSession:
+        if not plan.external_price_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Plan '{plan.code}' has no Stripe price id configured. "
+                    "Run scripts/provision_stripe_plans.py."
+                ),
+            )
+        params: dict[str, Any] = {
+            "mode": "subscription",
+            "line_items[0][price]": plan.external_price_id,
+            "line_items[0][quantity]": 1,
+            "client_reference_id": organization_id,
+            "metadata[organization_id]": organization_id,
+            "metadata[plan_code]": plan.code,
+            # Copied onto the Subscription itself, so `customer.subscription.*`
+            # webhooks carry the org and plan too -- not only the session event.
+            "subscription_data[metadata][organization_id]": organization_id,
+            "subscription_data[metadata][plan_code]": plan.code,
+        }
+        if customer_id:
+            params["customer"] = customer_id
+        if ui_mode == "embedded":
+            # Embedded mode takes a single `return_url` and rejects
+            # success_url/cancel_url outright.
+            params["ui_mode"] = "embedded"
+            params["return_url"] = self._return_url(return_url or success_url)
+        else:
+            params["success_url"] = success_url
+            params["cancel_url"] = cancel_url
+        session = self._request("POST", "/v1/checkout/sessions", params)
+        return self._session_from(session, plan_code=plan.code, fallback_url=success_url)
+
+    def create_setup_session(
+        self,
+        *,
+        organization_id: str,
+        customer_id: str | None,
+        return_url: str,
+        ui_mode: str = "embedded",
+    ) -> CheckoutSession:
+        # Stripe requires a customer for `mode=setup`; there is nothing to
+        # attach the resulting payment method to otherwise.
+        customer = customer_id or self._customer_for_organization(organization_id)
+        params: dict[str, Any] = {
+            "mode": "setup",
+            "customer": customer,
+            "currency": "usd",
+            "metadata[organization_id]": organization_id,
+            "setup_intent_data[metadata][organization_id]": organization_id,
+        }
+        if ui_mode == "embedded":
+            params["ui_mode"] = "embedded"
+            params["return_url"] = self._return_url(return_url)
+        else:
+            params["success_url"] = return_url
+            params["cancel_url"] = return_url
+        session = self._request("POST", "/v1/checkout/sessions", params)
+        result = self._session_from(session, plan_code="", fallback_url=return_url)
+        result.mode = "setup"
+        result.customer_id = result.customer_id or customer
+        return result
+
+    @staticmethod
+    def _return_url(url: str) -> str:
+        """Stripe substitutes ``{CHECKOUT_SESSION_ID}`` on the way back, which
+        is how the landing page knows which session to confirm server-side."""
+        if "{CHECKOUT_SESSION_ID}" in url:
+            return url
+        separator = "&" if "?" in url else "?"
+        return f"{url}{separator}session_id={{CHECKOUT_SESSION_ID}}"
+
+    def _session_from(
+        self, session: dict[str, Any], *, plan_code: str, fallback_url: str
+    ) -> CheckoutSession:
+        ui_mode = str(session.get("ui_mode") or "hosted")
+        client_secret = session.get("client_secret")
+        customer = session.get("customer")
+        if isinstance(customer, dict):
+            customer = customer.get("id")
+        return CheckoutSession(
+            session_id=str(session.get("id") or ""),
+            provider=self.name,
+            plan_code=plan_code,
+            # Embedded sessions carry no url at all; a fabricated one would
+            # send the browser somewhere that proves nothing.
+            url=(str(session.get("url")) if session.get("url") else (None if ui_mode == "embedded" else fallback_url)),
+            client_secret=str(client_secret) if client_secret else None,
+            mode=str(session.get("mode") or "subscription"),
+            ui_mode=ui_mode,
+            customer_id=str(customer) if customer else None,
+            livemode=bool(session.get("livemode", self.is_live_key)),
+        )
+
+    def retrieve_checkout_session(self, session_id: str) -> CheckoutSessionStatus:
+        session = self._request(
+            "GET",
+            f"/v1/checkout/sessions/{session_id}",
+            {"expand[0]": "setup_intent"},
+        )
+        metadata = session.get("metadata") or {}
+        setup_intent = session.get("setup_intent")
+        payment_method: Any = None
+        if isinstance(setup_intent, dict):
+            payment_method = setup_intent.get("payment_method")
+        if isinstance(payment_method, dict):
+            payment_method = payment_method.get("id")
+        customer = session.get("customer")
+        if isinstance(customer, dict):
+            customer = customer.get("id")
+        subscription = session.get("subscription")
+        if isinstance(subscription, dict):
+            subscription = subscription.get("id")
+        return CheckoutSessionStatus(
+            session_id=str(session.get("id") or session_id),
+            status=str(session.get("status") or "open"),
+            mode=str(session.get("mode") or "subscription"),
+            payment_status=session.get("payment_status"),
+            subscription_id=str(subscription) if subscription else None,
+            customer_id=str(customer) if customer else None,
+            plan_code=metadata.get("plan_code") or None,
+            payment_method_id=str(payment_method) if payment_method else None,
+        )
+
+    # ----------------------------------------------------------- provisioning
+    #
+    # Used by scripts/provision_stripe_plans.py. Both calls are idempotent by
+    # construction rather than by convention: the product carries an id we
+    # choose, and the price carries a lookup key derived from its own amount,
+    # so re-running creates nothing and changing a price creates exactly one
+    # new price rather than mutating the old one (Stripe prices are immutable).
+
+    @staticmethod
+    def product_id_for(plan_code: str) -> str:
+        return f"signforge_{plan_code}"
+
+    @staticmethod
+    def price_lookup_key(plan_code: str, interval: str, unit_amount: int, currency: str) -> str:
+        return f"signforge_{plan_code}_{interval}_{currency.lower()}_{unit_amount}"
+
+    def ensure_product(self, *, plan_code: str, name: str, description: str | None) -> dict[str, Any]:
+        product_id = self.product_id_for(plan_code)
+        try:
+            return self._request("GET", f"/v1/products/{product_id}")
+        except StripeApiError as exc:
+            if exc.status_code != 404:
+                raise
+        return self._request(
+            "POST",
+            "/v1/products",
+            {
+                "id": product_id,
+                "name": name,
+                "description": description or "",
+                "metadata[plan_code]": plan_code,
+                "metadata[managed_by]": "signforge",
+            },
+        )
+
+    def ensure_price(
+        self,
+        *,
+        plan_code: str,
+        product_id: str,
+        unit_amount: int,
+        currency: str,
+        interval: str,
+    ) -> dict[str, Any]:
+        lookup_key = self.price_lookup_key(plan_code, interval, unit_amount, currency)
+        found = self._request("GET", "/v1/prices", {"lookup_keys[0]": lookup_key, "limit": 1})
+        for price in (found.get("data") or []):
+            if price.get("active", True):
+                return price
+        return self._request(
+            "POST",
+            "/v1/prices",
+            {
+                "product": product_id,
+                "unit_amount": unit_amount,
+                "currency": currency.lower(),
+                "recurring[interval]": interval,
+                "lookup_key": lookup_key,
+                "metadata[plan_code]": plan_code,
+                "metadata[managed_by]": "signforge",
+            },
+        )
+
+    # --------------------------------------------------------- subscriptions
+    def cancel_subscription(self, *, subscription: Subscription, at_period_end: bool) -> None:
+        remote = subscription.provider_subscription_id
+        if not remote:
+            return None
+        if at_period_end:
+            self._request("POST", f"/v1/subscriptions/{remote}", {"cancel_at_period_end": "true"})
+        else:
+            self._request("DELETE", f"/v1/subscriptions/{remote}", {})
+        return None
+
+    def change_plan(self, *, subscription: Subscription, plan: Plan) -> None:
+        remote = subscription.provider_subscription_id
+        if not remote:
+            return None
+        if not plan.external_price_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Plan '{plan.code}' has no Stripe price id configured",
+            )
+        current = self._request("GET", f"/v1/subscriptions/{remote}")
+        items = ((current.get("items") or {}).get("data")) or []
+        item_id = items[0].get("id") if items else None
+        params: dict[str, Any] = {
+            "proration_behavior": "create_prorations",
+            "items[0][price]": plan.external_price_id,
+        }
+        if item_id:
+            params["items[0][id]"] = item_id
+        self._request("POST", f"/v1/subscriptions/{remote}", params)
+        return None
+
+    def update_seats(self, *, subscription: Subscription, seats: int) -> None:
+        remote = subscription.provider_subscription_id
+        if not remote:
+            return None
+        current = self._request("GET", f"/v1/subscriptions/{remote}")
+        items = ((current.get("items") or {}).get("data")) or []
+        if not items:
+            return None
+        self._request(
+            "POST",
+            f"/v1/subscriptions/{remote}",
+            {
+                "items[0][id]": items[0].get("id"),
+                "items[0][quantity]": max(seats, 1),
+                "proration_behavior": "create_prorations",
+            },
+        )
+        return None
+
+    def set_billing_cycle(self, *, subscription: Subscription, cycle: str) -> None:
+        # The interval lives on the Stripe price, so a cycle switch is a plan
+        # change to the annual price. Modelled locally until annual price ids
+        # exist in the catalogue; nothing remote to do.
+        return None
+
+    # ------------------------------------------------------------ instruments
+    def attach_payment_method(
+        self,
+        *,
+        organization_id: str,
+        type: str,
+        provider_token: str | None,
+        holder_name: str | None = None,
+        country: str | None = None,
+        customer_id: str | None = None,
+    ) -> ProviderPaymentMethod:
+        if not provider_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A Stripe payment-method token is required",
+            )
+        existing = self._request("GET", f"/v1/payment_methods/{provider_token}")
+        already_on = existing.get("customer")
+        if isinstance(already_on, dict):
+            already_on = already_on.get("id")
+        if already_on:
+            # A setup-mode Checkout session has already attached it. Attaching
+            # again -- worse, to a second customer minted here -- would orphan
+            # the instrument the user actually saved.
+            attached = existing
+        else:
+            customer = customer_id or self._customer_for_organization(organization_id)
+            attached = self._request(
+                "POST", f"/v1/payment_methods/{provider_token}/attach", {"customer": customer}
+            )
+        card = attached.get("card") or {}
+        brand = (card.get("brand") or type).title()
+        last4 = card.get("last4")
+        label = f"{brand} •••• {last4}" if last4 else brand
+        return ProviderPaymentMethod(
+            provider_payment_method_id=str(attached.get("id") or provider_token),
+            label=label,
+            brand=brand,
+            last4=last4,
+            exp_month=card.get("exp_month"),
+            exp_year=card.get("exp_year"),
+            country=card.get("country") or country,
+        )
+
+    def detach_payment_method(self, *, payment_method: "PaymentMethod") -> None:
+        if payment_method.provider_payment_method_id:
+            self._request(
+                "POST", f"/v1/payment_methods/{payment_method.provider_payment_method_id}/detach", {}
+            )
+        return None
+
+    def set_default_payment_method(
+        self, *, organization_id: str, payment_method: "PaymentMethod"
+    ) -> None:
+        # Requires a customer id, which lives on the subscription; the caller
+        # persists the instrument regardless, so a missing id is not fatal.
+        return None
+
+    # -------------------------------------------------------------- charging
+    def charge_invoice(
+        self, *, invoice: "Invoice", payment_method: "PaymentMethod | None"
+    ) -> ProviderChargeResult:
+        if payment_method is None or not payment_method.provider_payment_method_id:
+            return ProviderChargeResult(
+                provider_payment_id="",
+                status="failed",
+                decline_code="no_payment_method",
+            )
+        try:
+            intent = self._request(
+                "POST",
+                "/v1/payment_intents",
+                {
+                    "amount": invoice.amount_due_cents,
+                    "currency": invoice.currency.lower(),
+                    "payment_method": payment_method.provider_payment_method_id,
+                    "confirm": "true",
+                    "off_session": "true",
+                    "description": f"Invoice {invoice.number}",
+                    "metadata[invoice_id]": invoice.id,
+                    "metadata[organization_id]": invoice.organization_id,
+                },
+            )
+        except StripeApiError as exc:
+            return ProviderChargeResult(
+                provider_payment_id=str((exc.body.get("error") or {}).get("payment_intent", {}).get("id") or ""),
+                status="failed",
+                method_label=payment_method.label or None,
+                decline_code=exc.code or "card_declined",
+            )
+        succeeded = intent.get("status") == "succeeded"
+        return ProviderChargeResult(
+            provider_payment_id=str(intent.get("id") or ""),
+            status="succeeded" if succeeded else "failed",
+            method_label=payment_method.label or None,
+            decline_code=None if succeeded else str(intent.get("status") or "requires_action"),
+        )
+
+    # -------------------------------------------------------------- webhooks
+    def verify_webhook(self, *, raw_body: bytes, signature: str | None) -> bool:
+        """Stripe's ``Stripe-Signature: t=<ts>,v1=<hex>`` scheme, constant-time."""
+        if not signature:
+            return False
+        parts = dict(
+            item.split("=", 1) for item in signature.split(",") if "=" in item
+        )
+        timestamp = parts.get("t")
+        provided = parts.get("v1")
+        if not timestamp or not provided:
+            return False
+        try:
+            age = abs(int(_utcnow().timestamp()) - int(timestamp))
+        except ValueError:
+            return False
+        if age > STRIPE_SIGNATURE_TOLERANCE_SECONDS:
+            return False
+        expected = hmac.new(
+            self._webhook_secret.encode(), f"{timestamp}.".encode() + raw_body, hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(expected, provided.strip())
+
+    #: Stripe event type -> the provider-neutral type ``_apply_event`` handles.
+    _EVENT_MAP = {
+        "checkout.session.completed": "checkout.completed",
+        "checkout.session.async_payment_succeeded": "checkout.completed",
+        # A card saved without a purchase. `_apply_event` persists the
+        # instrument so GET /api/billing/payment-methods reflects reality
+        # whether the browser came back from the return_url or not.
+        "setup_intent.succeeded": "setup.succeeded",
+        "payment_method.attached": "setup.succeeded",
+        "customer.subscription.created": "subscription.activated",
+        "customer.subscription.updated": "subscription.updated",
+        "customer.subscription.deleted": "subscription.canceled",
+        "invoice.paid": "invoice.paid",
+        "invoice.payment_succeeded": "invoice.paid",
+        "invoice.payment_failed": "invoice.payment_failed",
+    }
+
+    def parse_webhook(self, *, raw_body: bytes) -> ProviderEvent:
+        try:
+            payload = json.loads(raw_body.decode() or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed webhook payload"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed webhook payload"
+            )
+        obj = ((payload.get("data") or {}).get("object")) or {}
+        metadata = obj.get("metadata") or {}
+        period_end = obj.get("current_period_end")
+        parsed_end = (
+            datetime.fromtimestamp(period_end, tz=timezone.utc)
+            if isinstance(period_end, (int, float))
+            else None
+        )
+        subscription_id = _stripe_id(obj.get("subscription")) or (
+            str(obj.get("id")) if str(obj.get("object") or "") == "subscription" else None
+        )
+        # `setup_intent.succeeded` carries the instrument directly;
+        # `payment_method.attached` *is* the instrument.
+        payment_method_id = _stripe_id(obj.get("payment_method")) or (
+            str(obj.get("id")) if str(obj.get("object") or "") == "payment_method" else None
+        )
+        return ProviderEvent(
+            event_id=str(payload.get("id") or ""),
+            event_type=self._EVENT_MAP.get(str(payload.get("type") or ""), str(payload.get("type") or "")),
+            provider=self.name,
+            subscription_id=subscription_id,
+            organization_id=metadata.get("organization_id") or obj.get("client_reference_id"),
+            plan_code=metadata.get("plan_code"),
+            period_end=parsed_end,
+            payment_method_id=payment_method_id,
+            customer_id=_stripe_id(obj.get("customer")),
+            mode=str(obj.get("mode")) if obj.get("mode") else None,
+            raw=payload,
+        )
+
+
+class StripeApiError(RuntimeError):
+    def __init__(self, *, status_code: int, message: str, code: str | None, body: dict[str, Any]) -> None:
+        super().__init__(f"Stripe {status_code}: {message}")
+        self.status_code = status_code
+        self.code = code
+        self.body = body
+
+
+def _stripe_id(value: Any) -> str | None:
+    """Stripe returns a related object as either a bare id or an expanded dict."""
+    if isinstance(value, dict):
+        value = value.get("id")
+    return str(value) if value else None
+
+
+def _flatten_form(params: dict[str, Any]) -> dict[str, str]:
+    return {key: ("" if value is None else str(value)) for key, value in params.items()}
+
+
 def sign_webhook_body(raw_body: bytes) -> str:
     """Helper for tests and local tooling: produce a valid signature header."""
     return "sha256=" + hmac.new(webhook_secret().encode(), raw_body, hashlib.sha256).hexdigest()
 
 
-_PROVIDERS: dict[str, type[PaymentProvider]] = {"null": NullPaymentProvider}
+_PROVIDERS: dict[str, type[PaymentProvider]] = {
+    "null": NullPaymentProvider,
+    "stripe": StripePaymentProvider,
+}
+
+
+class BillingProviderMisconfigured(RuntimeError):
+    """``BILLING_PROVIDER`` names a provider that does not exist."""
 
 
 def get_payment_provider() -> PaymentProvider:
-    name = get_settings().billing_provider.lower()
-    return _PROVIDERS.get(name, NullPaymentProvider)()
+    """Resolve the configured provider, or refuse to start.
+
+    Previously an unknown value silently fell back to ``NullPaymentProvider``,
+    which in production means every plan change succeeds and no money is ever
+    collected. A typo must be loud (AUDIT_REPORT.md section 7, finding 3).
+    """
+    name = (get_settings().billing_provider or "").strip().lower()
+    provider = _PROVIDERS.get(name)
+    if provider is None:
+        raise BillingProviderMisconfigured(
+            f"BILLING_PROVIDER={name!r} is not a known payment provider. "
+            f"Known providers: {', '.join(sorted(_PROVIDERS))}."
+        )
+    return provider()
+
+
+#: Values that must never be the live inbound-webhook signing secret.
+INSECURE_BILLING_WEBHOOK_SECRETS = {"dev-billing-webhook-secret", "changeme", "secret", ""}
+MIN_BILLING_WEBHOOK_SECRET_LENGTH = 32
+
+
+class InsecureBillingWebhookSecret(RuntimeError):
+    """The inbound-webhook secret is a shipped default in production."""
+
+
+def verify_billing_webhook_secret_configured() -> None:
+    """Startup guard, mirroring ``crypto.verify_jwt_secret_configured``.
+
+    The inbound billing webhook grants plans. With the shipped default in
+    place, anyone who has read this repository can sign
+    ``{"type": "subscription.activated", "plan_code": "enterprise"}`` and
+    entitle themselves permanently (AUDIT_REPORT.md section 7, finding 8).
+    """
+    from app.core.config import is_production
+
+    settings = get_settings()
+    if not is_production(getattr(settings, "environment", "development")):
+        return
+    if (settings.billing_provider or "").strip().lower() == "null":
+        raise BillingProviderMisconfigured(
+            "BILLING_PROVIDER=null disables payment collection; it must not be used in production."
+        )
+    secret = (settings.billing_webhook_secret or "").strip()
+    if secret.lower() in INSECURE_BILLING_WEBHOOK_SECRETS:
+        raise InsecureBillingWebhookSecret(
+            "BILLING_WEBHOOK_SECRET is the shipped development default; set a unique secret."
+        )
+    if len(secret) < MIN_BILLING_WEBHOOK_SECRET_LENGTH:
+        raise InsecureBillingWebhookSecret(
+            f"BILLING_WEBHOOK_SECRET must be at least {MIN_BILLING_WEBHOOK_SECRET_LENGTH} characters."
+        )
+
+
+def verify_payment_provider_configured() -> None:
+    """Startup guard for the *outbound* credential.
+
+    ``verify_billing_webhook_secret_configured`` covers the inbound secret. This
+    covers the one that spends money: with ``BILLING_PROVIDER=stripe`` the
+    secret key must exist, must look like a Stripe key, and must not be a live
+    key outside production. Constructing the provider performs all three.
+    """
+    if (get_settings().billing_provider or "").strip().lower() != "stripe":
+        return
+    StripePaymentProvider()
 
 
 # --------------------------------------------------------------------------
@@ -413,26 +1266,144 @@ class BillingService:
         return subscription
 
     def start_checkout(
-        self, db: Session, *, organization_id: str, plan_code: str, success_url: str, cancel_url: str
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        plan_code: str,
+        success_url: str,
+        cancel_url: str,
+        ui_mode: str = "hosted",
+        return_url: str | None = None,
     ) -> CheckoutSession:
         plan = self.get_plan_by_code(db, plan_code)
         if not plan.is_active:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Plan is not available")
-        self.get_or_create_subscription(db, organization_id)
-        return self.provider.create_checkout_session(
-            organization_id=organization_id, plan=plan, success_url=success_url, cancel_url=cancel_url
-        )
-
-    def change_plan(self, db: Session, *, organization_id: str, plan_code: str) -> Subscription:
-        """Move an organization onto ``plan_code``, keeping its billing period.
-
-        A mid-cycle plan change does not restart the cycle: the tenant keeps
-        the period they already paid for and the difference is prorated (see
-        ``preview_plan_change``). The period only restarts when the old one has
-        lapsed or the billing interval itself changes.
-        """
-        plan = self.get_plan_by_code(db, plan_code)
         subscription = self.get_or_create_subscription(db, organization_id)
+        session = self.provider.create_checkout_session(
+            organization_id=organization_id,
+            plan=plan,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            ui_mode=ui_mode,
+            return_url=return_url,
+            customer_id=subscription.provider_customer_id,
+        )
+        self._remember_customer(db, subscription=subscription, customer_id=session.customer_id)
+        return session
+
+    def start_setup_session(
+        self, db: Session, *, organization_id: str, return_url: str, ui_mode: str = "embedded"
+    ) -> CheckoutSession:
+        """Open a session that saves an instrument and takes no payment.
+
+        This is the whole of "add a payment method": the PAN is typed into the
+        provider's iframe, and the only thing that ever reaches this API is the
+        session id it hands back.
+        """
+        subscription = self.get_or_create_subscription(db, organization_id)
+        session = self.provider.create_setup_session(
+            organization_id=organization_id,
+            customer_id=subscription.provider_customer_id,
+            return_url=return_url,
+            ui_mode=ui_mode,
+        )
+        self._remember_customer(db, subscription=subscription, customer_id=session.customer_id)
+        return session
+
+    def _remember_customer(
+        self, db: Session, *, subscription: Subscription, customer_id: str | None
+    ) -> None:
+        """One provider customer per organization, created lazily and kept.
+
+        Without this every setup session would mint a fresh customer and the
+        cards would scatter across all of them.
+        """
+        if not customer_id or subscription.provider_customer_id == customer_id:
+            return
+        subscription.provider_customer_id = customer_id
+        db.add(subscription)
+        db.commit()
+
+    def confirm_checkout_session(
+        self, db: Session, *, organization_id: str, session_id: str
+    ) -> dict[str, Any]:
+        """Read a session back from the provider and apply what it proves.
+
+        The browser landing on the return url is not evidence of anything; this
+        is. An incomplete session is reported as ``pending`` rather than
+        rounded up to success.
+        """
+        subscription = self.get_or_create_subscription(db, organization_id)
+        state = self.provider.retrieve_checkout_session(session_id)
+        payment_method_id: str | None = None
+        if not state.complete:
+            return {
+                "session_id": state.session_id,
+                "status": state.status,
+                "mode": state.mode,
+                "applied": False,
+                "payment_method_id": None,
+            }
+        self._remember_customer(db, subscription=subscription, customer_id=state.customer_id)
+        if state.payment_method_id:
+            stored = self._store_provider_payment_method(
+                db,
+                organization_id=organization_id,
+                provider_payment_method_id=state.payment_method_id,
+                customer_id=state.customer_id or subscription.provider_customer_id,
+            )
+            payment_method_id = stored.id
+        if state.mode == "subscription":
+            # Same transition the webhook applies, so a fast return and a slow
+            # webhook cannot disagree; `_apply_event` is idempotent on state.
+            self._apply_event(
+                db,
+                ProviderEvent(
+                    event_id=f"confirm:{state.session_id}",
+                    event_type="checkout.completed",
+                    provider=self.provider.name,
+                    subscription_id=state.subscription_id,
+                    organization_id=organization_id,
+                    plan_code=state.plan_code,
+                ),
+            )
+        db.commit()
+        return {
+            "session_id": state.session_id,
+            "status": state.status,
+            "mode": state.mode,
+            "applied": True,
+            "payment_method_id": payment_method_id,
+        }
+
+    def _sync_organization_billing(
+        self, db: Session, *, subscription: Subscription, plan: Plan | None = None
+    ) -> None:
+        """Keep ``organizations.subscription_*`` in step with the subscription.
+
+        ``Organization.subscription_status`` is a denormalised copy that the
+        platform dashboard (``saas.py``) counts and the tenant list
+        (``tenants.py``) filters on, and which billing never used to write --
+        so a cancelled tenant kept being counted as paying (AUDIT_REPORT.md
+        section 7, finding 7). Every state transition now writes it, using the
+        same clock-applied status entitlements resolve from.
+        """
+        org = db.get(Organization, subscription.organization_id)
+        if org is None:
+            return
+        plan = plan or subscription.plan
+        org.subscription_status = entitlement_service.effective_status(subscription)
+        if plan is not None:
+            org.subscription_tier = plan.code
+        org.subscription_expires_at = subscription.current_period_end
+        db.add(org)
+
+    def _apply_plan_change(
+        self, db: Session, *, subscription: Subscription, plan: Plan
+    ) -> Subscription:
+        """The local state transition only. Never call this without having
+        either collected payment or established that none is owed."""
         previous_plan = subscription.plan
         self.provider.change_plan(subscription=subscription, plan=plan)
         now = _utcnow()
@@ -456,16 +1427,315 @@ class BillingService:
             subscription.current_period_end = now + timedelta(
                 days=365 if plan.billing_interval == "year" else 30
             )
+        db.add(subscription)
+        db.flush()
+        db.refresh(subscription)
+        self._sync_organization_billing(db, subscription=subscription, plan=plan)
         db.commit()
         db.refresh(subscription)
         return subscription
 
+    def change_plan(
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        plan_code: str,
+        payment_method_id: str | None = None,
+        require_payment: bool = True,
+    ) -> Subscription:
+        """Move an organization onto ``plan_code``, keeping its billing period.
+
+        **An upgrade is gated on payment.** The order below is the whole point:
+        the invoice is issued and collected *before* the subscription row moves,
+        and ``collect_invoice`` raises on a decline, so there is no interleaving
+        that leaves an organization entitled-but-unpaid. Before this, any org
+        admin could self-serve onto Enterprise for nothing (C7).
+
+        A downgrade, a no-op, or a change that prorates to zero or a credit
+        needs no collection and applies immediately.
+
+        A mid-cycle plan change does not restart the cycle: the tenant keeps
+        the period they already paid for and the difference is prorated (see
+        ``preview_plan_change``). The period only restarts when the old one has
+        lapsed or the billing interval itself changes.
+        """
+        plan = self.get_plan_by_code(db, plan_code)
+        subscription = self.get_or_create_subscription(db, organization_id)
+        preview = self.preview_plan_change(db, organization_id=organization_id, plan_code=plan_code)
+        amount_due = int(preview["proration_cents"])
+
+        if not require_payment or amount_due <= 0:
+            return self._apply_plan_change(db, subscription=subscription, plan=plan)
+
+        payment_method = self._require_payment_method(
+            db,
+            organization_id=organization_id,
+            payment_method_id=payment_method_id,
+            reason="upgrade",
+        )
+        invoice = self.issue_invoice(
+            db,
+            organization_id=organization_id,
+            amount_cents=amount_due,
+            line_items=[
+                {
+                    "description": (
+                        f"Upgrade to {plan.name} — prorated for the remainder of the period"
+                    ),
+                    "quantity": 1,
+                    "unit_cents": amount_due,
+                    "amount_cents": amount_due,
+                }
+            ],
+            currency=plan.currency,
+            period_start=_aware(subscription.current_period_start),
+            period_end=_aware(subscription.current_period_end),
+            period_label=f"Upgrade to {plan.name}",
+            due_at=_utcnow() + timedelta(days=INVOICE_DUE_DAYS),
+        )
+        # Raises 402 on a decline, leaving the subscription on the old plan.
+        self.collect_invoice(db, invoice=invoice, payment_method_id=payment_method.id)
+        return self._apply_plan_change(db, subscription=subscription, plan=plan)
+
+    def _require_payment_method(
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        payment_method_id: str | None,
+        reason: str,
+    ) -> PaymentMethod:
+        if payment_method_id:
+            return self.get_payment_method(
+                db, organization_id=organization_id, payment_method_id=payment_method_id
+            )
+        payment_method = self.default_payment_method(db, organization_id)
+        if payment_method is None:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "error": "payment_method_required",
+                    "reason": reason,
+                    "message": (
+                        "Add a payment method before "
+                        f"you {'upgrade' if reason == 'upgrade' else 'purchase seats'}."
+                    ),
+                },
+            )
+        return payment_method
+
+    # ------------------------------------------------------------- invoicing
+    def _next_invoice_number(self, db: Session, *, moment: datetime) -> str:
+        year = moment.year
+        prefix = f"INV-{year}-"
+        count = int(
+            db.scalar(
+                select(func.count(Invoice.id)).where(Invoice.number.like(f"{prefix}%"))
+            )
+            or 0
+        )
+        return f"{prefix}{count + 1:04d}"
+
+    def issue_invoice(
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        amount_cents: int,
+        line_items: list[dict[str, Any]],
+        currency: str = "USD",
+        period_start: datetime | None = None,
+        period_end: datetime | None = None,
+        period_label: str | None = None,
+        due_at: datetime | None = None,
+        tax_cents: int = 0,
+    ) -> Invoice:
+        """Create and persist an ``open`` invoice.
+
+        This is the only constructor of ``Invoice`` in the application. Before
+        it existed, every invoice in a running system came from the seed script
+        (AUDIT_REPORT.md section 7, finding 1).
+        """
+        now = _utcnow()
+        subtotal = int(amount_cents)
+        for _ in range(5):  # numbering races are retried, not swallowed
+            invoice = Invoice(
+                organization_id=organization_id,
+                number=self._next_invoice_number(db, moment=now),
+                status=InvoiceStatus.open,
+                currency=currency,
+                subtotal_cents=subtotal,
+                tax_cents=tax_cents,
+                total_cents=subtotal + tax_cents,
+                amount_paid_cents=0,
+                period_start=period_start,
+                period_end=period_end,
+                period_label=period_label,
+                issued_at=now,
+                due_at=due_at or now,
+                line_items=line_items,
+                provider=self.provider.name,
+            )
+            db.add(invoice)
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                continue
+            db.refresh(invoice)
+            return invoice
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Could not allocate an invoice number"
+        )
+
+    def close_period(
+        self, db: Session, *, subscription: Subscription, now: datetime | None = None
+    ) -> Invoice:
+        """Issue the invoice for the period that has just ended and roll the
+        subscription forward one period."""
+        now = now or _utcnow()
+        organization_id = subscription.organization_id
+        upcoming = self.next_invoice(db, organization_id)
+        period_start = _aware(subscription.current_period_start) or now
+        period_end = _aware(subscription.current_period_end) or now
+        invoice = self.issue_invoice(
+            db,
+            organization_id=organization_id,
+            amount_cents=int(upcoming["subtotal_cents"]),
+            line_items=upcoming["line_items"],
+            currency=upcoming["currency"],
+            period_start=period_start,
+            period_end=period_end,
+            period_label=period_start.strftime("%b %Y"),
+            due_at=now + timedelta(days=INVOICE_DUE_DAYS),
+        )
+        length = timedelta(days=365 if upcoming["cycle"] == "annual" else 30)
+        subscription.current_period_start = period_end
+        subscription.current_period_end = period_end + length
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+        return invoice
+
+    def run_renewals(self, db: Session, *, now: datetime | None = None) -> dict[str, Any]:
+        """Period-close / renewal driver (cron: ``scripts/run_billing_cycle.py``).
+
+        For every subscription whose period has ended: issue the invoice for it,
+        attempt collection when the tenant has autopay and an instrument, and
+        roll the period forward. A decline leaves the subscription ``past_due``
+        with an unpaid invoice, which is exactly what the dunning driver picks
+        up next.
+        """
+        now = now or _utcnow()
+        report = {"closed": 0, "invoiced": [], "collected": 0, "failed": 0, "expired": 0}
+        subscriptions = list(
+            db.scalars(
+                select(Subscription).where(
+                    Subscription.status.in_(
+                        [
+                            SubscriptionStatus.active,
+                            SubscriptionStatus.trialing,
+                            SubscriptionStatus.past_due,
+                        ]
+                    )
+                )
+            )
+        )
+        for subscription in subscriptions:
+            period_end = _aware(subscription.current_period_end)
+            if period_end is None or period_end > now:
+                continue
+            if subscription.cancel_at_period_end:
+                subscription.status = SubscriptionStatus.canceled
+                subscription.canceled_at = now
+                db.add(subscription)
+                self._sync_organization_billing(db, subscription=subscription)
+                db.commit()
+                report["expired"] += 1
+                continue
+            invoice = self.close_period(db, subscription=subscription, now=now)
+            report["closed"] += 1
+            report["invoiced"].append(invoice.number)
+            org = db.get(Organization, subscription.organization_id)
+            payment_method = self.default_payment_method(db, subscription.organization_id)
+            if org is not None and org.autopay and payment_method is not None:
+                try:
+                    self.collect_invoice(db, invoice=invoice, payment_method_id=payment_method.id)
+                    report["collected"] += 1
+                    subscription.status = SubscriptionStatus.active
+                except HTTPException:
+                    report["failed"] += 1
+                    subscription.status = SubscriptionStatus.past_due
+            else:
+                report["failed"] += 1
+                subscription.status = SubscriptionStatus.past_due
+            db.add(subscription)
+            self._sync_organization_billing(db, subscription=subscription)
+            db.commit()
+        return report
+
+    def due_dunning_charges(self, db: Session, *, now: datetime | None = None) -> list[Charge]:
+        """Failed charges whose ``next_attempt_at`` has come due.
+
+        ``collect_invoice`` has always written ``next_attempt_at`` and nothing
+        ever read it, so dunning only advanced when a human clicked retry
+        (AUDIT_REPORT.md section 7, finding 5).
+        """
+        now = now or _utcnow()
+        charges = list(
+            db.scalars(
+                select(Charge)
+                .where(Charge.status == "failed", Charge.next_attempt_at.is_not(None))
+                .order_by(Charge.occurred_at)
+            )
+        )
+        latest: dict[str, Charge] = {}
+        for charge in charges:
+            if charge.invoice_id:
+                latest[charge.invoice_id] = charge
+        due: list[Charge] = []
+        for charge in latest.values():
+            attempt_at = _aware(charge.next_attempt_at)
+            if attempt_at is None or attempt_at > now:
+                continue
+            invoice = db.get(Invoice, charge.invoice_id) if charge.invoice_id else None
+            if invoice is None or invoice.status not in {
+                InvoiceStatus.open,
+                InvoiceStatus.past_due,
+            }:
+                continue
+            due.append(charge)
+        return due
+
+    def run_dunning(self, db: Session, *, now: datetime | None = None) -> dict[str, Any]:
+        """Retry every collection whose scheduled attempt has come due."""
+        now = now or _utcnow()
+        report = {"attempted": 0, "recovered": 0, "failed": 0, "invoices": []}
+        for charge in self.due_dunning_charges(db, now=now):
+            invoice = db.get(Invoice, charge.invoice_id)
+            if invoice is None:
+                continue
+            report["attempted"] += 1
+            report["invoices"].append(invoice.number)
+            try:
+                self.collect_invoice(db, invoice=invoice)
+                report["recovered"] += 1
+            except HTTPException:
+                report["failed"] += 1
+        return report
+
     def change_plan_with_proration(
-        self, db: Session, *, organization_id: str, plan_code: str
+        self, db: Session, *, organization_id: str, plan_code: str, payment_method_id: str | None = None
     ) -> tuple[Subscription, dict[str, Any]]:
         """``change_plan`` plus the proration figures the preview promised."""
         preview = self.preview_plan_change(db, organization_id=organization_id, plan_code=plan_code)
-        subscription = self.change_plan(db, organization_id=organization_id, plan_code=plan_code)
+        subscription = self.change_plan(
+            db,
+            organization_id=organization_id,
+            plan_code=plan_code,
+            payment_method_id=payment_method_id,
+        )
         return subscription, preview
 
     def cancel(self, db: Session, *, organization_id: str, at_period_end: bool = True) -> Subscription:
@@ -477,6 +1747,9 @@ class BillingService:
         else:
             subscription.status = SubscriptionStatus.canceled
             subscription.cancel_at_period_end = False
+        db.add(subscription)
+        db.flush()
+        self._sync_organization_billing(db, subscription=subscription)
         db.commit()
         db.refresh(subscription)
         return subscription
@@ -490,6 +1763,9 @@ class BillingService:
             subscription.status = SubscriptionStatus.active
             subscription.current_period_start = now
             subscription.current_period_end = now + timedelta(days=30)
+        db.add(subscription)
+        db.flush()
+        self._sync_organization_billing(db, subscription=subscription)
         db.commit()
         db.refresh(subscription)
         return subscription
@@ -541,6 +1817,27 @@ class BillingService:
         if subscription is None:
             return False
         now = _utcnow()
+        if event.customer_id and not subscription.provider_customer_id:
+            subscription.provider_customer_id = event.customer_id
+            db.add(subscription)
+        # A saved card, with or without a purchase attached. Handled before the
+        # subscription transitions because a setup-mode checkout completion is
+        # not an activation -- no money moved and no plan was bought.
+        saved_instrument = event.payment_method_id and (
+            event.event_type == "setup.succeeded"
+            or (event.event_type == "checkout.completed" and event.mode == "setup")
+        )
+        if saved_instrument:
+            self._store_provider_payment_method(
+                db,
+                organization_id=subscription.organization_id,
+                provider_payment_method_id=str(event.payment_method_id),
+                customer_id=event.customer_id or subscription.provider_customer_id,
+            )
+            db.flush()
+            return True
+        if event.event_type == "setup.succeeded":
+            return False
         if event.event_type in {"checkout.completed", "subscription.activated", "invoice.paid"}:
             if event.plan_code:
                 subscription.plan_id = self.get_plan_by_code(db, event.plan_code).id
@@ -566,6 +1863,9 @@ class BillingService:
         if event.subscription_id:
             subscription.provider_subscription_id = event.subscription_id
         subscription.provider = event.provider
+        db.add(subscription)
+        db.flush()
+        self._sync_organization_billing(db, subscription=subscription)
         return True
 
     def _resolve_subscription(self, db: Session, event: ProviderEvent) -> Subscription | None:
@@ -626,10 +1926,16 @@ class BillingService:
 
     @classmethod
     def invoice_amount_cents(cls, plan: Plan, seats: int, cycle: str) -> int:
-        """What a single invoice for ``cycle`` costs. Annual is 12x monthly;
-        there is no annual discount in the catalogue today."""
+        """What a single invoice for ``cycle`` costs.
+
+        The UI sells "Annual (save 12%)"; this is where that discount is
+        actually applied. It used to be a flat ``monthly x 12``, which made the
+        advertised saving a lie (AUDIT_REPORT.md section 7, finding 6).
+        """
         monthly = cls.monthly_amount_cents(plan, seats)
-        return monthly * 12 if cycle == "annual" else monthly
+        if cycle != "annual":
+            return monthly
+        return round(monthly * 12 * (1 - ANNUAL_DISCOUNT_RATE))
 
     @staticmethod
     def remaining_fraction(subscription: Subscription | None, now: datetime | None = None) -> float:
@@ -655,7 +1961,8 @@ class BillingService:
 
         unit = self.monthly_unit_cents(plan)
         if cycle == "annual":
-            unit *= 12
+            # Same discount the plan-change preview and every invoice apply.
+            unit = round(unit * 12 * (1 - ANNUAL_DISCOUNT_RATE))
         quantity = licensed if plan.is_seat_based else 1
         suffix = "year" if cycle == "annual" else "month"
         line_items = [
@@ -721,7 +2028,14 @@ class BillingService:
         }
 
     # ---------------------------------------------------------------- seats
-    def change_seats(self, db: Session, *, organization_id: str, delta: int) -> dict[str, Any]:
+    def change_seats(
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        delta: int,
+        payment_method_id: str | None = None,
+    ) -> dict[str, Any]:
         """Add or remove licensed seats (BIL-8).
 
         Seats can never drop below the number of users actually provisioned:
@@ -749,6 +2063,35 @@ class BillingService:
         after = self.invoice_amount_cents(plan, target, cycle)
         fraction = self.remaining_fraction(subscription)
         proration = round((after - before) * fraction)
+
+        if proration > 0:
+            # Buying seats is a sale. Same gate as an upgrade: collect first,
+            # then licence. A decline raises 402 and the seat count is untouched.
+            payment_method = self._require_payment_method(
+                db,
+                organization_id=organization_id,
+                payment_method_id=payment_method_id,
+                reason="seats",
+            )
+            invoice = self.issue_invoice(
+                db,
+                organization_id=organization_id,
+                amount_cents=proration,
+                line_items=[
+                    {
+                        "description": f"{delta} additional {plan.name} seat(s), prorated",
+                        "quantity": delta,
+                        "unit_cents": round(proration / max(delta, 1)),
+                        "amount_cents": proration,
+                    }
+                ],
+                currency=plan.currency,
+                period_start=_aware(subscription.current_period_start),
+                period_end=_aware(subscription.current_period_end),
+                period_label=f"{delta} seat(s)",
+                due_at=_utcnow() + timedelta(days=INVOICE_DUE_DAYS),
+            )
+            self.collect_invoice(db, invoice=invoice, payment_method_id=payment_method.id)
 
         self.provider.update_seats(subscription=subscription, seats=target)
         org.seats_licensed = target
@@ -843,7 +2186,43 @@ class BillingService:
         country: str | None = None,
         po_number: str | None = None,
         make_default: bool = False,
+        customer_id: str | None = None,
     ) -> PaymentMethod:
+        pm = self._attach_and_store(
+            db,
+            organization_id=organization_id,
+            type=type,
+            provider_token=provider_token,
+            holder_name=holder_name,
+            country=country,
+            po_number=po_number,
+            make_default=make_default,
+            customer_id=customer_id,
+        )
+        db.commit()
+        db.refresh(pm)
+        return pm
+
+    def _attach_and_store(
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        type: str,
+        provider_token: str | None = None,
+        holder_name: str | None = None,
+        country: str | None = None,
+        po_number: str | None = None,
+        make_default: bool = False,
+        customer_id: str | None = None,
+        dedupe: bool = False,
+    ) -> PaymentMethod:
+        """Everything ``add_payment_method`` does except the commit.
+
+        Split out so the webhook and the return-url confirmation can persist an
+        instrument inside their own transaction instead of duplicating the row
+        construction (and the defaulting rules) a second and third time.
+        """
         provider = self.provider
         details = provider.attach_payment_method(
             organization_id=organization_id,
@@ -851,8 +2230,27 @@ class BillingService:
             provider_token=provider_token,
             holder_name=holder_name,
             country=country,
+            customer_id=customer_id,
         )
         existing = self.list_payment_methods(db, organization_id)
+        # Only the provider-driven paths dedupe. A manual add of the same
+        # token twice is a deliberate second instrument and stays one.
+        already = next(
+            (
+                pm
+                for pm in existing
+                if dedupe
+                and details.provider_payment_method_id
+                and pm.provider_payment_method_id == details.provider_payment_method_id
+            ),
+            None,
+        )
+        if already is not None:
+            # The webhook and the return-url confirmation both arrive for the
+            # same saved card; storing it twice would show the user two.
+            if make_default and not already.is_default:
+                self._promote_default(db, organization_id=organization_id, payment_method=already)
+            return already
         pm = PaymentMethod(
             organization_id=organization_id,
             type=type,
@@ -872,9 +2270,30 @@ class BillingService:
         db.flush()
         if make_default or not existing:
             self._promote_default(db, organization_id=organization_id, payment_method=pm)
-        db.commit()
-        db.refresh(pm)
         return pm
+
+    def _store_provider_payment_method(
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        provider_payment_method_id: str,
+        customer_id: str | None = None,
+    ) -> PaymentMethod:
+        """Persist an instrument the provider saved for us (setup mode).
+
+        Goes through the same ``attach_payment_method`` path as a manual add,
+        so the stored brand/last4/expiry are the provider's, never ours.
+        """
+        return self._attach_and_store(
+            db,
+            organization_id=organization_id,
+            type="card",
+            provider_token=provider_payment_method_id,
+            customer_id=customer_id,
+            make_default=True,
+            dedupe=True,
+        )
 
     def _promote_default(self, db: Session, *, organization_id: str, payment_method: PaymentMethod) -> None:
         for other in self.list_payment_methods(db, organization_id):

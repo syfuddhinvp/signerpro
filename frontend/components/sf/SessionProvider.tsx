@@ -35,6 +35,15 @@ export function useOptionalSession(): ClientSession | null {
   return useContext(SessionContext);
 }
 
+/**
+ * Sign out. The route handler revokes the backend session (and its refresh
+ * token) before clearing the cookie; a failure here must still end the session
+ * locally, so callers navigate away regardless.
+ */
 export async function signOut(): Promise<void> {
-  await fetch('/api/auth/logout', { method: 'POST' });
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', signal: AbortSignal.timeout(10_000) });
+  } catch {
+    /* the cookie clear is best-effort when the network is gone */
+  }
 }

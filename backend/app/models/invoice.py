@@ -32,7 +32,7 @@ class Invoice(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_invoices_number", "number", unique=True),
     )
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     number: Mapped[str] = mapped_column(String(40), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=InvoiceStatus.open)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")

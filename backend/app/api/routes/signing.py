@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -6,8 +6,10 @@ from app.api.deps import request_ip, request_user_agent
 from app.core.database import get_db
 from app.core.ratelimit import otp_send_limiter, otp_verify_limiter, signing_session_limiter
 from app.core.storage import storage
+from app.models.enums import DocumentStatus
 from app.schemas.field import FieldResponse
 from app.schemas.signer import (
+    AttachmentUploadResponse,
     CompletionResponse,
     DeclineRequest,
     FieldValueRequest,
@@ -31,11 +33,31 @@ def get_signing_session(token: str, db: Session = Depends(get_db)) -> SigningSes
 
 @router.get("/{token}/pdf")
 def signer_pdf(token: str, db: Session = Depends(get_db)) -> FileResponse:
+    """The document as this signer is entitled to see it.
+
+    SIGN-4/SIGN-8 policy decision: the token is deliberately *not* revoked on
+    completion. A signer who has just executed an agreement is the party with
+    the strongest claim to a copy of it, and revoking on ``complete`` left them
+    with no route to one at all — the sender-side ``final-pdf`` endpoint needs a
+    session they do not have. What the link loses at completion is the ability
+    to *write*: ``_ensure_can_edit`` already rejects every mutating call once
+    the recipient is completed, and the link still dies at the envelope
+    deadline (and is superseded on resend/reassign).
+
+    Once the envelope is executed this serves the **signed** PDF rather than
+    the blank original, which is what the completion card has always promised.
+    """
     _, document, recipient = signing_service.load_session(db, raw_token=token)
     if recipient.otp_enabled and not recipient.otp_verified:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="OTP verification required")
     if not recipient.consent_accepted:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Consent confirmation required")
+    if document.status == DocumentStatus.completed and document.final_file_path:
+        return FileResponse(
+            storage.path(document.final_file_path),
+            media_type="application/pdf",
+            filename=f"{document.title}-signed.pdf",
+        )
     if not document.original_file_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PDF is not available")
     return FileResponse(storage.path(document.original_file_path), media_type="application/pdf", filename=f"{document.title}.pdf")
@@ -82,6 +104,36 @@ def save_signature(
         raw_token=token,
         field_id=field_id,
         payload=payload,
+        ip_address=request_ip(request),
+        user_agent=request_user_agent(request),
+    )
+
+
+@router.get("/{token}/fields/{field_id}/attachment")
+def read_attachment(token: str, field_id: str, db: Session = Depends(get_db)) -> FileResponse:
+    """The file this signer uploaded, so a stamp survives a page reload."""
+    attachment = signing_service.attachment_file(db, raw_token=token, field_id=field_id)
+    return FileResponse(
+        storage.path(attachment.file_path),
+        media_type=attachment.content_type or "application/octet-stream",
+        filename=attachment.filename,
+    )
+
+
+@router.post("/{token}/fields/{field_id}/attachment", response_model=AttachmentUploadResponse)
+async def save_attachment(
+    token: str,
+    field_id: str,
+    request: Request,
+    upload: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> AttachmentUploadResponse:
+    """Signer-side file upload for an ``attachment`` field (FLD-6)."""
+    return await signing_service.save_attachment(
+        db,
+        raw_token=token,
+        field_id=field_id,
+        upload=upload,
         ip_address=request_ip(request),
         user_agent=request_user_agent(request),
     )

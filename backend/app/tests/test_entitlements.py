@@ -11,7 +11,7 @@ from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.usage_event import UsageEvent, UsageEventType
 from app.services.billing_service import billing_service, sign_webhook_body
 from app.services.entitlement_service import entitlement_service
-from app.tests.conftest import auth_headers
+from app.tests.conftest import auth_headers, upgrade_plan
 
 
 def _db():
@@ -92,9 +92,8 @@ def test_upgrading_plan_raises_the_limit(client: TestClient) -> None:
         assert _create_document(client, headers, f"Doc {index}").status_code == 201
     assert _create_document(client, headers, "over").status_code == 402
 
-    changed = client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
-    assert changed.status_code == 200, changed.text
-    assert changed.json()["plan_code"] == "business"
+    changed = upgrade_plan(client, headers, "business")
+    assert changed["plan_code"] == "business"
 
     assert _create_document(client, headers, "now allowed").status_code == 201
 
@@ -109,7 +108,7 @@ def test_recipient_limit_blocks_send_but_business_allows_it(client: TestClient, 
         headers=headers,
     )
     recipient_ids = []
-    for index in range(4):
+    for index in range(3):
         response = client.post(
             f"/api/documents/{document_id}/recipients",
             json={"name": f"Signer {index}", "email": f"s{index}@example.com", "signing_order": 1},
@@ -117,6 +116,18 @@ def test_recipient_limit_blocks_send_but_business_allows_it(client: TestClient, 
         )
         assert response.status_code == 201, response.text
         recipient_ids.append(response.json()["id"])
+
+    # The per-document cap is now enforced on the incremental add path too, so
+    # the fourth single add is refused rather than sailing past a limit of 3
+    # and only being caught at send.
+    blocked_add = client.post(
+        f"/api/documents/{document_id}/recipients",
+        json={"name": "Signer 3", "email": "s3@example.com", "signing_order": 1},
+        headers=headers,
+    )
+    assert blocked_add.status_code == 402, blocked_add.text
+    assert blocked_add.json()["detail"]["limit"] == "max_recipients_per_document"
+
     for recipient_id in recipient_ids:
         client.post(
             f"/api/documents/{document_id}/fields",
@@ -134,11 +145,31 @@ def test_recipient_limit_blocks_send_but_business_allows_it(client: TestClient, 
             headers=headers,
         )
 
-    blocked = client.post(f"/api/documents/{document_id}/send", headers=headers)
-    assert blocked.status_code == 402, blocked.text
-    assert blocked.json()["detail"]["limit"] == "max_recipients_per_document"
+    upgrade_plan(client, headers, "business")
 
-    client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    # With the higher cap the fourth recipient is accepted, and the send that
+    # the entry plan would have refused now succeeds.
+    allowed_add = client.post(
+        f"/api/documents/{document_id}/recipients",
+        json={"name": "Signer 3", "email": "s3@example.com", "signing_order": 1},
+        headers=headers,
+    )
+    assert allowed_add.status_code == 201, allowed_add.text
+    client.post(
+        f"/api/documents/{document_id}/fields",
+        json={
+            "recipient_id": allowed_add.json()["id"],
+            "type": "signature",
+            "label": "Signature",
+            "page_number": 1,
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.2,
+            "height": 0.05,
+            "required": True,
+        },
+        headers=headers,
+    )
     sent = client.post(f"/api/documents/{document_id}/send", headers=headers)
     assert sent.status_code == 200, sent.text
 

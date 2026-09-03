@@ -2,7 +2,7 @@
 /* SignForge builder pointer/keyboard machinery — ported from the prototype app.js
    (onToolDown / onFieldDown / onResizeDown / onSheetDown / onMove / onUp / onKey,
     deleteSel / duplicateSel / alignLeft / alignCenterX / distribute). */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSF, type SFField, type SFState } from './state';
 import { useNav } from './nav';
 import { TYPES } from './data';
@@ -10,7 +10,7 @@ import { TYPES } from './data';
 type Drag =
   | { mode: 'move'; ids: string[]; sx: number; sy: number; orig: { id: string; x: number; y: number }[] }
   | { mode: 'resize'; ids: string[]; sx: number; sy: number; orig: { id: string; w: number; h: number }[] }
-  | { mode: 'lasso'; x0: number; y0: number };
+  | { mode: 'lasso'; x0: number; y0: number; page: number };
 
 const metaOf = (t: string) => TYPES.find(x => x.id === t) || TYPES[0];
 const snapWith = (grid: boolean, v: number) => (grid ? Math.round(v / 8) * 8 : Math.round(v));
@@ -21,9 +21,24 @@ const snapWith = (grid: boolean, v: number) => (grid ? Math.round(v / 8) * 8 : M
  * the gesture has to name the envelope it belongs to. Omitted, the document
  * already in the URL is carried over.
  */
-export type BuilderInteractionsInput = { documentId?: string | null };
+export type BuilderInteractionsInput = {
+  documentId?: string | null;
+  /**
+   * The current page's true size in PDF points, from the rendered document.
+   * Used to place a keyboard-created field in the middle of the *real* page
+   * rather than of an assumed US-Letter sheet.
+   */
+  pageSize?: { width: number; height: number } | null;
+  /**
+   * Every page's true size in PDF points, indexed by page number − 1. The
+   * canvas renders the whole document as one scrolling column, so a gesture can
+   * land on any page — each one is clamped against its own size rather than
+   * against whichever page happens to be active.
+   */
+  pageSizes?: { width: number; height: number }[];
+};
 
-export function useBuilderInteractions({ documentId }: BuilderInteractionsInput = {}) {
+export function useBuilderInteractions({ documentId, pageSize, pageSizes }: BuilderInteractionsInput = {}) {
   const { s, set, flash, recip } = useSF();
   const { screen, go } = useNav();
   const screenRef = useRef(screen);
@@ -31,9 +46,50 @@ export function useBuilderInteractions({ documentId }: BuilderInteractionsInput 
   const sRef = useRef<SFState>(s);
   sRef.current = s;
   const dragRef = useRef<Drag | null>(null);
-  const sheetRef = useRef<HTMLDivElement | null>(null);
+  /* One page box per page number — the document is drawn as a scrolling column
+     of pages, so there is no single "the sheet" any more. */
+  const sheetsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  const sheetCbRef = useRef<Map<number, (node: HTMLDivElement | null) => void>>(new Map());
+  const pageSizeRef = useRef<{ width: number; height: number } | null>(pageSize ?? null);
+  pageSizeRef.current = pageSize ?? null;
+  const pageSizesRef = useRef<{ width: number; height: number }[]>(pageSizes ?? []);
+  pageSizesRef.current = pageSizes ?? [];
+
+  /** Ref callback for one page's box; stable per page so React does not thrash. */
+  const registerSheet = useCallback((page: number) => {
+    let cb = sheetCbRef.current.get(page);
+    if (!cb) {
+      cb = (node: HTMLDivElement | null) => {
+        if (node) sheetsRef.current.set(page, node);
+        else sheetsRef.current.delete(page);
+      };
+      sheetCbRef.current.set(page, cb);
+    }
+    return cb;
+  }, []);
+
+  const sizeOf = useCallback((page: number) => pageSizesRef.current[page - 1] ?? pageSizeRef.current, []);
+
+  /** The page box under a viewport point, if any. */
+  const sheetAt = useCallback((clientX: number, clientY: number) => {
+    for (const [page, el] of sheetsRef.current) {
+      const r = el.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return { page, el, rect: r };
+    }
+    return null;
+  }, []);
 
   const snap = useCallback((v: number) => snapWith(sRef.current.grid, v), []);
+
+  /** Keep a rectangle inside the real page (the API rejects one that isn't). */
+  const clampToPage = useCallback((x: number, y: number, w: number, h: number, pageNumber?: number) => {
+    const page = pageNumber ? sizeOf(pageNumber) : pageSizeRef.current;
+    if (!page) return { x: Math.max(0, x), y: Math.max(0, y) };
+    return {
+      x: Math.max(0, Math.min(x, page.width - w)),
+      y: Math.max(0, Math.min(y, page.height - h)),
+    };
+  }, [sizeOf]);
 
   /* ── drag / place ── */
   const onToolDown = useCallback((typeId: string, e: React.PointerEvent) => {
@@ -41,6 +97,39 @@ export function useBuilderInteractions({ documentId }: BuilderInteractionsInput 
     set({ dragTool: typeId, ghost: { x: e.clientX, y: e.clientY } });
     if (screenRef.current !== 'builder') go('builder', { documentId });
   }, [set, go, documentId]);
+
+  /**
+   * Keyboard/click path to the same outcome as dragging a palette tool onto the
+   * page (audit §8.9: the palette bound `onPointerDown` only, so a keyboard user
+   * could focus a tool, press Enter, and nothing happened at all).
+   *
+   * The field lands in the middle of the current page, cascaded a little so
+   * repeated presses do not stack exactly, and is left selected — which hands
+   * the user straight to the keyboard machinery that already works: arrows
+   * nudge 1pt, Shift+arrows 8pt, Delete removes, Cmd/Ctrl+D duplicates.
+   */
+  const placeTool = useCallback((typeId: string) => {
+    const st = sRef.current;
+    const t = metaOf(typeId);
+    const page = sizeOf(st.page);
+    const pageW = page ? page.width : 612;
+    const pageH = page ? page.height : 792;
+    const onPage = st.fields.filter(f => f.page === st.page).length;
+    const cascade = (onPage % 8) * 12;
+    const x = Math.max(0, Math.min(pageW - t.w, Math.round((pageW - t.w) / 2) + cascade));
+    const y = Math.max(0, Math.min(pageH - t.h, Math.round((pageH - t.h) / 3) + cascade));
+    const id = 'f' + Date.now().toString().slice(-6);
+    const nf: SFField = {
+      id, page: st.page, type: t.id, x, y, w: t.w, h: t.h,
+      to: st.activeRecipient, required: t.id === 'signature' || t.id === 'initials',
+      readOnly: false, label: t.label, placeholder: '',
+      validation: t.id === 'email' ? 'email' : (t.id === 'date' ? 'date' : 'none'),
+      cond: null, merge: ''
+    };
+    set(prev => ({ fields: prev.fields.concat([nf]), selected: [id], dragTool: null, ghost: null }));
+    if (screenRef.current !== 'builder') go('builder', { documentId });
+    flash(t.label + ' placed for ' + recip(st.activeRecipient).name + ' · arrows nudge, Shift+arrows by 8, Delete removes');
+  }, [set, flash, recip, go, documentId, sizeOf]);
 
   const onFieldDown = useCallback((id: string, e: React.PointerEvent) => {
     e.stopPropagation();
@@ -68,13 +157,15 @@ export function useBuilderInteractions({ documentId }: BuilderInteractionsInput 
   const onSheetDown = useCallback((e: React.PointerEvent) => {
     const st = sRef.current;
     if (st.dragTool) return;
-    const sheet = sheetRef.current;
-    if (!sheet) return;
+    const sheet = e.currentTarget as HTMLDivElement;
+    const page = Number(sheet.getAttribute('data-pdf-page')) || st.page;
     const r = sheet.getBoundingClientRect();
     const z = st.zoom;
     const x0 = (e.clientX - r.left) / z, y0 = (e.clientY - r.top) / z;
-    dragRef.current = { mode: 'lasso', x0, y0 };
-    set({ selected: [], marquee: { x: x0, y: y0, w: 0, h: 0 } });
+    dragRef.current = { mode: 'lasso', x0, y0, page };
+    // Clicking a page in the scrolling column makes it the active page, so the
+    // palette, the inspector and the page rail all follow the pointer.
+    set({ selected: [], marquee: { x: x0, y: y0, w: 0, h: 0 }, page });
   }, [set]);
 
   const onMove = useCallback((e: PointerEvent) => {
@@ -86,13 +177,18 @@ export function useBuilderInteractions({ documentId }: BuilderInteractionsInput 
     if (d.mode === 'move') {
       const dx = (e.clientX - d.sx) / z, dy = (e.clientY - d.sy) / z;
       const map: { [k: string]: { x: number; y: number } } = {};
-      d.orig.forEach(o => { map[o.id] = { x: Math.max(0, snap(o.x + dx)), y: Math.max(0, snap(o.y + dy)) }; });
+      d.orig.forEach(o => {
+        const f = st.fields.find(item => item.id === o.id);
+        map[o.id] = clampToPage(snap(o.x + dx), snap(o.y + dy), f ? f.w : 0, f ? f.h : 0, f ? f.page : undefined);
+      });
       const moved = d.orig.map(o => map[o.id]);
+      const first = st.fields.find(f => f.id === d.orig[0].id);
+      const dragPage = first ? first.page : st.page;
       const guides: { axis: string; at: number }[] = [];
       if (moved.length === 1) {
         const m = moved[0];
         st.fields.forEach(f => {
-          if (d.ids.indexOf(f.id) > -1 || f.page !== st.page) return;
+          if (d.ids.indexOf(f.id) > -1 || f.page !== dragPage) return;
           if (Math.abs(f.x - m.x) <= 4) guides.push({ axis: 'v', at: f.x });
           if (Math.abs(f.y - m.y) <= 4) guides.push({ axis: 'h', at: f.y });
         });
@@ -100,48 +196,57 @@ export function useBuilderInteractions({ documentId }: BuilderInteractionsInput 
       set(prev => ({ guides, fields: prev.fields.map(f => (map[f.id] ? Object.assign({}, f, map[f.id]) : f)) }));
     } else if (d.mode === 'resize') {
       const o = d.orig[0];
-      const w = Math.max(32, snap(o.w + (e.clientX - d.sx) / z));
-      const h = Math.max(24, snap(o.h + (e.clientY - d.sy) / z));
+      const f = st.fields.find(item => item.id === o.id);
+      const page = f ? sizeOf(f.page) : pageSizeRef.current;
+      const maxW = page && f ? page.width - f.x : Infinity;
+      const maxH = page && f ? page.height - f.y : Infinity;
+      const w = Math.min(maxW, Math.max(32, snap(o.w + (e.clientX - d.sx) / z)));
+      const h = Math.min(maxH, Math.max(24, snap(o.h + (e.clientY - d.sy) / z)));
       set(prev => ({ fields: prev.fields.map(f => (f.id === o.id ? Object.assign({}, f, { w, h }) : f)) }));
     } else if (d.mode === 'lasso') {
-      const sheet = sheetRef.current;
+      const lassoPage = d.page ?? st.page;
+      const sheet = sheetsRef.current.get(lassoPage);
       if (!sheet) return;
       const r = sheet.getBoundingClientRect();
       const x1 = (e.clientX - r.left) / z, y1 = (e.clientY - r.top) / z;
       const m = { x: Math.min(d.x0, x1), y: Math.min(d.y0, y1), w: Math.abs(x1 - d.x0), h: Math.abs(y1 - d.y0) };
-      const hits = st.fields.filter(f => f.page === st.page &&
+      const hits = st.fields.filter(f => f.page === lassoPage &&
         f.x < m.x + m.w && f.x + f.w > m.x && f.y < m.y + m.h && f.y + f.h > m.y).map(f => f.id);
       set({ marquee: m, selected: hits });
     }
-  }, [set, snap]);
+  }, [set, snap, clampToPage, sizeOf]);
 
   const onUp = useCallback((e: PointerEvent) => {
     const st = sRef.current;
     if (st.dragTool) {
       const t = metaOf(st.dragTool);
-      const sheet = sheetRef.current;
-      const r = sheet && sheet.getBoundingClientRect();
-      if (r && e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom) {
+      const hit = sheetAt(e.clientX, e.clientY);
+      const r = hit && hit.rect;
+      if (hit && r) {
         const z = st.zoom;
         const id = 'f' + Date.now().toString().slice(-6);
+        const at = clampToPage(
+          snap((e.clientX - r.left) / z - t.w / 2),
+          snap((e.clientY - r.top) / z - t.h / 2),
+          t.w, t.h, hit.page,
+        );
         const nf: SFField = {
-          id, page: st.page, type: t.id,
-          x: Math.max(0, snap((e.clientX - r.left) / z - t.w / 2)),
-          y: Math.max(0, snap((e.clientY - r.top) / z - t.h / 2)),
+          id, page: hit.page, type: t.id,
+          x: at.x, y: at.y,
           w: t.w, h: t.h, to: st.activeRecipient, required: t.id === 'signature' || t.id === 'initials',
           readOnly: false, label: t.label, placeholder: '',
           validation: t.id === 'email' ? 'email' : (t.id === 'date' ? 'date' : 'none'),
           cond: null, merge: ''
         };
-        set(prev => ({ fields: prev.fields.concat([nf]), selected: [id], dragTool: null, ghost: null }));
-        flash(t.label + ' placed and assigned to ' + recip(st.activeRecipient).name);
+        set(prev => ({ fields: prev.fields.concat([nf]), selected: [id], dragTool: null, ghost: null, page: hit.page }));
+        flash(t.label + ' placed on page ' + hit.page + ' and assigned to ' + recip(st.activeRecipient).name);
       } else {
         set({ dragTool: null, ghost: null });
       }
       return;
     }
     if (dragRef.current) { dragRef.current = null; set({ marquee: null, guides: [] }); }
-  }, [set, flash, recip, snap]);
+  }, [set, flash, recip, snap, clampToPage, sheetAt]);
 
   const deleteSel = useCallback(() => {
     const n = sRef.current.selected.length;
@@ -203,9 +308,9 @@ export function useBuilderInteractions({ documentId }: BuilderInteractionsInput 
       const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
       const ids = st.selected;
       set(prev => ({ fields: prev.fields.map(f => (ids.indexOf(f.id) > -1
-        ? Object.assign({}, f, { x: Math.max(0, f.x + dx), y: Math.max(0, f.y + dy) }) : f)) }));
+        ? Object.assign({}, f, clampToPage(f.x + dx, f.y + dy, f.w, f.h, f.page)) : f)) }));
     }
-  }, [deleteSel, duplicateSel, set]);
+  }, [deleteSel, duplicateSel, set, clampToPage]);
 
   useEffect(() => {
     const move = (e: PointerEvent) => onMove(e);
@@ -222,9 +327,9 @@ export function useBuilderInteractions({ documentId }: BuilderInteractionsInput 
   }, [onMove, onUp, onKey]);
 
   return useMemo(() => ({
-    sheetRef, onToolDown, onFieldDown, onResizeDown, onSheetDown,
+    registerSheet, onToolDown, placeTool, onFieldDown, onResizeDown, onSheetDown,
     deleteSel, duplicateSel, alignLeft, alignCenterX, distribute
-  }), [onToolDown, onFieldDown, onResizeDown, onSheetDown, deleteSel, duplicateSel, alignLeft, alignCenterX, distribute]);
+  }), [registerSheet, onToolDown, placeTool, onFieldDown, onResizeDown, onSheetDown, deleteSel, duplicateSel, alignLeft, alignCenterX, distribute]);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -250,6 +355,7 @@ import {
   fieldResponseKey,
   toBuilderExtrasMap,
   toBuilderFields,
+  toBuilderRecipients,
   toFieldBulkItems,
   toRecipientOrder,
   toRecipientSetItems,
@@ -298,6 +404,10 @@ export function useDocumentPersistence({ documentId, serverFields, serverRecipie
   const serverFieldIds = useRef<Set<string>>(new Set(serverFields.map(f => f.id)));
   const serverRecipientIds = useRef<Set<string>>(new Set(serverRecipients.map(r => r.id)));
   const extras = useRef<Dict<BuilderFieldExtras>>(toBuilderExtrasMap(serverFields));
+  /* The inspector edits `options` and `default_value`, which live here rather
+     than on `SFField`. A ref alone would never repaint the inspector, so every
+     write bumps this counter and the screen re-reads through `fieldExtras`. */
+  const [extrasVersion, setExtrasVersion] = useState(0);
 
   /** Bumped on every local field change; lets a completed save tell whether the
    *  user has edited again while it was in flight. */
@@ -309,15 +419,29 @@ export function useDocumentPersistence({ documentId, serverFields, serverRecipie
   const pendingRouting = useRef<Partial<BuilderRouting>>({});
   const baselined = useRef(false);
 
-  /* Re-seed when the page hands us a different document (or fresh server data). */
+  /* Re-seed when the page hands us a different document (or fresh server data).
+     Keyed on the *contents* of the server payload, not the identity of the
+     arrays: a caller that passes a literal (`serverFields: []` on the workflow
+     screen, which authors no fields) hands this effect a new array on every
+     render, and the `setExtrasVersion` below would then re-render and re-run it
+     forever. */
+  const serverSignature = serverFields.map(f => f.id + ':' + f.updated_at).join(',')
+    + '|' + serverRecipients.map(r => r.id).join(',');
+  const seededSignature = useRef<string | null>(null);
   useEffect(() => {
+    const signature = documentId + '|' + serverSignature;
+    if (seededSignature.current === signature) return;
+    seededSignature.current = signature;
     serverFieldIds.current = new Set(serverFields.map(f => f.id));
     serverRecipientIds.current = new Set(serverRecipients.map(r => r.id));
     extras.current = toBuilderExtrasMap(serverFields);
+    setExtrasVersion(v => v + 1);
     revision.current = 0;
     savedRevision.current = 0;
     baselined.current = false;
-  }, [documentId, serverFields, serverRecipients, seededFields]);
+    // `serverFields` / `serverRecipients` are read through the signature above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, serverSignature, seededFields]);
 
   /* ── fields ── */
 
@@ -376,6 +500,35 @@ export function useDocumentPersistence({ documentId, serverFields, serverRecipie
     return true;
   }, [documentId, flash, set]);
 
+  /* Queue the same debounced write the canvas uses. Needed on its own because
+     the autosave effect below watches `s.fields`, and an extras edit does not
+     touch that array. */
+  const scheduleFieldSave = useCallback(() => {
+    if (!documentId || !autosaveFields) return;
+    revision.current += 1;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { timer.current = null; void pushFields(); }, FIELD_SAVE_DELAY_MS);
+  }, [documentId, autosaveFields, pushFields]);
+
+  /** What the inspector needs to render one field's choices and default. */
+  const fieldExtras = useCallback((fieldId: string): BuilderFieldExtras | null => {
+    void extrasVersion;
+    return extras.current[fieldId] ?? null;
+  }, [extrasVersion]);
+
+  /** Edit the parts of a field `SFField` has no room for, and save them. */
+  const setFieldExtras = useCallback((fieldId: string, patch: Partial<BuilderFieldExtras>) => {
+    const current = extras.current[fieldId] ?? {
+      apiType: 'text' as BuilderFieldExtras['apiType'],
+      validationPattern: null,
+      options: null,
+      defaultValue: null,
+    };
+    extras.current = Object.assign({}, extras.current, { [fieldId]: Object.assign({}, current, patch) });
+    setExtrasVersion(v => v + 1);
+    scheduleFieldSave();
+  }, [scheduleFieldSave]);
+
   /** Save right now — the "Save and close" button, and leaving the screen. */
   const saveFieldsNow = useCallback(() => {
     if (!autosaveFields) return Promise.resolve(true);
@@ -412,14 +565,53 @@ export function useDocumentPersistence({ documentId, serverFields, serverRecipie
   }, [documentId, flash]);
 
   /** Full replace, order included — used when the local list holds a row the
-   *  server has never seen. */
-  const saveRecipients = useCallback(async (list?: Recipient[]) => {
-    if (!documentId) return;
+   *  server has never seen (a recipient the sender has just added) or has
+   *  dropped one (a removal). Resolves to `true` when the write landed. */
+  const saveRecipients = useCallback(async (list?: Recipient[]): Promise<boolean> => {
+    if (!documentId) return false;
     const current = list || sRef.current.recipients || [];
     const items = toRecipientSetItems(current, id => serverRecipientIds.current.has(id));
     const result = await recipientsApi.setAll(apiCall, documentId, items, sRef.current.routing as WorkflowType);
-    if (!result.ok) { flash('Recipients not saved · ' + result.error.message); return; }
-    serverRecipientIds.current = new Set(result.data.map(r => r.id));
+    if (!result.ok) { flash('Recipients not saved · ' + result.error.message); return false; }
+    const saved = result.data;
+    serverRecipientIds.current = new Set(saved.map(r => r.id));
+
+    /* Re-key the local rows onto the ids the API just minted. Email is the
+       identity to match on — the API rejects duplicates within an envelope —
+       and it matters beyond tidiness: a field still pointing at a `local-…`
+       recipient is rejected by `bulk_save` ("Recipient … does not belong to
+       this document"), so the next field autosave would fail. */
+    const idByEmail: Dict<string> = {};
+    for (const row of saved) idByEmail[row.email.toLowerCase()] = row.id;
+    const remap: Dict<string> = {};
+    for (const r of current) {
+      const next = idByEmail[r.email.toLowerCase()];
+      if (next && next !== r.id) remap[r.id] = next;
+    }
+    set(prev => ({
+      recipients: toBuilderRecipients(saved),
+      fields: prev.fields.map(f => (remap[f.to] ? Object.assign({}, f, { to: remap[f.to] }) : f)),
+      activeRecipient: remap[prev.activeRecipient] || prev.activeRecipient,
+    }));
+    return true;
+  }, [documentId, flash, set]);
+
+  /**
+   * `DELETE /api/documents/{id}/recipients/{recipientId}`.
+   *
+   * Removing the *last* recipient cannot go through the full replace above —
+   * `set_all` refuses an empty list ("At least one recipient is required") —
+   * so the single-row delete is the only way to empty the envelope. The API
+   * cascades the recipient's fields, which is why the caller drops them
+   * locally too.
+   */
+  const deleteRecipient = useCallback(async (recipientId: string): Promise<boolean> => {
+    if (!documentId) return false;
+    if (!serverRecipientIds.current.has(recipientId)) return true; // never persisted
+    const result = await recipientsApi.remove(apiCall, documentId, recipientId);
+    if (!result.ok) { flash('Recipient not removed · ' + result.error.message); return false; }
+    serverRecipientIds.current.delete(recipientId);
+    return true;
   }, [documentId, flash]);
   const saveRecipientsRef = useRef(saveRecipients);
   saveRecipientsRef.current = saveRecipients;
@@ -479,6 +671,7 @@ export function useDocumentPersistence({ documentId, serverFields, serverRecipie
   }, []);
 
   return useMemo(() => ({
-    saveFieldsNow, patchRecipient, saveRecipients, saveRecipientOrder, saveRouting, flushRouting, sendEnvelope,
-  }), [saveFieldsNow, patchRecipient, saveRecipients, saveRecipientOrder, saveRouting, flushRouting, sendEnvelope]);
+    saveFieldsNow, fieldExtras, setFieldExtras,
+    patchRecipient, saveRecipients, deleteRecipient, saveRecipientOrder, saveRouting, flushRouting, sendEnvelope,
+  }), [saveFieldsNow, fieldExtras, setFieldExtras, patchRecipient, saveRecipients, deleteRecipient, saveRecipientOrder, saveRouting, flushRouting, sendEnvelope]);
 }

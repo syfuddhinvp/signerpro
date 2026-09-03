@@ -14,10 +14,12 @@ class Charge(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_charges_organization_id", "organization_id"),
         Index("ix_charges_status", "status"),
+        # billing_service reconciles charges per invoice.
+        Index("ix_charges_invoice_id", "invoice_id"),
     )
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
-    invoice_id: Mapped[str | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    invoice_id: Mapped[str | None] = mapped_column(ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True)
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD", server_default="USD")
     # succeeded | recovered | failed

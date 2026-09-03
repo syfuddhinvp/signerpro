@@ -2,19 +2,30 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.hashing import sha256_bytes
+from app.core.storage import storage
 from app.core.ratelimit import OTP_LOCKOUT_SECONDS, OTP_MAX_ATTEMPTS
 from app.models.document import Document
-from app.models.enums import DocumentStatus, FieldType, RecipientStatus, SignatureType, WorkflowType
+from app.models.enums import (
+    DocumentStatus,
+    FieldType,
+    RecipientRole,
+    RecipientStatus,
+    SignatureType,
+    WorkflowType,
+    is_signing_role,
+)
+from app.models.field_attachment import FieldAttachment
 from app.models.field import Field
 from app.models.recipient import Recipient
 from app.models.signature import Signature
 from app.models.signing_token import SigningToken
 from app.schemas.signer import (
+    AttachmentUploadResponse,
     CompletionResponse,
     DeclineRequest,
     FieldValueRequest,
@@ -36,6 +47,36 @@ def _as_aware_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+#: Field types captured through the signature ceremony rather than as text.
+SIGNATURE_CEREMONY_FIELD_TYPES = frozenset({FieldType.signature, FieldType.initials})
+
+#: Extensions a signer may attach, with the magic-byte prefixes that must back
+#: them up. Mirrors the rigor of the sender-side PDF upload: the declared
+#: extension is never trusted on its own.
+ATTACHMENT_SIGNATURES: dict[str, tuple[bytes, ...]] = {
+    ".pdf": (b"%PDF",),
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".gif": (b"GIF87a", b"GIF89a"),
+    ".webp": (b"RIFF",),
+}
+
+#: A stamp is a mark on the page — a seal, a chop, a company logo — so it is
+#: image-only. A PDF cannot be drawn into the field, and accepting one would
+#: mean a stamp that appears nowhere in the executed contract.
+STAMP_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+ATTACHMENT_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
 def _hash_otp(recipient_id: str, code: str) -> str:
     """Salted hash of an OTP code; only the digest is persisted."""
     return sha256_bytes(f"{recipient_id}:{code.strip()}".encode("utf-8"))
@@ -53,15 +94,32 @@ class SigningService:
         return signing_token, document, recipient
 
     def session_response(self, *, raw_token: str, signing_token: SigningToken, document: Document, recipient: Recipient) -> SigningSessionResponse:
-        read_only = recipient.status == RecipientStatus.completed or document.status == DocumentStatus.completed
+        read_only = (
+            recipient.status == RecipientStatus.completed
+            or document.status == DocumentStatus.completed
+            # RTE-3: a `copy` recipient is a CC. Their link is a view link.
+            or not is_signing_role(recipient.role)
+        )
         otp_required = recipient.otp_enabled and not recipient.otp_verified and not read_only
         consent_required = not recipient.consent_accepted and not read_only
 
-        required_fields = [field for field in document.fields if field.recipient_id == recipient.id and field.required]
+        own_fields = [field for field in document.fields if field.recipient_id == recipient.id]
+        required_fields = self._outstanding_required_fields(document, recipient)
         completed = sum(1 for field in required_fields if self._field_has_value(field))
 
-        fields = document.fields if not otp_required and not consent_required else []
-        pdf_url = f"/api/sign/{raw_token}/pdf" if not otp_required and not consent_required else ""
+        # SIGN-1: a signing session must never carry another recipient's field
+        # payload. ``fields`` is now strictly this recipient's own fields;
+        # everybody else's placements are exposed separately, redacted down to
+        # geometry so the sheet can still be laid out correctly (see
+        # ``FieldPlacementResponse``). The old response returned
+        # ``document.fields`` — labels and captured values included — and relied
+        # on the client to filter, which is not a control at all.
+        gate_open = not otp_required and not consent_required
+        fields = own_fields if gate_open else []
+        other_placements = (
+            [field for field in document.fields if field.recipient_id != recipient.id] if gate_open else []
+        )
+        pdf_url = f"/api/sign/{raw_token}/pdf" if gate_open else ""
 
         return SigningSessionResponse(
             document={
@@ -74,10 +132,12 @@ class SigningService:
                 "name": recipient.name,
                 "email": recipient.email,
                 "role_name": recipient.role_name,
+                "role": recipient.role,
                 "status": recipient.status,
             },
             current_recipient_id=recipient.id,
             fields=fields,
+            other_field_placements=other_placements,
             read_only=read_only,
             expires_at=signing_token.expires_at,
             pdf_url=pdf_url,
@@ -86,11 +146,13 @@ class SigningService:
             otp_required=otp_required,
             consent_required=consent_required,
             document_id=document.id,
-            assigned_field_ids=[field.id for field in document.fields if field.recipient_id == recipient.id],
+            assigned_field_ids=[field.id for field in own_fields],
             consent_accepted=bool(recipient.consent_accepted),
             consent_accepted_at=recipient.consent_accepted_at,
-            can_decline=not read_only,
-            can_reassign=not read_only,
+            # A CC recipient has nothing to decline or delegate — they were
+            # never asked to act (RTE-3).
+            can_decline=not read_only and is_signing_role(recipient.role),
+            can_reassign=not read_only and is_signing_role(recipient.role),
         )
 
     def mark_viewed(
@@ -102,7 +164,13 @@ class SigningService:
         user_agent: str | None,
     ) -> SigningSessionResponse:
         signing_token, document, recipient = self.load_session(db, raw_token=raw_token)
-        if recipient.status not in {RecipientStatus.completed, RecipientStatus.viewed}:
+        # ``notified`` is terminal for a CC: opening the copy must not walk it
+        # back to ``viewed``.
+        if recipient.status not in {
+            RecipientStatus.completed,
+            RecipientStatus.notified,
+            RecipientStatus.viewed,
+        }:
             recipient.status = RecipientStatus.viewed
             recipient.viewed_at = datetime.now(timezone.utc)
             if document.status == DocumentStatus.sent:
@@ -116,6 +184,9 @@ class SigningService:
                 ip_address=ip_address,
                 user_agent=user_agent,
             )
+            from app.services.crm_service import crm_integration_service
+
+            crm_integration_service.trigger_document_viewed(db, document=document, recipient=recipient)
             db.commit()
             db.refresh(document)
         return self.session_response(raw_token=raw_token, signing_token=signing_token, document=document, recipient=recipient)
@@ -133,8 +204,16 @@ class SigningService:
         _, document, recipient = self.load_session(db, raw_token=raw_token)
         self._ensure_can_edit(document, recipient)
         field = self._get_owned_field(document, recipient, field_id)
-        if field.type == FieldType.signature:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use the signature endpoint for signature fields")
+        if field.type in SIGNATURE_CEREMONY_FIELD_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Use the signature endpoint for signature and initials fields",
+            )
+        if field.type == FieldType.attachment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Use the attachment endpoint for attachment fields",
+            )
         if field.type == FieldType.checkbox:
             new_value = "true" if bool(payload.value) else "false"
         else:
@@ -170,8 +249,12 @@ class SigningService:
         _, document, recipient = self.load_session(db, raw_token=raw_token)
         self._ensure_can_edit(document, recipient)
         field = self._get_owned_field(document, recipient, field_id)
-        if field.type != FieldType.signature:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field is not a signature field")
+        # FLD-5: initials are captured through the same ceremony as a
+        # signature (drawn or typed) — the signing UI has always routed them
+        # here, and rejecting them made a required initials field unfinishable.
+        if field.type not in SIGNATURE_CEREMONY_FIELD_TYPES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field is not a signature or initials field")
+        field_service.validate_value(document, field, payload.signature_text or recipient.name)
         image_path = None
         signature_text = payload.signature_text.strip() if payload.signature_text else None
         if payload.signature_type == SignatureType.typed and not signature_text:
@@ -210,6 +293,124 @@ class SigningService:
         db.refresh(field)
         return field
 
+    async def save_attachment(
+        self,
+        db: Session,
+        *,
+        raw_token: str,
+        field_id: str,
+        upload,
+        ip_address: str | None,
+        user_agent: str | None,
+    ) -> AttachmentUploadResponse:
+        """Accept a signer's file for an ``attachment`` field (FLD-6).
+
+        Validation deliberately mirrors the sender-side PDF upload
+        (``document_service.upload_pdf``): allow-listed extension, magic-byte
+        check so the extension is never trusted on its own, and a bounded
+        ``limit + 1`` read so an oversized body cannot be buffered whole.
+        """
+        from pathlib import Path
+        from uuid import uuid4
+
+        _, document, recipient = self.load_session(db, raw_token=raw_token)
+        self._ensure_can_edit(document, recipient)
+        field = self._get_owned_field(document, recipient, field_id)
+        if field.type not in {FieldType.attachment, FieldType.stamp}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field does not accept a file")
+        if field.read_only:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' is read-only")
+        if not field_service.condition_is_met(document, field):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Field '{field.label}' is hidden by its conditional rule",
+            )
+
+        filename = Path(upload.filename or "attachment").name
+        extension = Path(filename).suffix.lower()
+        allowed = STAMP_EXTENSIONS if field.type == FieldType.stamp else set(ATTACHMENT_SIGNATURES)
+        if extension not in allowed:
+            noun = "stamp image" if field.type == FieldType.stamp else "attachment"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported {noun} type. Allowed: {', '.join(sorted(allowed))}",
+            )
+        settings = get_settings()
+        content = await upload.read(settings.max_upload_bytes + 1)
+        if len(content) > settings.max_upload_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Attachment exceeds size limit"
+            )
+        if not content:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attachment is empty")
+        if not any(content.startswith(prefix) for prefix in ATTACHMENT_SIGNATURES[extension]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Attachment contents do not match its file extension",
+            )
+
+        digest = sha256_bytes(content)
+        relative_path = f"documents/{document.id}/attachments/{field.id}/{uuid4().hex}{extension}"
+        storage.write_bytes(relative_path, content)
+
+        # Stored-file metadata lives in ``field_attachments``; ``fields.options``
+        # is authoring configuration and never carries evidence. ``value`` stays
+        # the human-readable filename so the PDF stamper keeps rendering
+        # something sensible. Re-uploading replaces the previous row.
+        db.execute(delete(FieldAttachment).where(FieldAttachment.field_id == field.id))
+        db.add(
+            FieldAttachment(
+                field_id=field.id,
+                document_id=document.id,
+                recipient_id=recipient.id,
+                file_path=relative_path,
+                filename=filename,
+                content_type=ATTACHMENT_CONTENT_TYPES[extension],
+                size_bytes=len(content),
+                sha256=digest,
+            )
+        )
+        field.value = filename
+        audit_service.log(
+            db,
+            document_id=document.id,
+            recipient_id=recipient.id,
+            event_type="field_completed",
+            event_message=f"Attachment '{filename}' uploaded for field '{field.label}' by {recipient.email}.",
+            ip_address=ip_address,
+            user_agent=user_agent,
+            metadata={"field_id": field.id, "sha256": digest, "size_bytes": len(content)},
+        )
+        db.commit()
+        db.refresh(field)
+        return AttachmentUploadResponse(
+            field_id=field.id,
+            filename=filename,
+            content_type=ATTACHMENT_CONTENT_TYPES[extension],
+            size_bytes=len(content),
+            sha256=digest,
+        )
+
+    def attachment_file(self, db: Session, *, raw_token: str, field_id: str) -> FieldAttachment:
+        """The file this signer uploaded into one of their own fields.
+
+        The sender already had ``GET /api/documents/{id}/fields/{fid}/attachment``;
+        without the mirror of it the signer could upload a stamp and never see
+        it again — a reload showed an empty box and no way to tell whether the
+        upload had landed.
+        """
+
+        _, document, recipient = self.load_session(db, raw_token=raw_token)
+        field = self._get_owned_field(document, recipient, field_id)
+        attachment = db.scalar(
+            select(FieldAttachment)
+            .where(FieldAttachment.field_id == field.id)
+            .order_by(FieldAttachment.created_at.desc())
+        )
+        if attachment is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nothing has been uploaded for this field")
+        return attachment
+
     def complete(
         self,
         db: Session,
@@ -220,9 +421,25 @@ class SigningService:
     ) -> CompletionResponse:
         signing_token, document, recipient = self.load_session(db, raw_token=raw_token)
         self._ensure_can_edit(document, recipient)
-        missing = [field.label for field in document.fields if field.recipient_id == recipient.id and field.required and not self._field_has_value(field)]
+        # FLD-3: a field whose conditional rule is unmet is *hidden*, and
+        # ``field_service.validate_value`` refuses writes to it. Counting it as
+        # outstanding here is what deadlocked the canonical conditional
+        # envelope: unwritable and yet required. Both services now evaluate the
+        # rule through ``field_service.condition_is_met``, so they can never
+        # disagree again.
+        outstanding = self._outstanding_required_fields(document, recipient)
+        missing = [field.label for field in outstanding if not self._field_has_value(field)]
         if missing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Required fields are incomplete: {', '.join(missing)}")
+        # A value captured before the controlling answer changed would still
+        # be stamped into the executed PDF even though the field is hidden.
+        # Hidden means "not part of the record", so it is dropped here.
+        for field in document.fields:
+            if field.recipient_id != recipient.id:
+                continue
+            if not field_service.condition_is_met(document, field) and field.value:
+                field.value = None
+
         recipient.status = RecipientStatus.completed
         recipient.completed_at = datetime.now(timezone.utc)
         signing_token.used_at = recipient.completed_at
@@ -230,8 +447,12 @@ class SigningService:
             db,
             document_id=document.id,
             recipient_id=recipient.id,
-            event_type="recipient_completed",
-            event_message=f"{recipient.email} completed signing.",
+            event_type="recipient_approved" if recipient.role == RecipientRole.approve else "recipient_completed",
+            event_message=(
+                f"{recipient.email} approved the document."
+                if recipient.role == RecipientRole.approve
+                else f"{recipient.email} completed signing."
+            ),
             ip_address=ip_address,
             user_agent=user_agent,
         )
@@ -248,7 +469,30 @@ class SigningService:
         )
         crm_integration_service.trigger_signer_completed(db, document=document, recipient=recipient)
 
-        if all(item.status == RecipientStatus.completed for item in document.recipients):
+        # RTE-3: only recipients carrying a signing obligation gate execution.
+        # A CC ("copy") recipient never completes, and used to hold the
+        # envelope open forever.
+        obligated = [item for item in document.recipients if is_signing_role(item.role)]
+        if all(item.status == RecipientStatus.completed for item in obligated):
+            # A CC recipient has no obligation to discharge: they reach the
+            # terminal ``notified`` state, which does not claim they signed and
+            # does not hold the completion gate open (the gate keys off signing
+            # roles, not off every row having a ``completed_at``).
+            for cc in document.recipients:
+                if not is_signing_role(cc.role) and cc.status not in {
+                    RecipientStatus.notified,
+                    RecipientStatus.completed,
+                    RecipientStatus.declined,
+                }:
+                    cc.status = RecipientStatus.notified
+                    audit_service.log(
+                        db,
+                        document_id=document.id,
+                        recipient_id=cc.id,
+                        event_type="recipient_copy_delivered",
+                        event_message=f"{cc.email} received a copy (no signature required).",
+                    )
+            db.flush()
             pdf_service.generate_final_pdf(db, document=document)
             crm_integration_service.trigger_document_completed(db, document=document)
             final_url = f"/api/documents/{document.id}/final-pdf"
@@ -288,6 +532,9 @@ class SigningService:
             user_agent=user_agent,
             metadata={"reason": payload.reason},
         )
+        from app.services.crm_service import crm_integration_service
+
+        crm_integration_service.trigger_document_declined(db, document=document, recipient=recipient)
         db.commit()
 
     def reassign(
@@ -359,14 +606,17 @@ class SigningService:
     def _activate_next_sequential_group(self, db: Session, document: Document) -> None:
         if document.workflow_type != WorkflowType.sequential:
             return
-        waiting_orders = sorted({recipient.signing_order for recipient in document.recipients if recipient.status == RecipientStatus.waiting})
+        # CC recipients are outside the sequence entirely: they are notified on
+        # send and never hold a turn (RTE-3).
+        signers = [item for item in document.recipients if is_signing_role(item.role)]
+        waiting_orders = sorted({item.signing_order for item in signers if item.status == RecipientStatus.waiting})
         if not waiting_orders:
             return
         next_order = waiting_orders[0]
-        lower_order_recipients = [recipient for recipient in document.recipients if recipient.signing_order < next_order]
+        lower_order_recipients = [item for item in signers if item.signing_order < next_order]
         if any(recipient.status != RecipientStatus.completed for recipient in lower_order_recipients):
             return
-        for next_recipient in [item for item in document.recipients if item.signing_order == next_order]:
+        for next_recipient in [item for item in signers if item.signing_order == next_order]:
             next_recipient.status = RecipientStatus.sent
             raw_token, _ = token_service.create_for_recipient(
                 db,
@@ -384,6 +634,11 @@ class SigningService:
             )
 
     def _ensure_can_edit(self, document: Document, recipient: Recipient) -> None:
+        if not is_signing_role(recipient.role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This recipient receives a copy only and cannot sign",
+            )
         if document.status == DocumentStatus.completed:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Completed documents cannot be edited")
         if recipient.status == RecipientStatus.completed:
@@ -404,6 +659,20 @@ class SigningService:
         if field.is_locked:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Field is locked")
         return field
+
+    def _outstanding_required_fields(self, document: Document, recipient: Recipient) -> list[Field]:
+        """This recipient's required fields that are actually answerable.
+
+        A field is skipped when its conditional rule is unmet — the signer is
+        forbidden from writing to it, so it cannot be part of what they owe.
+        """
+        return [
+            field
+            for field in document.fields
+            if field.recipient_id == recipient.id
+            and field.required
+            and field_service.condition_is_met(document, field)
+        ]
 
     def _field_has_value(self, field: Field) -> bool:
         if field.type == FieldType.checkbox:

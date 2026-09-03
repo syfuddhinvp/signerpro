@@ -21,7 +21,7 @@ class SystemLog(Base, UUIDPrimaryKeyMixin):
         Index("ix_system_logs_org_source_level", "organization_id", "source", "level"),
     )
 
-    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), nullable=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
     # info | warn | error
     level: Mapped[str] = mapped_column(String(10), nullable=False, default="info", server_default="info")

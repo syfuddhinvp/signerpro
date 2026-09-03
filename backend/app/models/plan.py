@@ -40,7 +40,10 @@ DEFAULT_PLANS: list[dict] = [
         "trial_days": 14,
         "sort_order": 0,
         "marketing_lines": [
-            {"label": "Envelopes / seat", "value": "25 / mo"},
+            # Marketing copy must quote the enforced entitlement below. It
+            # previously advertised "25 / seat / mo" against an enforced 5 per
+            # organization (AUDIT_REPORT.md section 7, finding 6).
+            {"label": "Envelopes", "value": "5 / mo per organization"},
             {"label": "Templates", "value": "10"},
             {"label": "Routing", "value": "Sequential"},
             {"label": "Retention", "value": "1 year"},
@@ -69,7 +72,7 @@ DEFAULT_PLANS: list[dict] = [
         "trial_days": 14,
         "sort_order": 1,
         "marketing_lines": [
-            {"label": "Envelopes / seat", "value": "Unlimited"},
+            {"label": "Envelopes", "value": "250 / mo per organization"},
             {"label": "Templates", "value": "Unlimited"},
             {"label": "Routing", "value": "Seq + parallel"},
             {"label": "Retention", "value": "3 years"},
@@ -98,8 +101,10 @@ DEFAULT_PLANS: list[dict] = [
         "trial_days": 0,
         "sort_order": 2,
         "marketing_lines": [
-            {"label": "Envelopes / seat", "value": "Unlimited"},
-            {"label": "API rate", "value": "500 rps"},
+            {"label": "Envelopes", "value": "Unlimited"},
+            # No rate limiter is wired to the public API, so no throughput
+            # figure may be advertised here (AUDIT_REPORT.md section 7).
+            {"label": "API calls", "value": "Unlimited"},
             {"label": "Routing", "value": "All + approvals"},
             {"label": "Retention", "value": "7 years + legal hold"},
         ],

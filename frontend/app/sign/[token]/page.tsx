@@ -17,6 +17,7 @@ import { apiFetchPublic } from '@/lib/api/client';
 import { toSignerFields, toSignValues } from '@/lib/sf/adapters';
 import { CONTACT_PALETTE } from '@/lib/sf/data';
 import type { Recipient } from '@/lib/sf/state';
+import Signer from '@/components/sf/screens/Signer';
 import SignSurface from './SignSurface';
 import { ConsentGate, OtpGate } from './SignGate';
 import { SignState, TokenProblemState } from './states';
@@ -63,6 +64,27 @@ export default async function Page({ params }: { params: Promise<{ token: string
   );
   const assigned = toSignerFields(session.fields).filter(f => assignedIds.has(f.id));
 
+  const pdfHref = `/sign/${encodeURIComponent(token)}/pdf`;
+
+  /**
+   * A `copy` (CC) recipient. Their session comes back `read_only` with no
+   * ceremony attached — they are entitled to *read the document*, which is the
+   * whole point of being copied on it. Falling through to the completion state
+   * below would tell them "You have signed …", which they have not.
+   */
+  if (session.recipient.role === 'copy') {
+    return (
+      <Signer
+        viewOnly
+        readOnly
+        pdfUrl={pdfHref}
+        pageCount={session.document.page_count || 1}
+        otherPlacements={session.other_field_placements ?? []}
+        onDownload={undefined}
+      />
+    );
+  }
+
   // Already finished: the envelope is read-only, so this is the completion
   // state rather than a signing surface the signer cannot use.
   if (session.read_only) {
@@ -100,7 +122,7 @@ export default async function Page({ params }: { params: Promise<{ token: string
     id: session.current_recipient_id,
     name: signerName,
     email: session.recipient.email,
-    role: session.recipient.role_name ?? 'sign',
+    role: session.recipient.role,
     color: CONTACT_PALETTE[0],
     order: 1,
     status: 'Viewed',
@@ -118,8 +140,9 @@ export default async function Page({ params }: { params: Promise<{ token: string
       canReassign={session.can_reassign}
       signerName={signerName}
       documentTitle={documentTitle}
-      pdfHref={`/sign/${encodeURIComponent(token)}/pdf`}
+      pdfHref={pdfHref}
       consentVersion={session.consent_version || '1.0'}
+      otherPlacements={session.other_field_placements ?? []}
     />
   );
 }

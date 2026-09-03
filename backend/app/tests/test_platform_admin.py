@@ -477,11 +477,27 @@ def test_security_posture_and_compliance(client: TestClient) -> None:
         entry["action"] for entry in client.get("/api/saas/audit", headers=platform).json()["items"]
     ]
 
+    # Toggling stores intent; none of these controls is implemented, so the
+    # response must never report one as enforced. The previous version of this
+    # test asserted only ``enabled``, which is what let the console present six
+    # unimplemented controls as live switches.
+    assert all(row["implemented"] is False for row in updated)
+    assert all(row["enforced"] is False for row in updated)
+    assert "not enforced" in [
+        entry["detail"]
+        for entry in client.get("/api/saas/audit", headers=platform).json()["items"]
+        if entry["action"] == "security_posture.changed"
+    ][0]
+
     compliance = client.get("/api/saas/compliance", headers=platform).json()
     assert compliance["rotation_interval_days"] == 90
+    # This test used to assert SOC 2 Type II and HIPAA were ``certified``. The
+    # platform cannot substantiate a certification, and the value could be
+    # shown to a customer as evidence of an audit that never happened.
     names = {row["name"]: row["status"] for row in compliance["certifications"]}
-    assert names["SOC 2 Type II"] == "certified"
-    assert names["FedRAMP"] == "in_process"
+    assert set(names.values()) == {"not_assessed"}
+    assert compliance["key_rotation_implemented"] is False
+    assert compliance["last_key_rotation_at"] is None
 
 
 # --- Logs ------------------------------------------------------------------

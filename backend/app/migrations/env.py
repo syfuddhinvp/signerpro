@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 from app import models  # noqa: F401
 from app.core.config import get_settings
 from app.core.database import Base
+from app.migrations.comparators import compare_type
 
 
 config = context.config
@@ -21,6 +22,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=get_settings().database_url,
         target_metadata=target_metadata,
+        compare_type=compare_type,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -35,7 +37,11 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=compare_type,
+        )
         with context.begin_transaction():
             context.run_migrations()
 

@@ -1,6 +1,37 @@
-.venv
-__pycache__
-*.pyc
-.pytest_cache
+# Python artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local virtualenvs — never bake a host venv into the image
+.venv/
+venv/
+env/
+
+# Secrets / local env
 .env
-uploads
+.env.*
+!.env.example
+
+# Runtime data — uploaded and executed PDFs live in a volume, not the image
+uploads/
+*.db
+*.sqlite3
+
+# Tests are not needed in the production image (CI runs them from the checkout)
+app/tests/
+
+# VCS and tooling
+.git
+.gitignore
+.github
+*.log
+.DS_Store
+Dockerfile
+.dockerignore
+README.md

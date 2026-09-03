@@ -503,49 +503,8 @@ def assign_directory_role(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    role = payload.role
-    if role in {"super", "orgadmin"} or role in {UserRole.admin, "admin"}:
-        target_role = UserRole.admin
-        platform = role == "super"
-    elif role in {"sender", "viewer"}:
-        target_role = UserRole.sender
-        platform = False
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown role")
-
-    if user.id == admin.id and not platform:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="You cannot drop your own platform access"
-        )
-
-    # Never leave a tenant without an administrator.
-    if user.role == UserRole.admin and target_role != UserRole.admin:
-        remaining = db.scalar(
-            select(func.count())
-            .select_from(User)
-            .where(
-                User.organization_id == user.organization_id,
-                User.role == UserRole.admin,
-                User.id != user.id,
-            )
-        )
-        if not remaining:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="An organization must keep at least one administrator",
-            )
-
-    user.role = target_role
-    user.is_platform_admin = platform
-    db.add(user)
-    platform_service.record_platform_audit(
-        db,
-        action="user.role_assigned",
-        actor=admin,
-        organization_id=user.organization_id,
-        detail=f"{user.email} -> {role}",
-        ip_address=request_ip(request),
-        metadata={"user_id": user.id, "role": role, "is_platform_admin": platform},
+    platform_service.apply_role_assignment(
+        db, admin=admin, user=user, role=payload.role, ip_address=request_ip(request)
     )
     db.commit()
     db.refresh(user)
@@ -619,7 +578,12 @@ def platform_overview(
         envelopes_30d=envelopes,
         mrr_cents=mrr,
         incidents_90d=incidents,
-        uptime_pct=round(100.0 - min(errors_24h * 0.01, 5.0), 3),
+        # No availability signal exists in this system - no probe, no
+        # synthetic check, no incident feed. The previous value was
+        # ``100 - errors_24h * 0.01``, an invented figure presented as a
+        # measured SLA. ``None`` is the honest answer until one exists.
+        uptime_pct=None,
+        errors_24h=errors_24h,
         mrr_series=series,
         health=health,
     )

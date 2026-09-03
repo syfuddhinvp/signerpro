@@ -4,12 +4,13 @@
  */
 
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import Routing from '@/components/sf/screens/Routing';
 import { serverCaller } from '@/lib/api/client';
 import { documents as documentsApi, recipients as recipientsApi } from '@/lib/api/resources';
 import { toBuilderRouting } from '@/lib/sf/adapters';
 import { documentPathFor } from '@/lib/sf/routes';
+import { isSealedStatus } from '@/lib/sf/sealed';
 import type { RecipientResponse, RoutingResponse } from '@/lib/api/types';
 
 export const metadata: Metadata = { title: 'Signing workflow · SignForge' };
@@ -26,12 +27,19 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   if (!documentResult.ok) notFound();
 
+  /* A completed (or voided / declined / expired) envelope is evidence, not a
+     draft: the API locks its fields and refuses further authoring, so the
+     screen redirects to the one place that still has something to say. */
+  if (isSealedStatus(documentResult.data.status)) redirect(documentPathFor('audit', documentId));
+
+
   const recipients: RecipientResponse[] = recipientsResult.ok ? recipientsResult.data : [];
   const routing: RoutingResponse | null = routingResult.ok ? routingResult.data : null;
 
   return (
     <Routing
       documentId={documentResult.data.id}
+      title={documentResult.data.title}
       recipients={recipients}
       routing={routing ? toBuilderRouting(routing) : null}
     />

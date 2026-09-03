@@ -10,11 +10,64 @@
 
 'use client';
 
-import { apiFail, apiOk, requestJson, type ApiRequestInit, type ApiResult } from './result';
+import {
+  DOWNLOAD_TIMEOUT_MS,
+  apiFail,
+  apiOk,
+  requestJson,
+  requestSignal,
+  type ApiRequestInit,
+  type ApiResult,
+} from './result';
 
 export * from './result';
 
 export const PROXY_PREFIX = '/api/proxy';
+
+/** Where an expired session should return to once the user signs in again. */
+function currentPath(): string {
+  if (typeof window === 'undefined') return '/overview';
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+/**
+ * Send an expired session to the sign-in screen, carrying the current URL so
+ * the user comes back to where they were. The browser equivalent of the server
+ * transport's `redirectToLogin`.
+ */
+export function redirectToLogin(next: string = currentPath()): void {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname === '/login') return;
+  window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+}
+
+/**
+ * One in-flight refresh at a time: a screen that fires six calls on mount must
+ * not present the same rotating refresh token six times, because the backend
+ * revokes it on first use.
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function refreshSessionOnce(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const response = await fetch('/api/auth/refresh', {
+          method: 'POST',
+          cache: 'no-store',
+          signal: AbortSignal.timeout(10_000),
+        });
+        return response.ok;
+      } catch {
+        return false;
+      } finally {
+        // Let the next 401 try again rather than caching a stale verdict.
+        setTimeout(() => { refreshInFlight = null; }, 0);
+      }
+    })();
+  }
+  return refreshInFlight;
+}
 
 /** `/api/contacts` → `/api/proxy/contacts`. Anything else is refused. */
 export function proxyPath(path: string): string | null {
@@ -33,7 +86,19 @@ export async function apiCall<T>(path: string, init: ApiRequestInit = {}): Promi
   if (!target) {
     return apiFail({ kind: 'client', status: 400, message: `Refusing to call a non-/api path: ${path}` });
   }
-  return requestJson<T>(target, init, null);
+
+  const first = await requestJson<T>(target, init, null);
+  if (first.ok || first.error.kind !== 'unauthorized') return first;
+
+  // The access token is short-lived. Exchange the refresh token once and retry
+  // before concluding the session is over; only then send the user to /login.
+  if (await refreshSessionOnce()) {
+    const second = await requestJson<T>(target, init, null);
+    if (second.ok || second.error.kind !== 'unauthorized') return second;
+  }
+
+  redirectToLogin();
+  return first;
 }
 
 /** A binary response fetched through the proxy: the bytes plus a filename. */
@@ -61,6 +126,14 @@ export async function apiDownload(
   path: string,
   init: ApiRequestInit & { filename?: string } = {},
 ): Promise<ApiResult<ApiDownload>> {
+  return downloadOnce(path, init, true);
+}
+
+async function downloadOnce(
+  path: string,
+  init: ApiRequestInit & { filename?: string },
+  mayRetry: boolean,
+): Promise<ApiResult<ApiDownload>> {
   const target = proxyPath(path);
   if (!target) {
     return apiFail({ kind: 'client', status: 400, message: `Refusing to call a non-/api path: ${path}` });
@@ -73,9 +146,15 @@ export async function apiDownload(
       headers: init.body === undefined ? undefined : { 'content-type': 'application/json' },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
       cache: 'no-store',
+      signal: requestSignal(init, DOWNLOAD_TIMEOUT_MS),
     });
   } catch {
     return apiFail({ kind: 'network', status: 0, message: 'Cannot reach the SignForge API.' });
+  }
+  if (response.status === 401) {
+    if (mayRetry && (await refreshSessionOnce())) return downloadOnce(path, init, false);
+    redirectToLogin();
+    return apiFail({ kind: 'unauthorized', status: 401, message: 'Your session has expired.' });
   }
   if (!response.ok) {
     return apiFail({

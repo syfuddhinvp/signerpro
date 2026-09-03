@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
@@ -17,6 +17,7 @@ from app.schemas.template import (
     TemplateUsageSender,
 )
 from app.services.audit_service import audit_service
+from app.services.crm_service import crm_integration_service
 from app.services.folder_service import folder_service
 
 
@@ -112,7 +113,9 @@ class TemplateService:
     ) -> tuple[list[TemplateResponse], int]:
         if sort not in SORTABLE:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"sort must be one of {sorted(SORTABLE)}")
-        query = select(Document).where(
+        # selectinload: the response mapper reads ``recipients`` per row, which
+        # is one lazy SELECT per template without it.
+        query = select(Document).options(selectinload(Document.recipients)).where(
             Document.organization_id == user.organization_id,
             Document.is_template == True,  # noqa: E712
             Document.deleted_at.is_(None),
@@ -307,6 +310,7 @@ class TemplateService:
             event_type="document_created",
             event_message=f"Created document from template '{template.title}'.",
         )
+        crm_integration_service.trigger_document_created(db, document=document)
         db.commit()
         db.refresh(document)
         return document

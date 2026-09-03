@@ -5,8 +5,13 @@ from app.models.recipient import Recipient
 
 
 class SignFlowEmailService:
+    def signing_link_for(self, *, token: str) -> str:
+        """The URL a signing token resolves to. One definition, two callers."""
+
+        return f"{get_settings().app_base_url.rstrip('/')}/sign/{token}"
+
     def send_signing_link(self, *, document: Document, recipient: Recipient, token: str, db=None) -> str:
-        link = f"{get_settings().app_base_url.rstrip('/')}/sign/{token}"
+        link = self.signing_link_for(token=token)
         
         org = None
         if db:

@@ -46,7 +46,8 @@ const EMPTY_OVERVIEW: PlatformOverview = {
   envelopes_30d: 0,
   mrr_cents: 0,
   incidents_90d: 0,
-  uptime_pct: 100,
+  uptime_pct: null,
+  errors_24h: 0,
   mrr_series: [],
   health: [],
 };
@@ -55,6 +56,8 @@ const EMPTY_COMPLIANCE: ComplianceResponse = {
   certifications: [],
   last_key_rotation_at: null,
   rotation_interval_days: 90,
+  key_rotation_implemented: false,
+  disclaimer: 'Compliance information is unavailable — the platform API could not be reached.',
 };
 
 type SearchParams = { [key: string]: string | string[] | undefined };

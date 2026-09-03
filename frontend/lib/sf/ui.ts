@@ -1,32 +1,71 @@
-/* SignForge shared style atoms — ported verbatim from the prototype app.js. */
+/* SignForge shared style atoms — ported from the prototype app.js.
+ *
+ * Two accessibility rules hold here, and `lib/sf/ui.a11y.test.ts` enforces them:
+ *
+ *  1. `outline: 'none'` may stay on these atoms — `app/globals.css` restores a
+ *     `:focus-visible` ring for every focusable element with `!important`, so
+ *     the pointer-focus noise the prototype was suppressing stays suppressed
+ *     while keyboard focus is always visible (WCAG 2.4.7).
+ *  2. Text colours must reach 4.5:1 against the surface they sit on, and
+ *     control/line colours 3:1 (WCAG 1.4.3 / 1.4.11). The prototype's
+ *     `#94a3b8` (2.6:1 on white) is not used here; `TEXT_MUTED` replaces it.
+ */
 import type { CSSProperties } from 'react';
 import type { Tone } from './data';
+
+/* ── accessible text tokens (mirror app/tokens.css) ──────────────────────
+ * Every screen uses these instead of the prototype's `#94a3b8` / `#a5b0c0`
+ * literals: same visual weight, AA-compliant. `test/a11y-tokens.test.ts`
+ * asserts the raw literals are gone from screen source so this cannot regress.
+ */
+/** Primary body text — #0f172a, 16.8:1 on white. */
+export const TEXT_DEFAULT = '#0f172a';
+/** Secondary/meta text — #5b6675, 5.6:1 on white. Replaces `#94a3b8`. */
+export const TEXT_MUTED = '#5b6675';
+/** Tertiary text that must still be readable — #4a5462, 7.7:1 on white. */
+export const TEXT_SUBTLE = '#4a5462';
+/** Lines and control tracks — #8492a6, 3.4:1 on white (WCAG 1.4.11). */
+export const BORDER_STRONG = '#8492a6';
+/** The focus ring colour `globals.css` paints; exported for canvas drawing. */
+export const FOCUS_RING = '#4f46e5';
+
+/* ── dark-surface text ──────────────────────────────────────────────────
+ * The app has a handful of deliberately dark panels (`#0f172a` rails, banners,
+ * the log table, the auth hero). Secondary text there needs the *opposite*
+ * correction: the light-surface tokens above would be unreadable on them.
+ * These are measured against `#0f172a`, and against the `#111c33` chips that
+ * sit inside those panels.
+ */
+/** Secondary text on a dark panel — 7.1:1 on #0f172a, 6.7:1 on #111c33. */
+export const TEXT_MUTED_ON_DARK = '#98a4b6';
+/** Body text on a dark panel — 12:1 on #0f172a. */
+export const TEXT_ON_DARK = '#cad4e0';
 
 /* ── style atoms (Component.btn / Component.pill) ── */
 export function btn(bg: string, fg: string, bd: string): CSSProperties {
   return { height:'32px', padding:'0 13px', borderRadius:'9px', border:'1px solid ' + bd, background:bg, color:fg,
-    fontSize:'12.5px', fontWeight:600, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:'6px', whiteSpace:'nowrap' };
+    fontSize:'.78125rem', fontWeight:600, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:'6px', whiteSpace:'nowrap' };
 }
 export function pill(s: Tone): CSSProperties {
   return { display:'inline-flex', alignItems:'center', gap:'6px', padding:'4px 9px', borderRadius:'99px',
-    background:s.bg, color:s.fg, border:'1px solid ' + s.bd, fontSize:'11.5px', fontWeight:600, whiteSpace:'nowrap' };
+    background:s.bg, color:s.fg, border:'1px solid ' + s.bd, fontSize:'.71875rem', fontWeight:600, whiteSpace:'nowrap' };
 }
 
 /* ── shared inline styles from renderVals() ── */
-export const inputStyle: CSSProperties = { height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'12.5px', background:'#fff', outline:'none', width:'100%', color:'#0f172a' };
-export const lbl: CSSProperties = { display:'flex', flexDirection:'column', gap:'5px', fontSize:'11px', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
-export const railHead: CSSProperties = { fontSize:'11px', letterSpacing:'.08em', textTransform:'uppercase', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontWeight:500 };
+export const inputStyle: CSSProperties = { height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'.78125rem', background:'#fff', outline:'none', width:'100%', color:'#0f172a' };
+export const lbl: CSSProperties = { display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
+export const railHead: CSSProperties = { fontSize:'.6875rem', letterSpacing:'.08em', textTransform:'uppercase', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontWeight:500 };
 
-export const authInput: CSSProperties = { height:'38px', border:'1px solid #dfe4ec', borderRadius:'10px', padding:'0 12px', fontSize:'13px', background:'#fbfcfd', outline:'none', width:'100%', color:'#0f172a' };
+export const authInput: CSSProperties = { height:'38px', border:'1px solid #dfe4ec', borderRadius:'10px', padding:'0 12px', fontSize:'.8125rem', background:'#fbfcfd', outline:'none', width:'100%', color:'#0f172a' };
 export function authPrimary(A: string): CSSProperties {
-  return { height:'40px', width:'100%', borderRadius:'10px', border:'1px solid ' + A, background: A, color:'#fff', fontSize:'13.5px', fontWeight:600, cursor:'pointer' };
+  return { height:'40px', width:'100%', borderRadius:'10px', border:'1px solid ' + A, background: A, color:'#fff', fontSize:'.84375rem', fontWeight:600, cursor:'pointer' };
 }
 export function linkBtn(A: string): CSSProperties {
-  return { background:'none', border:'none', padding:0, cursor:'pointer', fontSize:'12px', color: A, fontWeight:500 };
+  return { background:'none', border:'none', padding:0, cursor:'pointer', fontSize:'.75rem', color: A, fontWeight:500 };
 }
 
 export const jsonBoxStyle: CSSProperties = { margin:0, padding:'12px 13px', borderRadius:'11px', background:'#0f172a', color:'#a5b4fc',
-  fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'11px', lineHeight:1.7, whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', maxHeight:'260px' };
+  fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.6875rem', lineHeight:1.7, whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', maxHeight:'260px' };
 
 /* recurring card / panel / table atoms */
 export const cardStyle: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' };
@@ -34,16 +73,16 @@ export const panelStyle: CSSProperties = { background:'#fff', border:'1px solid 
 export const monoStyle: CSSProperties = { fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
 export const rowDivider: CSSProperties = { borderTop:'1px solid #eef1f6' };
 export const rowDividerLight: CSSProperties = { borderTop:'1px solid #f2f4f8' };
-export const selectStyle: CSSProperties = { height:'30px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'12px', background:'#fff', color:'#334155', outline:'none' };
+export const selectStyle: CSSProperties = { height:'30px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.75rem', background:'#fff', color:'#334155', outline:'none' };
 
 /* tab-strip button (the recurring "segmented control" item) */
-export function tabBtn(on: boolean, height = '30px', padding = '0 13px', fontSize = '12.5px'): CSSProperties {
+export function tabBtn(on: boolean, height = '30px', padding = '0 13px', fontSize = '.78125rem'): CSSProperties {
   return { height, padding, borderRadius:'8px', border:'none', cursor:'pointer', fontSize, fontWeight: on ? 600 : 500,
     background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
 }
 /* toggle switch + knob (feature flags, security, notification prefs) */
 export function switchStyle(on: boolean): CSSProperties {
-  return { width:'38px', height:'21px', borderRadius:'99px', border:'none', cursor:'pointer', background: on ? '#10b981' : '#cbd5e1', position:'relative', flex:'0 0 38px' };
+  return { width:'38px', height:'21px', borderRadius:'99px', border:'none', cursor:'pointer', background: on ? '#10b981' : BORDER_STRONG, position:'relative', flex:'0 0 38px' };
 }
 export function knobStyle(on: boolean): CSSProperties {
   return { position:'absolute', top:'3px', left: on ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
@@ -57,29 +96,25 @@ export function dotStyle(color: string, size = '8px'): CSSProperties {
 export function TITLES(fieldCount: number, isPlat: boolean): { [k: string]: [string, string] } {
   return {
       dashboard: ['Documents', 'All envelopes across your workspace · live status sync'],
-      builder: ['Prepare document', 'Master Services Agreement — Acme Corp · ' + fieldCount + ' fields · autosaved'],
+      builder: ['Prepare document', fieldCount + ' fields · autosaved'],
       routing: ['Workflow & routing', 'Signing order, roles, reminders and expiration'],
-      sign: ['Signer experience', 'Alex Rivera · alex.rivera@acme.io · guided signing session'],
+      sign: ['Signer experience', 'Guided signing session'],
       platform: ['Tenants, roles & flags', 'Super admin console · organisations, directory, feature flags, security posture'],
-      tenantHome: ['Acme Corporation', 'Tenant admin overview · envelopes, seats, spend and attention items'],
+      tenantHome: ['Overview', 'Tenant admin overview · envelopes, seats, spend and attention items'],
       platformHome: ['Platform overview', 'Super admin dashboard · revenue, tenants, dunning and service health'],
-      billing: ['Billing & plan', 'Stripe subscription, payment methods and upcoming invoice'],
-      revenue: ['Revenue & Stripe', 'MRR, balance, payouts, subscriptions and webhook delivery'],
-      invoices: [isPlat ? 'Invoices · all tenants' : 'Invoices & receipts', isPlat ? 'Every issued invoice, payment intent and dunning state' : 'Acme Corporation · issued invoices and receipts'],
+      billing: ['Billing & plan', 'Subscription, payment methods and upcoming invoice'],
+      revenue: ['Revenue', 'MRR, balance, subscriptions and provider webhook delivery'],
+      invoices: [isPlat ? 'Invoices · all tenants' : 'Invoices & receipts', isPlat ? 'Every issued invoice, payment intent and dunning state' : 'Issued invoices and receipts'],
       reports: ['Reports', 'Analytics and exports across documents, templates and recipients'],
       contacts: ['Contacts', 'Address book · signers, approvers and CC recipients, synced from CRM, SCIM and API'],
-      sandbox: ['API sandbox', 'Compose a request against test data and inspect the live response'],
+      sandbox: ['API console', 'Compose a request against your live workspace and inspect the response'],
       guides: ['Guides & documentation', 'Quickstart, reference, embedding, webhooks, SDKs and migration'],
       api: ['Developer API & add-on', 'Keys, endpoints for users / contacts / documents, embed sessions and scopes'],
-      support: [isPlat ? 'Support queue' : 'Support', isPlat ? 'All tenant tickets · SLA, priority, assignment and internal notes' : 'Acme Corporation · your tickets and conversations with support'],
-      logs: [isPlat ? 'Platform logs' : 'Activity logs', isPlat ? 'API, webhook, auth, billing and admin events across tenants' : 'Acme Corporation · API, webhook, auth and signing events'],
-      audit: ['Audit trail & certificate', 'ENV-2291-KD · tamper-evident event log']
+      support: [isPlat ? 'Support queue' : 'Support', isPlat ? 'All tenant tickets · SLA, priority, assignment and internal notes' : 'Your tickets and conversations with support'],
+      logs: [isPlat ? 'Platform logs' : 'Activity logs', isPlat ? 'API, webhook, auth, billing and admin events across tenants' : 'API, webhook, auth and signing events'],
+      audit: ['Audit trail & certificate', 'Event log for this document'],
+      account: ['My account', 'Profile, security, notifications, teams and organizations']
   };
-}
-
-/* ── sub-sidebar titles keyed by rail section ── */
-export function subTitleFor(railActive: string, isPlat: boolean): string {
-  return ({ documents:'Documents', contacts:'Contacts', reports:'Reports', billing: isPlat ? 'Revenue' : 'Billing', developer:'Developer', support:'Support', platform:'Platform admin' } as { [k: string]: string })[railActive];
 }
 
 /* ── status → colour maps (re-exported from data for convenience) ── */

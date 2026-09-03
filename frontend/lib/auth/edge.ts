@@ -1,47 +1,69 @@
 /**
- * Edge-safe cookie reading for `middleware.ts`. Kept separate from
- * `lib/auth/session.ts` because that module is server-only (next/headers,
- * Buffer) and must not be pulled into the middleware bundle.
+ * Edge-safe session reading for `middleware.ts`. Kept separate from
+ * `lib/auth/session.ts` because that module is server-only (next/headers) and
+ * must not be pulled into the middleware bundle. The cookie format itself lives
+ * in `lib/auth/cookie.ts`, shared by both.
  */
 
-export const SESSION_COOKIE = 'sf_session';
+import {
+  SESSION_COOKIE,
+  accessTokenStale,
+  decodeJwtPayload,
+  decodeSession,
+  secondsUntilExpiry,
+  type SessionEnvelope,
+} from './cookie';
+import { allowUnverifiedPrivilege, verifyAccessToken } from './verify';
 
-function b64url(value: string): string | null {
-  try {
-    const padded = value.replace(/-/g, '+').replace(/_/g, '/');
-    return atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
-  } catch {
-    return null;
-  }
+export { SESSION_COOKIE };
+
+export type EdgeSession = {
+  userId: string;
+  isPlatformAdmin: boolean;
+  /** The signature was actually checked against a configured secret. */
+  verified: boolean;
+  /** The access token is spent (or nearly): middleware should refresh. */
+  stale: boolean;
+  envelope: SessionEnvelope;
+};
+
+/**
+ * Decode *and verify* the session cookie.
+ *
+ * Returns null for a forged or malformed cookie. A structurally valid cookie
+ * that could not be verified (no secret configured) comes back with
+ * `verified: false`; callers must not grant privilege on it.
+ */
+export async function readEdgeSession(cookieValue: string | undefined): Promise<EdgeSession | null> {
+  const envelope = decodeSession(cookieValue);
+  if (!envelope) return null;
+
+  const outcome = await verifyAccessToken(envelope.t);
+  if (outcome === 'invalid') return null;
+
+  const claims = decodeJwtPayload(envelope.t);
+  if (!claims) return null;
+
+  const remaining = secondsUntilExpiry(envelope.t);
+  const expired = remaining !== null && remaining <= 0;
+  // An expired access token is still a live session while a refresh token
+  // remains: middleware exchanges it rather than bouncing the user.
+  if (expired && !envelope.r) return null;
+
+  const userId = typeof claims.sub === 'string' ? claims.sub : envelope.u.id;
+  if (!userId) return null;
+
+  return {
+    userId,
+    isPlatformAdmin: envelope.u.is_platform_admin === true,
+    verified: outcome === 'valid',
+    stale: accessTokenStale(envelope.t),
+    envelope,
+  };
 }
 
-export type EdgeSession = { userId: string; isPlatformAdmin: boolean };
-
-/** Decode (never verify — the backend verifies) the session cookie. */
-export function readEdgeSession(cookieValue: string | undefined): EdgeSession | null {
-  if (!cookieValue) return null;
-  const decoded = b64url(cookieValue);
-  if (!decoded) return null;
-
-  let env: { t?: string; u?: { id?: string; is_platform_admin?: boolean } };
-  try {
-    env = JSON.parse(decoded);
-  } catch {
-    return null;
-  }
-  if (!env?.t || !env.u) return null;
-
-  const payload = b64url(env.t.split('.')[1] ?? '');
-  if (!payload) return null;
-  let claims: { sub?: string; exp?: number };
-  try {
-    claims = JSON.parse(payload);
-  } catch {
-    return null;
-  }
-  if (typeof claims.exp === 'number' && claims.exp * 1000 <= Date.now()) return null;
-
-  const userId = claims.sub ?? env.u.id;
-  if (!userId) return null;
-  return { userId, isPlatformAdmin: env.u.is_platform_admin === true };
+/** May this session be treated as a platform admin? Fails closed when unverified. */
+export function mayActAsPlatformAdmin(session: EdgeSession): boolean {
+  if (!session.isPlatformAdmin) return false;
+  return session.verified || allowUnverifiedPrivilege();
 }

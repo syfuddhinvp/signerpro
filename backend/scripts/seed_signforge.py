@@ -656,9 +656,13 @@ FLAG_OVERRIDES: list[tuple[str, str, bool]] = [
 
 # state.tsx :: INITIAL_STATE.security — platform_service seeds the catalogue;
 # these are the design's toggle positions.
+# None of these controls is implemented (see SECURITY_CONTROLS in
+# app/services/platform_service.py, which reports them as
+# implemented=False / enforced=False). Seeding any of them "enabled" would
+# advertise a control that does not exist, so they all ship off.
 SECURITY_STATE: dict[str, bool] = {
-    "sso": True, "scim": True, "ipAllow": False,
-    "residency": True, "keyRotation": True, "dlp": False,
+    "sso": False, "scim": False, "ipAllow": False,
+    "residency": False, "keyRotation": False, "dlp": False,
 }
 
 # data.ts :: INTEGRATIONS
@@ -777,6 +781,20 @@ def _months_before(moment: datetime, months: int) -> datetime:
 
 def _month_start(moment: datetime) -> datetime:
     return moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _period_end(moment: datetime) -> datetime:
+    """End of the current billing period, never in the near past.
+
+    The obvious choice — the 1st of next month — makes every seeded
+    subscription lapse the moment the calendar rolls over: ``effective_status``
+    reads a past ``current_period_end`` as ``expired``, and every billable
+    action (create a document, upload its PDF, send it) then answers 402. A
+    database seeded on the 31st was dead on the 1st. Keeping the period at
+    least 30 days out leaves a freshly seeded environment usable.
+    """
+    month_end = _month_start(_months_before(moment, -1))
+    return max(month_end, moment + timedelta(days=30))
 
 
 class Seeder:
@@ -969,7 +987,7 @@ def _seed_subscriptions(s: Seeder) -> None:
                 "plan_id": plan.id,
                 "status": status,
                 "current_period_start": _month_start(s.now),
-                "current_period_end": _month_start(_months_before(s.now, -1)),
+                "current_period_end": _period_end(s.now),
                 "trial_ends_at": s.now + timedelta(days=4) if status == "trialing" else None,
                 # A canceled tenant needs a cancellation stamp or the revenue
                 # screen treats it as having never paid, and churn stays empty.
@@ -994,7 +1012,7 @@ def _seed_subscriptions(s: Seeder) -> None:
             "plan_id": s.plans["enterprise"].id,
             "status": "active",
             "current_period_start": _month_start(s.now),
-            "current_period_end": _month_start(_months_before(s.now, -1)),
+            "current_period_end": _period_end(s.now),
             "provider": "dev",
             "created_at": _months_before(s.now, 36),
         },

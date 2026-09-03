@@ -16,9 +16,9 @@ class Signature(Base, UUIDPrimaryKeyMixin):
         Index("ix_signatures_field_id", "field_id"),
     )
 
-    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), nullable=False)
-    recipient_id: Mapped[str] = mapped_column(ForeignKey("recipients.id"), nullable=False)
-    field_id: Mapped[str] = mapped_column(ForeignKey("fields.id"), nullable=False)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    recipient_id: Mapped[str] = mapped_column(ForeignKey("recipients.id", ondelete="CASCADE"), nullable=False)
+    field_id: Mapped[str] = mapped_column(ForeignKey("fields.id", ondelete="CASCADE"), nullable=False)
     signature_type: Mapped[SignatureType] = mapped_column(Enum(SignatureType), nullable=False)
     signature_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     signature_image_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)

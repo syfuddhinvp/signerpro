@@ -15,8 +15,8 @@ class SigningToken(Base, UUIDPrimaryKeyMixin):
         Index("ix_signing_tokens_recipient_id", "recipient_id"),
     )
 
-    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), nullable=False)
-    recipient_id: Mapped[str] = mapped_column(ForeignKey("recipients.id"), nullable=False)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    recipient_id: Mapped[str] = mapped_column(ForeignKey("recipients.id", ondelete="CASCADE"), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

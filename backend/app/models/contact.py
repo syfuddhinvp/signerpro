@@ -21,7 +21,7 @@ class Contact(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_contacts_group", "group_key"),
     )
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -35,14 +35,14 @@ class Contact(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     color: Mapped[str | None] = mapped_column(String(9), nullable=True)
     last_signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class ContactGroup(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "contact_groups"
     __table_args__ = (Index("uq_contact_groups_org_key", "organization_id", "key", unique=True),)
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     key: Mapped[str] = mapped_column(String(40), nullable=False)
     label: Mapped[str] = mapped_column(String(80), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

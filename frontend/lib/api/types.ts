@@ -36,7 +36,12 @@ export type RecipientStatus = 'waiting' | 'sent' | 'viewed' | 'completed' | 'dec
 /** `app/models/enums.py:FieldType` */
 export type FieldType =
   | 'signature' | 'initials' | 'full_name' | 'date' | 'text' | 'email' | 'phone'
-  | 'checkbox' | 'dropdown' | 'title' | 'company' | 'address' | 'currency' | 'number' | 'radio';
+  | 'checkbox' | 'dropdown' | 'title' | 'company' | 'address' | 'currency' | 'number' | 'radio'
+  // FLD-1: the backend enum accepts these four; the builder used to flatten
+  // them to `text`/`date` on the first save, which is what made `attachment`
+  // fields unreachable from the signing surface even after they got a real
+  // upload endpoint.
+  | 'stamp' | 'attachment' | 'formula' | 'datetime';
 /** `app/schemas/recipient.py:RecipientRole` */
 export type RecipientRole = 'sign' | 'approve' | 'copy' | 'inperson';
 /** `app/schemas/document.py` */
@@ -266,6 +271,14 @@ export type DocumentCounts = {
   archived: number;
   trashed: number;
   templates: number;
+  /* one key per library `quick` bucket — same predicate as the list it badges */
+  inbox: number;
+  outbox: number;
+  drafts: number;
+  favorites: number;
+  expiring: number;
+  shared: number;
+  mine: number;
 };
 
 export type DocumentLibraryPage = {
@@ -495,6 +508,29 @@ export type ContactImportResponse = {
 };
 
 export type ContactAddRecipientsRequest = { document_id: string; contact_ids: string[] };
+
+/* ── teams (schemas/team.py) ─────────────────────────────────────────────── */
+
+export type TeamMemberRow = {
+  user_id: UUID;
+  name: string;
+  email: string;
+  role: string;
+};
+
+export type TeamResponse = {
+  id: UUID;
+  organization_id: UUID;
+  name: string;
+  description: string | null;
+  member_count: number;
+  /** Live, non-template documents filed in this team's folders. */
+  document_count: number;
+  template_count: number;
+  /** `lead`/`member` when the caller belongs to the team, else null. */
+  my_role: string | null;
+  members: TeamMemberRow[];
+};
 
 /* ── folders (schemas/folder.py) ────────────────────────────────────────── */
 
@@ -741,7 +777,32 @@ export type ChargeResponse = {
   description: string | null;
 };
 
-export type CheckoutResponse = { session_id: string; url: string; provider: string; plan_code: string };
+/**
+ * Hosted mode returns a `url` to redirect to; embedded mode returns a
+ * `client_secret` the browser mounts Stripe's own iframe with and no url.
+ * Exactly one of the two is populated — treat either as sufficient, and
+ * neither as a failure to report rather than a blank frame to render.
+ */
+export type CheckoutResponse = {
+  session_id: string;
+  provider: string;
+  plan_code: string;
+  url: string | null;
+  client_secret: string | null;
+  mode: string;
+  ui_mode: string;
+  /** False for a provider test-mode session. Badged in the UI. */
+  livemode: boolean;
+};
+
+/** The provider's own word on a session, read server-side after the return_url. */
+export type CheckoutStatusResponse = {
+  session_id: string;
+  status: string;
+  mode: string;
+  applied: boolean;
+  payment_method_id: string | null;
+};
 
 export type SeatChangeResponse = {
   subscription: SubscriptionResponse;
@@ -948,7 +1009,10 @@ export type PlatformOverview = {
   envelopes_30d: number;
   mrr_cents: number;
   incidents_90d: number;
-  uptime_pct: number;
+  /** `null` unless a real availability signal exists — nothing measures uptime. */
+  uptime_pct: number | null;
+  /** Error-level log entries in the last 24h. The real, measured figure. */
+  errors_24h: number;
   mrr_series: number[];
   health: PlatformHealthRow[];
 };
@@ -967,12 +1031,25 @@ export type FeatureFlagResponse = {
 
 export type FlagOverridesResponse = { key: string; organization_ids: UUID[] };
 
-export type SecurityPostureRow = { key: string; label: string; detail: string | null; enabled: boolean };
+export type SecurityPostureRow = {
+  key: string;
+  label: string;
+  detail: string | null;
+  enabled: boolean;
+  /** False when nothing in the codebase enforces this control. */
+  implemented: boolean;
+  /** `enabled` is only meaningful when the control exists: `implemented && enabled`. */
+  enforced: boolean;
+};
 
 export type ComplianceResponse = {
   certifications: { name: string; status: string }[];
   last_key_rotation_at: IsoDateTime | null;
   rotation_interval_days: number;
+  /** False while no key-rotation job exists. */
+  key_rotation_implemented: boolean;
+  /** What the certification statuses do and do not mean. Render it. */
+  disclaimer: string;
 };
 
 export type SystemLogRow = {

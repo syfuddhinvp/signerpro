@@ -493,8 +493,10 @@ def test_security_posture_certifications_and_api_keys(seeded: Session) -> None:
     posture = {row.key: row for row in seeded.scalars(select(SecurityPosture))}
     for key, enabled in seed_signforge.SECURITY_STATE.items():
         assert posture[key].enabled is enabled
-    assert any(row.enabled for row in posture.values())
-    assert any(not row.enabled for row in posture.values())
+    # None of the six controls is implemented (platform_service reports them
+    # implemented=False / enforced=False), so the seed must not switch any of
+    # them on -- an enabled row would advertise a control that does not exist.
+    assert not any(row.enabled for row in posture.values())
 
     assert _count(seeded, Certification) >= 8
 

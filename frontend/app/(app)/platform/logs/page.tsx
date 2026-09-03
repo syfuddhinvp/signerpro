@@ -19,6 +19,9 @@ export default async function Page() {
   return (
     <Logs
       page={pageResult.ok ? pageResult.data : EMPTY_PAGE}
+      /* An empty page and an unreachable API look identical to the screen; the
+         error is passed through so it can say which one happened. */
+      loadError={pageResult.ok ? null : pageResult.error.message}
       scope="platform"
       sinceDays={SINCE_DAYS}
       /* The platform footer prints "all tenants", so no single slug applies. */

@@ -32,7 +32,7 @@ class ApiKey(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_api_keys_key_hash", "key_hash", unique=True),
     )
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     label: Mapped[str] = mapped_column(String(120), nullable=False)
     # live | test
     mode: Mapped[str] = mapped_column(String(10), nullable=False, default="test", server_default="test")
@@ -41,7 +41,7 @@ class ApiKey(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     last_four: Mapped[str] = mapped_column(String(4), nullable=False, default="", server_default="")
     key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     scopes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

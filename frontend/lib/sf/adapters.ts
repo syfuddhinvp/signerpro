@@ -557,28 +557,46 @@ export function libraryFolderLabel(
 /* ── builder: fields, recipients, routing ───────────────────────────────── */
 
 /**
- * The builder canvas is a US-Letter sheet drawn at 96 dpi (816 × 1056 CSS px);
- * the API stores field geometry in PDF points (72 dpi — 612 × 792 for Letter).
- * One conversion factor covers both directions, so a field authored at x=96px
- * lands at x=72pt and comes back at 96px.
+ * CANONICAL FIELD COORDINATE SPACE — the browser half of the seam documented in
+ * `backend/app/services/pdf_service.py` (`coordinate convention`).
  *
- * `field_service._validate_coordinates` checks the rectangle against the real
- * mediabox of the uploaded page, so a non-Letter PDF can legitimately reject a
- * field near the right or bottom edge. That 400 is surfaced in the toast rather
- * than swallowed.
+ * Field geometry is **PDF points with a top-left origin**, everywhere: in the
+ * database, on the wire, in `SFField`, and in the builder's and signer's own
+ * state. `y` is the distance from the *top* of the page down to the field's
+ * *top* edge — the same direction CSS `top` measures, which is why the overlay
+ * can bind `top: y * scale` with no arithmetic of its own.
+ *
+ * There is therefore **no unit conversion in this file at all**. The only
+ * transform in the whole system is the origin flip ReportLab needs, and it
+ * happens once, server-side, in `PdfService._pdf_y`. (Before that seam existed
+ * this module scaled px→pt by 3/4 with no flip, so a signature authored near
+ * the top of the sheet was stamped near the bottom of the executed contract —
+ * audit finding C1.)
+ *
+ * The browser's *scale* — how many CSS pixels one point is drawn as — is not a
+ * constant here either. It comes from the rendered page: pdf.js reports each
+ * page's true size in points (`page.getViewport({ scale: 1 })`), so an A4,
+ * Legal, landscape or mixed-size PDF lays its fields out correctly by
+ * construction. See `components/sf/pdf/PdfPageCanvas.tsx`.
+ *
+ * `field_service._validate_coordinates` still checks the rectangle against the
+ * real mediabox, so a field dragged past the right or bottom edge is a 400 that
+ * is surfaced in the toast rather than swallowed.
  */
-export const PX_PER_PT = 4 / 3;
-export const PT_PER_PX = 3 / 4;
 
-const pxFromPt = (pt: number): number => Math.round(Number(pt) * PX_PER_PT);
-const ptFromPx = (px: number): number => Number((Number(px) * PT_PER_PX).toFixed(4));
+/** Identity, kept as named seams so a future unit change has one place to live. */
+const pxFromPt = (pt: number): number => Number(pt);
+const ptFromPx = (px: number): number => Number(Number(px).toFixed(4));
 
 /**
- * The prototype's palette (`TYPES` in data.ts) is not the backend's `FieldType`
- * enum. Two of the design's tools have no column value at all.
+ * The prototype's palette (`TYPES` in data.ts) and the backend's `FieldType`
+ * enum, in both directions.
  *
- * FALLBACK: `stamp`, `attachment` and `formula` are stored as `text`, and
- * `datetime` as `date` — the closest types the API models. `toBuilderField`
+ * `stamp`, `attachment`, `formula` and `datetime` used to be flattened to
+ * `text`/`date` here even though the API models all four (audit §4, field-type
+ * matrix). That flattening is what kept `attachment` fields unreachable: the
+ * signing surface picks the upload control off the stored type, so a field
+ * saved as `text` could never offer one. `toBuilderField`
  * remembers the row's real API type in the extras record below, so a field the
  * API calls `phone`/`title`/`company`/`address` (all of which the design can
  * only draw as a Text Input) keeps its type across a save round-trip instead of
@@ -596,10 +614,10 @@ const API_FIELD_TYPE: Dict<ApiFieldType> = {
   dropdown: 'dropdown',
   number: 'number',
   currency: 'currency',
-  stamp: 'text',
-  attachment: 'text',
-  formula: 'text',
-  datetime: 'date',
+  stamp: 'stamp',
+  attachment: 'attachment',
+  formula: 'formula',
+  datetime: 'datetime',
 };
 
 const BUILDER_FIELD_TYPE: Record<ApiFieldType, string> = {
@@ -618,6 +636,10 @@ const BUILDER_FIELD_TYPE: Record<ApiFieldType, string> = {
   currency: 'currency',
   number: 'number',
   radio: 'radio',
+  stamp: 'stamp',
+  attachment: 'attachment',
+  formula: 'formula',
+  datetime: 'datetime',
 };
 
 export function builderFieldType(apiType: string): string {
@@ -835,6 +857,53 @@ export function toBuilderRecipients(items: RecipientResponse[]): Recipient[] {
 }
 
 /**
+ * A display name for an address the sender typed without one.
+ *
+ * Email is the only thing that identifies a recipient, and the sender should not
+ * have to fill in a name to send an envelope — but `name` is required on both
+ * `RecipientCreate` and `ContactCreate` (min_length=1), so the local part
+ * stands in for it: `sarah.mitchell@acme.io` → `Sarah Mitchell`. An address
+ * that carries no usable local part falls back to the address itself.
+ */
+export function displayNameFromEmail(email: string): string {
+  const local = String(email ?? '').trim().toLowerCase().split('@')[0] || '';
+  const words = local
+    .split(/[._+-]+/)
+    .filter(Boolean)
+    // A digit-only fragment ("sarah.2") is noise in a display name.
+    .filter(part => !/^\d+$/.test(part))
+    .map(part => part[0].toUpperCase() + part.slice(1));
+  return words.length ? words.join(' ') : (String(email ?? '').trim() || 'Recipient');
+}
+
+/**
+ * A recipient the sender has just typed in, before the API has seen it.
+ *
+ * The id is deliberately a `local-` string: `toRecipientSetItems` sends an `id`
+ * only for rows the server already knows, so this one is created rather than
+ * rejected as "does not belong to this document", and `saveRecipients` re-keys
+ * it to the server id once the write lands.
+ */
+export function newBuilderRecipient(name: string, email: string, existing: Recipient[] = []): Recipient {
+  const typed = String(name ?? '').trim();
+  return {
+    id: 'local-' + Date.now().toString(36) + '-' + existing.length,
+    // Name is optional in the UI; the API insists on one.
+    name: typed || displayNameFromEmail(email),
+    email: String(email ?? '').trim().toLowerCase(),
+    role: 'sign',
+    color: CONTACT_PALETTE[existing.length % CONTACT_PALETTE.length],
+    order: existing.length + 1,
+    status: builderRecipientStatusLabel('waiting'),
+  };
+}
+
+/** Whether an id was minted by `newBuilderRecipient` and not yet persisted. */
+export function isLocalRecipientId(id: string): boolean {
+  return String(id ?? '').startsWith('local-');
+}
+
+/**
  * `Recipient[]` → `PUT /api/documents/{id}/recipients` (a full replace that
  * also fixes the signing order). As with fields, an id is sent only for a row
  * the server already knows.
@@ -981,7 +1050,18 @@ export type SignerField = SFField & {
   options: string[];
   /** Server-side value, so a reload shows what has already been saved. */
   savedValue: string | null;
+  /** What the sender pre-filled, shown when the signer has saved nothing yet. */
+  defaultValue: string | null;
 };
+
+/**
+ * The choices a dropdown/radio field was authored with, in whichever shape the
+ * API row holds them: a bare array, `{choices: [...]}` or `{options: [...]}`.
+ * Both the signing surface and the builder's inspector read them through here.
+ */
+export function fieldChoices(options: FieldResponse['options']): string[] {
+  return fieldOptions(options);
+}
 
 function fieldOptions(options: FieldResponse['options']): string[] {
   if (Array.isArray(options)) return options.map(entry => String(entry));
@@ -1023,6 +1103,7 @@ export function toSignerField(api: FieldResponse): SignerField {
     apiType: api.type,
     options: fieldOptions(api.options),
     savedValue: api.value,
+    defaultValue: api.default_value ?? null,
   };
 }
 
@@ -1041,10 +1122,13 @@ export function toSignerFields(items: FieldResponse[]): SignerField[] {
 export function toSignValues(items: SignerField[]): Dict<unknown> {
   const values: Dict<unknown> = {};
   for (const field of items) {
-    if (field.savedValue === null || field.savedValue === '') continue;
-    if (field.type === 'checkbox') values[field.id] = field.savedValue === 'true';
-    else if (field.type === 'signature' || field.type === 'initials') values[field.id] = `typed:Caveat:${field.savedValue}`;
-    else values[field.id] = field.savedValue;
+    // A saved value is the signer's own work and always wins; the sender's
+    // default only fills a field nobody has answered yet.
+    const raw = field.savedValue === null || field.savedValue === '' ? field.defaultValue : field.savedValue;
+    if (raw === null || raw === '') continue;
+    if (field.type === 'checkbox') values[field.id] = raw === 'true';
+    else if (field.type === 'signature' || field.type === 'initials') values[field.id] = `typed:Caveat:${raw}`;
+    else values[field.id] = raw;
   }
   return values;
 }
@@ -1635,13 +1719,13 @@ export function attentionHref(screen: string): string {
     audit: '/documents/audit',
     contacts: '/contacts',
     reports: '/reports',
-    billing: '/billing',
-    'settings/billing': '/billing',
-    invoices: '/billing/invoices',
-    'billing/invoices': '/billing/invoices',
+    billing: '/account/billing',
+    'settings/billing': '/account/billing',
+    invoices: '/account/invoices',
+    'billing/invoices': '/account/invoices',
     support: '/support',
-    'settings/team': '/billing',
-    'settings/security': '/billing',
+    'settings/team': '/account/billing',
+    'settings/security': '/account/billing',
   };
   const base = MAP[clean] ?? `/${clean}`;
   return query ? `${base}?${query}` : base;
@@ -2341,8 +2425,11 @@ export function toPlatformStats(overview: PlatformApi.PlatformOverview): Platfor
       meta:'last 30 days', good: true },
     { label:'MRR', value: formatCentsK(overview.mrr_cents),
       meta:'across ' + overview.tenants.active + ' active tenants', good: true },
+    /* No availability signal exists, so `uptime_pct` is null and no SLA is
+       claimed. `errors_24h` is the measured figure the tile shows instead. */
     { label:'INCIDENTS · 90D', value:String(overview.incidents_90d),
-      meta: overview.uptime_pct.toFixed(2) + '% signing uptime', good: overview.incidents_90d === 0 },
+      meta: (overview.errors_24h ?? 0).toLocaleString() + ' error-level events · 24h',
+      good: overview.incidents_90d === 0 && (overview.errors_24h ?? 0) === 0 },
   ];
 }
 
@@ -2521,10 +2608,27 @@ export function toFlagRows(items: PlatformApi.FeatureFlagResponse[]): FlagRow[] 
 }
 
 /** Security-posture row (`SEC_DEFS` in the prototype). */
-export type SecurityRow = { key: string; label: string; meta: string; on: boolean };
+export type SecurityRow = {
+  key: string;
+  label: string;
+  meta: string;
+  /** The stored preference. Only meaningful when `implemented` is true. */
+  on: boolean;
+  /** Whether any code path enforces this control. All six are currently false. */
+  implemented: boolean;
+  /** `implemented && on` — the only honest "this control is active" signal. */
+  enforced: boolean;
+};
 
 export function toSecurityRows(items: PlatformApi.SecurityPostureRow[]): SecurityRow[] {
-  return items.map(r => ({ key: r.key, label: r.label, meta: r.detail || EMPTY, on: r.enabled }));
+  return items.map(r => ({
+    key: r.key,
+    label: r.label,
+    meta: r.detail || EMPTY,
+    on: r.enabled,
+    implemented: r.implemented ?? false,
+    enforced: r.enforced ?? false,
+  }));
 }
 
 /** Certification chip. `in_process` renders the design's "(in process)" suffix. */
@@ -2538,9 +2642,16 @@ export function toCertificationLabels(api: PlatformApi.ComplianceResponse): stri
 
 /** The compliance footnote, carrying the API's real rotation interval. */
 export function toComplianceNote(api: PlatformApi.ComplianceResponse): string {
-  const rotated = api.last_key_rotation_at ? formatRelative(api.last_key_rotation_at) : 'not yet recorded';
-  return 'Residency enforced per tenant. Key material is HSM-backed with ' + api.rotation_interval_days +
-    '-day rotation (last rotation ' + rotated + '); document hashes are anchored hourly to an append-only ledger.';
+  /* The old copy asserted per-tenant residency, HSM-backed key material, a
+     rotation cadence and hourly ledger anchoring. None of those exist. The
+     note now carries only the API's own disclaimer plus the rotation facts as
+     the API states them. */
+  const rotation = api.key_rotation_implemented
+    ? 'Key rotation runs on a ' + api.rotation_interval_days + '-day interval (last rotation ' +
+      (api.last_key_rotation_at ? formatRelative(api.last_key_rotation_at) : 'not yet recorded') + ').'
+    : 'Key rotation is not implemented — the ' + api.rotation_interval_days +
+      '-day interval is a target, not a schedule anything runs.';
+  return [api.disclaimer, rotation].filter(Boolean).join(' ');
 }
 
 /** Dunning queue row (`DUNNING` in the prototype: `[tenant, meta]`). */

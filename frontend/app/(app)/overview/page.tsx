@@ -16,6 +16,7 @@
 
 import type { Metadata } from 'next';
 import TenantHome from '@/components/sf/screens/TenantHome';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 import { serverCaller } from '@/lib/api/client';
 import { billing as billingApi, organizations as organizationsApi } from '@/lib/api/resources';
 import {
@@ -47,8 +48,16 @@ export default async function Page() {
 
   const series = overview.series?.length ? overview.series : EMPTY_ORG_OVERVIEW.series;
 
+  /* A failed aggregate used to render as a healthy, empty workspace — every
+     tile zero, no indication that nothing was measured. Say so instead. */
   return (
-    <TenantHome
+    <>
+      {overviewResult.ok ? null : (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Your workspace overview" detail={overviewResult.error.message} />
+        </div>
+      )}
+      <TenantHome
       banner={toOverviewBanner(org, subscription)}
       stats={toOverviewStats(overview)}
       series={series}
@@ -56,8 +65,9 @@ export default async function Page() {
       attention={toOverviewAttention(overview.attention ?? [])}
       spend={toOverviewSpend(overview.spend_lines ?? [])}
       team={toOverviewTeam(overview.team ?? [])}
-      nextInvoiceMeta={subscriptionNote(subscription)}
-    />
+        nextInvoiceMeta={subscriptionNote(subscription)}
+      />
+    </>
   );
 }
 

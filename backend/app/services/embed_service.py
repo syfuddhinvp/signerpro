@@ -156,14 +156,38 @@ class EmbedService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Embed session is invalid")
         if self.is_expired(session):
             raise HTTPException(status_code=status.HTTP_410_GONE, detail="Embed session has expired")
+        # Single-use, as the route has always claimed. ``consumed_at`` was
+        # stamped but never checked, so a leaked URL replayed indefinitely
+        # until it expired.
+        if session.consumed_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="Embed session has already been used",
+            )
+
         allowed = [_normalize_origin(item) for item in (session.allowed_origins or [])]
         if allowed:
             if not origin or _normalize_origin(origin) not in allowed:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Origin is not allowed for this embed session")
-        if session.consumed_at is None:
-            session.consumed_at = datetime.now(timezone.utc)
-            db.commit()
-            db.refresh(session)
+        elif origin is not None:
+            # No allowlist is the default for every new organization, and the
+            # check used to be skipped entirely in that case — a leaked embed
+            # URL worked from any site. Fail closed instead: with nothing
+            # configured, only first-party (our own app) and server-side
+            # (no Origin header) exchanges are honoured.
+            if _normalize_origin(origin) != _normalize_origin(get_settings().app_base_url):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "This organization has no embed allowlist configured, so only "
+                        "first-party origins may exchange a session. Set allowed_origins "
+                        "in the embed settings."
+                    ),
+                )
+
+        session.consumed_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(session)
         return session
 
 

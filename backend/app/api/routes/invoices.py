@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_org_admin, require_platform_admin
+from app.api.deps import get_current_user, request_ip, require_org_admin, require_platform_admin
 from app.core.database import get_db
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mixins import now_utc
@@ -15,6 +15,7 @@ from app.schemas.operations import (
     InvoiceVoid,
     PlatformInvoiceResponse,
 )
+from app.services import platform_service
 from app.services.billing_service import billing_service
 
 router = APIRouter(prefix="/api", tags=["invoices"])
@@ -192,6 +193,35 @@ def invoice_receipt(
 # ---------------------------------------------------------------------------
 
 
+def _audit(
+    db: Session,
+    *,
+    admin: User,
+    request: Request,
+    invoice: Invoice,
+    action: str,
+    detail: str,
+    metadata: dict | None = None,
+) -> None:
+    """Record a platform-operator action on a tenant's invoice.
+
+    Marking an invoice paid, voiding it and re-attempting collection all move
+    money (or the record of it) and all used to leave no trace whatsoever.
+    ``billing_service`` has already committed by the time these run, so the
+    audit row is committed here too rather than left dangling in the session.
+    """
+    platform_service.record_platform_audit(
+        db,
+        action=action,
+        actor=admin,
+        organization_id=invoice.organization_id,
+        detail=detail,
+        ip_address=request_ip(request),
+        metadata={"invoice_id": invoice.id, "number": invoice.number, **(metadata or {})},
+    )
+    db.commit()
+
+
 @router.get("/saas/invoices", response_model=list[PlatformInvoiceResponse])
 def list_all_invoices(
     status_filter: str | None = Query(default=None, alias="status"),
@@ -214,6 +244,7 @@ def list_all_invoices(
 def mark_invoice_paid(
     invoice_id: str,
     payload: InvoiceMarkPaid,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_platform_admin),
 ) -> PlatformInvoiceResponse:
@@ -222,6 +253,15 @@ def mark_invoice_paid(
     invoice = billing_service.mark_invoice_paid(
         db, invoice=invoice, amount_cents=payload.amount_cents
     )
+    _audit(
+        db,
+        admin=admin,
+        request=request,
+        invoice=invoice,
+        action="invoice.marked_paid",
+        detail=f"Invoice {invoice.number} marked paid outside the provider",
+        metadata={"amount_cents": payload.amount_cents},
+    )
     return _platform_response(invoice, _org_name(db, invoice.organization_id))
 
 
@@ -229,12 +269,22 @@ def mark_invoice_paid(
 def void_invoice(
     invoice_id: str,
     payload: InvoiceVoid,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_platform_admin),
 ) -> PlatformInvoiceResponse:
     """Void an unpaid invoice. Idempotent; a paid invoice is a 409."""
     invoice = _load(db, invoice_id, organization_id=None)
     invoice = billing_service.void_invoice(db, invoice=invoice, reason=payload.reason)
+    _audit(
+        db,
+        admin=admin,
+        request=request,
+        invoice=invoice,
+        action="invoice.voided",
+        detail=f"Invoice {invoice.number} voided: {payload.reason}",
+        metadata={"reason": payload.reason},
+    )
     return _platform_response(invoice, _org_name(db, invoice.organization_id))
 
 
@@ -242,6 +292,7 @@ def void_invoice(
 def retry_invoice_payment(
     invoice_id: str,
     payload: InvoicePayRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_platform_admin),
 ) -> PlatformInvoiceResponse:
@@ -249,5 +300,14 @@ def retry_invoice_payment(
     invoice = _load(db, invoice_id, organization_id=None)
     invoice = billing_service.collect_invoice(
         db, invoice=invoice, payment_method_id=payload.payment_method_id
+    )
+    _audit(
+        db,
+        admin=admin,
+        request=request,
+        invoice=invoice,
+        action="invoice.payment_retried",
+        detail=f"Collection re-attempted on invoice {invoice.number} -> {invoice.status}",
+        metadata={"status": str(invoice.status)},
     )
     return _platform_response(invoice, _org_name(db, invoice.organization_id))

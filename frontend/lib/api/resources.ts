@@ -131,6 +131,17 @@ export const documents = {
   remind: (c: Caller, id: string) =>
     post<{ signing_links: { recipient_id: string; email: string; signing_link: string }[] }>(c, `/api/documents/${id}/remind`),
   generateFinalPdf: (c: Caller, id: string) => post<T.DocumentResponse>(c, `/api/documents/${id}/generate-final-pdf`),
+  /**
+   * `POST /api/documents/{id}/upload-pdf` — multipart, one PDF per envelope.
+   * The backend refuses a second upload (409), rejects non-PDF bytes (400) and
+   * anything over `max_upload_bytes` (413).
+   */
+  uploadPdf: (c: Caller, id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('upload', file, file.name);
+    // A 25 MB PDF over a slow link needs more than the 15s default deadline.
+    return c<T.UploadPdfResponse>(`/api/documents/${id}/upload-pdf`, { method: 'POST', formData, timeoutMs: 120_000 });
+  },
   /** `GET /api/documents/{id}/pdf` streams a PDF — link to it, don't JSON-fetch it. */
   pdfPath: (id: string) => `/api/documents/${id}/pdf`,
   finalPdfPath: (id: string) => `/api/documents/${id}/final-pdf`,
@@ -162,8 +173,14 @@ export const recipients = {
     patch<T.RecipientResponse>(c, `/api/documents/${documentId}/recipients/${recipientId}`, body),
   remove: (c: Caller, documentId: string, recipientId: string) =>
     del<void>(c, `/api/documents/${documentId}/recipients/${recipientId}`),
+  /** `POST .../resend` — issues a fresh signing link for one recipient and
+   *  emails it. The previous link for that signer is superseded either way. */
   resend: (c: Caller, documentId: string, recipientId: string) =>
     post<{ email: string; signing_link: string }>(c, `/api/documents/${documentId}/recipients/${recipientId}/resend`),
+  /** The same call with `notify=false`: hands the link back without sending an
+   *  email, which is what "copy link" needs. */
+  signingLink: (c: Caller, documentId: string, recipientId: string) =>
+    post<{ email: string; signing_link: string }>(c, `/api/documents/${documentId}/recipients/${recipientId}/resend?notify=false`),
 };
 
 /* ── contacts ───────────────────────────────────────────────────────────── */
@@ -189,6 +206,16 @@ export const contacts = {
 };
 
 /* ── folders & templates ────────────────────────────────────────────────── */
+
+export const teams = {
+  list: (c: Caller) => get<T.TeamResponse[]>(c, '/api/teams'),
+  get: (c: Caller, id: string) => get<T.TeamResponse>(c, `/api/teams/${id}`),
+  create: (c: Caller, body: { name: string; description?: string | null }) =>
+    post<T.TeamResponse>(c, '/api/teams', body),
+  update: (c: Caller, id: string, body: { name?: string; description?: string | null }) =>
+    patch<T.TeamResponse>(c, `/api/teams/${id}`, body),
+  remove: (c: Caller, id: string) => del<void>(c, `/api/teams/${id}`),
+};
 
 export const folders = {
   list: (c: Caller) => get<T.FolderResponse[]>(c, '/api/folders'),
@@ -233,8 +260,22 @@ export const billing = {
   removePaymentMethod: (c: Caller, id: string) => del<void>(c, `/api/billing/payment-methods/${id}`),
   upcomingInvoice: (c: Caller) => get<T.UpcomingInvoiceResponse>(c, '/api/billing/upcoming-invoice'),
   charges: (c: Caller, params?: { limit?: number }) => get<T.ChargeResponse[]>(c, '/api/billing/charges', params),
-  checkout: (c: Caller, body: { plan_code: string; success_url?: string; cancel_url?: string }) =>
-    post<T.CheckoutResponse>(c, '/api/billing/checkout', body),
+  checkout: (
+    c: Caller,
+    body: {
+      plan_code: string;
+      success_url?: string;
+      cancel_url?: string;
+      ui_mode?: 'hosted' | 'embedded';
+      return_url?: string;
+    },
+  ) => post<T.CheckoutResponse>(c, '/api/billing/checkout', body),
+  /** Save an instrument without buying anything — the card form's replacement. */
+  setupSession: (c: Caller, body: { return_url?: string; ui_mode?: 'hosted' | 'embedded' } = {}) =>
+    post<T.CheckoutResponse>(c, '/api/billing/setup-session', body),
+  /** Confirm a session with the provider. A redirect back is not a receipt. */
+  confirmCheckout: (c: Caller, sessionId: string) =>
+    get<T.CheckoutStatusResponse>(c, `/api/billing/checkout/${encodeURIComponent(sessionId)}`),
   changePlan: (c: Caller, plan_code: string) => post<T.SubscriptionResponse>(c, '/api/billing/change-plan', { plan_code }),
   previewChangePlan: (c: Caller, params: { plan_code: string }) =>
     get<T.PlanChangePreview>(c, '/api/billing/change-plan/preview', params),
@@ -244,7 +285,8 @@ export const billing = {
 };
 
 export const invoices = {
-  list: (c: Caller, params?: { status?: string }) => get<T.InvoiceResponse[]>(c, '/api/invoices', params),
+  list: (c: Caller, params?: { status?: string; scope?: string }) =>
+    get<T.InvoiceResponse[]>(c, '/api/invoices', params),
   get: (c: Caller, id: string) => get<T.InvoiceResponse>(c, `/api/invoices/${id}`),
   pay: (c: Caller, id: string, payment_method_id?: string) =>
     post<T.InvoiceResponse>(c, `/api/invoices/${id}/pay`, { payment_method_id: payment_method_id ?? null }),
@@ -292,6 +334,12 @@ export const audit = {
    *  certificate under a `/summary` action, not on the collection itself. */
   certificate: (c: Caller, documentId: string) =>
     get<T.CertificateSummaryResponse>(c, `/api/documents/${documentId}/certificate/summary`),
+  /** `GET /api/documents/{id}/certificate/pdf` streams the certificate of
+   *  completion — download it with `apiDownload`, don't JSON-fetch it. */
+  certificatePdfPath: (documentId: string) => `/api/documents/${documentId}/certificate/pdf`,
+  /** `GET /api/documents/{id}/certificate/full` — the document *and* its
+   *  certificate as one PDF (for a sealed envelope, `final.pdf` itself). */
+  documentWithCertificatePath: (documentId: string) => `/api/documents/${documentId}/certificate/full`,
 };
 
 export const logs = {

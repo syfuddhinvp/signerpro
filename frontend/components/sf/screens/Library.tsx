@@ -8,19 +8,24 @@
  * markup below is untouched apart from an empty-state branch the prototype's
  * always-populated mock never needed. */
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
-import type { ScreenKey } from '@/lib/sf/routes';
-import { btn, pill, linkBtn } from '@/lib/sf/ui';
+import { documentPathFor, type ScreenKey } from '@/lib/sf/routes';
+import { btn, pill, linkBtn, BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
 import {
   QUICK_ACCESS, LIB_FOLDERS, LIB_FILTER_DEFS, LIB_SORT_OPTIONS, ROW_ACTIONS,
   STATUS,
 } from '@/lib/sf/data';
+import { DOCUMENT_FOLDERS, DOCUMENT_VIEWS, badge, folderHref } from '@/lib/sf/navigation';
 import { apiCall, apiDownload, saveBlob } from '@/lib/api/browser';
 import type { ApiResult } from '@/lib/api/result';
-import { documents as documentsApi, templates as templatesApi } from '@/lib/api/resources';
+import type { DocumentCounts } from '@/lib/api/types';
+import { audit as auditApi, documents as documentsApi, folders as foldersApi, templates as templatesApi } from '@/lib/api/resources';
+import { useDialogs } from '@/components/sf/DialogProvider';
+import UploadDocument from '@/components/sf/UploadDocument';
 import {
   libraryFiltersToQuery, libraryFolderLabel,
   type FolderOption, type LibraryFilters, type LibraryRow, type TemplateRow,
@@ -34,67 +39,64 @@ export type LibraryProps = {
   /** Real templates, for the `templates` folder view. */
   templates: TemplateRow[];
   templateTotal: number;
-  /** `GET /api/folders/tree`, flattened — the "Move to folder" targets. */
+  /** `GET /api/folders/tree`, flattened — the "Move to folder" targets, and
+   *  the folder chips below the filters. */
   folderOptions: FolderOption[];
+  /** `GET /api/documents/counts` — the figure beside each view and folder.
+   *  Partial: a failed counts call leaves the chips unbadged rather than
+   *  printing a fabricated zero. */
+  counts?: Partial<DocumentCounts>;
   /** The filters the URL asked for, so a shared link seeds the selects. */
   initialFilters: LibraryFilters;
 };
 
-/** Row actions the design lists that no endpoint backs yet — they stay toasts. */
-const UNBACKED_ACTIONS = new Set([
+/**
+ * Row actions the design lists that no endpoint backs. They are not rendered at
+ * all — the prototype made them toast-only, which told the user their document
+ * had been emailed, shared or exported when nothing had happened.
+ *
+ * `Download`, `Download with certificate` and `Print` are *not* in this set:
+ * `GET /api/documents/{id}/final-pdf` serves the executed PDF and is wired below.
+ */
+const REMOVED_ACTIONS = new Set([
   'Email a copy', 'Create invite link', 'Freeform invite', 'Notarize', 'Quick preview',
-  'Share', 'Download', 'Download with certificate', 'Print', 'Export to cloud',
-  'Merge document with…',
+  'Share', 'Export to cloud', 'Merge document with…',
 ]);
 
 export default function Library(props: LibraryProps) {
-  const { rows, total, templates, templateTotal, folderOptions, initialFilters } = props;
+  const { rows, total, templates, templateTotal, folderOptions, counts = {}, initialFilters } = props;
   const { s, set, flash, accent } = useSF();
   const { go } = useNav();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const A = accent();
+  const { askText, askChoice } = useDialogs();
 
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
 
-  /* ── filters ⇄ URL ─────────────────────────────────────────────────────
-     The selects write to the store as before; the store is mirrored into the
-     query string, which is what the server page reads. Typing is debounced so
-     a search does one refetch, not one per keystroke. */
-  const seeded = useRef(false);
-  const [seedApplied, setSeedApplied] = useState(false);
-  useEffect(() => {
-    if (seeded.current) return;
-    seeded.current = true;
-    setSeedApplied(true);
-    set({
-      libFolder: initialFilters.folder,
-      libStatus: initialFilters.status,
-      libType: initialFilters.type,
-      libTime: initialFilters.time,
-      libOwner: initialFilters.owner,
-      libSort: initialFilters.sort,
-      query: initialFilters.q,
-    });
-  }, [initialFilters, set]);
+  /* ── filters live in the URL ────────────────────────────────────────────
+     The URL is the only copy. The selects used to write to the store and an
+     effect mirrored the store back into the query string, seeded once on
+     mount — so a link that set `?folder=inbox` (which is what every sidebar
+     view row is now) changed the address bar and was immediately overwritten
+     by the stale store value. Reading straight off the server-resolved
+     filters removes the second copy and the race with it. */
+  const filters = initialFilters;
 
-  const [debouncedQuery, setDebouncedQuery] = useState(initialFilters.q);
+  const pushFilters = useCallback((patch: Partial<LibraryFilters>) => {
+    const next = libraryFiltersToQuery({ ...filters, ...patch });
+    router.replace('/documents' + next, { scroll: false });
+  }, [filters, router]);
+
+  /* Typing is the one thing that cannot go straight to the URL — that would be
+     one navigation per keystroke — so the box is local and debounced into it. */
+  const [queryDraft, setQueryDraft] = useState(initialFilters.q);
+  useEffect(() => { setQueryDraft(initialFilters.q); }, [initialFilters.q]);
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(s.query), 300);
+    if (queryDraft === filters.q) return;
+    const timer = setTimeout(() => pushFilters({ q: queryDraft }), 300);
     return () => clearTimeout(timer);
-  }, [s.query]);
-
-  const currentQuery = searchParams.toString();
-  useEffect(() => {
-    if (!seedApplied) return;
-    const next = libraryFiltersToQuery({
-      folder: s.libFolder, status: s.libStatus, type: s.libType, time: s.libTime,
-      owner: s.libOwner, q: debouncedQuery, sort: s.libSort,
-    });
-    if (next.replace(/^\?/, '') === currentQuery) return;
-    router.replace(`/documents${next}`, { scroll: false });
-  }, [s.libFolder, s.libStatus, s.libType, s.libTime, s.libOwner, s.libSort, debouncedQuery, currentQuery, router, seedApplied]);
+  }, [queryDraft, filters.q, pushFilters]);
 
   /* ── mutations ─────────────────────────────────────────────────────────
      Optimistic toast first (the prototype's behaviour), then the call, then a
@@ -108,16 +110,16 @@ export default function Library(props: LibraryProps) {
   }, [flash, router]);
 
   const libFolderLabel = libraryFolderLabel(
-    s.libFolder,
+    filters.folder,
     (QUICK_ACCESS as [string, string, number, string][])
       .map(f => [f[0], f[1]] as [string, string])
       .concat(LIB_FOLDERS.map(f => [f[0], f[1]] as [string, string])),
     folderOptions,
   );
 
-  const isTemplateFolder = s.libFolder === 'templates';
-  const isArchiveFolder = s.libFolder === 'archive';
-  const isTrashFolder = s.libFolder === 'trash';
+  const isTemplateFolder = filters.folder === 'templates';
+  const isArchiveFolder = filters.folder === 'archive';
+  const isTrashFolder = filters.folder === 'trash';
   const libDocs = rows;
 
   const libCountLabel =
@@ -126,23 +128,41 @@ export default function Library(props: LibraryProps) {
 
   const filterSelectStyle: CSSProperties = {
     height: '30px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 9px',
-    fontSize: '12px', background: '#fff', color: '#334155', outline: 'none',
+    fontSize: '.75rem', background: '#fff', color: '#334155', outline: 'none',
   };
 
+  /** `libStatus` → `status`: the store keys the design used, mapped onto the
+   *  query keys the URL and the server page speak. */
+  const FILTER_KEY: Record<string, keyof LibraryFilters> = {
+    libStatus: 'status', libType: 'type', libTime: 'time', libOwner: 'owner',
+  };
   const libFilters = LIB_FILTER_DEFS.map(([key, opts]) => ({
     key,
-    value: (s as unknown as Record<string, string>)[key],
+    value: filters[FILTER_KEY[key]],
     options: opts.map(([id, label]) => ({ id, label })),
-    onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const v = e.target.value;
-      set({ [key]: v } as never);
-    },
+    onChange: (e: React.ChangeEvent<HTMLSelectElement>) =>
+      pushFilters({ [FILTER_KEY[key]]: e.target.value } as Partial<LibraryFilters>),
     style: filterSelectStyle,
   }));
 
   const libSortOptions = LIB_SORT_OPTIONS.map(([id, label]) => ({ id, label }));
 
-  const moveTarget = folderOptions[0] ?? null;
+  /* Which folder to move into is a question for the user. It used to resolve
+     to `folderOptions[0]` — every "Move to folder" silently filed the document
+     in whichever folder happened to sort first. */
+  const NO_FOLDER = '__unfiled__';
+  const moveChoices = [{ id: NO_FOLDER, label: 'Unfiled (no folder)' }]
+    .concat(folderOptions.map(f => ({ id: f.id, label: f.name })));
+  const askFolder = async (message: string): Promise<{ id: string | null; name: string } | null> => {
+    if (!folderOptions.length) { flash('No folders yet — create one first'); return null; }
+    const picked = await askChoice({
+      title: 'Move to folder', message, label: 'Folder', options: moveChoices, cta: 'Move',
+    });
+    if (!picked) return null;
+    if (picked === NO_FOLDER) return { id: null, name: 'Unfiled' };
+    const folder = folderOptions.find(f => f.id === picked);
+    return folder ? { id: folder.id, name: folder.name } : null;
+  };
 
   const libRows = (isTemplateFolder ? templates : libDocs).map((d: any, i: number) => {
     const isTpl = isTemplateFolder;
@@ -151,8 +171,71 @@ export default function Library(props: LibraryProps) {
     const st = isTpl ? STATUS.completed : STATUS[d.status];
     const checked = s.libSelected.indexOf(uid) > -1;
 
-    /** Row action → endpoint. Everything in `UNBACKED_ACTIONS` keeps its toast. */
+    /** The executed PDF, saved to disk. 404 when nothing has been generated. */
+    const downloadPdf = () => {
+      flash('Preparing ' + d.title + '…');
+      void apiDownload(documentsApi.finalPdfPath(uid), { filename: d.title + '.pdf' }).then(res => {
+        if (!res.ok) {
+          flash(res.status === 404
+            ? 'No executed PDF for ' + d.title + ' yet — it is generated when signing completes'
+            : 'Could not download ' + d.title + ' · ' + res.error.message);
+          return;
+        }
+        saveBlob(res.data);
+      });
+    };
+
+    /* The certificate of completion — the audit trail as a PDF. Built from the
+       live chain, so it is there for an in-flight envelope too. */
+    const downloadWithCertificate = () => {
+      if (isTpl) { flash('A template has no certificate — only a sent envelope does'); return; }
+      flash('Preparing the certificate for ' + d.title + '…');
+      void apiDownload(auditApi.certificatePdfPath(uid), { filename: d.title + '-certificate.pdf' }).then(res => {
+        if (!res.ok) { flash('Could not download the certificate · ' + res.error.message); return; }
+        saveBlob(res.data);
+      });
+    };
+
+    /** Print opens the same real PDF in a viewer; the browser prints from there. */
+    const printPdf = () => {
+      flash('Opening ' + d.title + ' to print…');
+      void apiDownload(documentsApi.finalPdfPath(uid), { filename: d.title + '.pdf' }).then(res => {
+        if (!res.ok) {
+          flash(res.status === 404
+            ? 'No executed PDF for ' + d.title + ' yet — it is generated when signing completes'
+            : 'Could not open ' + d.title + ' · ' + res.error.message);
+          return;
+        }
+        const url = URL.createObjectURL(res.data.blob);
+        const w = window.open(url, '_blank');
+        if (!w) { flash('Allow pop-ups to print ' + d.title); URL.revokeObjectURL(url); return; }
+        w.addEventListener('load', () => { w.print(); }, { once: true });
+      });
+    };
+
+    /* A shareable link to the row itself — the document's own URL, absolute so
+       it survives being pasted into an email or a chat. Recipients get their
+       own tokenised signing links when the envelope is sent; this is the
+       internal link a colleague with access can open. */
+    const copyLink = () => {
+      const path = documentPathFor('builder', uid);
+      const url = (typeof window === 'undefined' ? '' : window.location.origin) + path;
+      const copied = typeof navigator !== 'undefined' && navigator.clipboard
+        ? navigator.clipboard.writeText(url)
+        : null;
+      if (!copied) { flash('Copy is unavailable in this browser · ' + url); return; }
+      void copied.then(
+        () => flash('Link to ' + d.title + ' copied'),
+        () => flash('Could not copy the link · ' + url),
+      );
+    };
+
+    /** Row action → endpoint. Anything without one is not offered at all. */
     const actionCall = (label: string): (() => void) | null => {
+      if (label === 'Copy link') return copyLink;
+      if (label === 'Download') return downloadPdf;
+      if (label === 'Download with certificate') return downloadWithCertificate;
+      if (label === 'Print') return printPdf;
       if (isTpl) {
         switch (label) {
           case 'Make template':
@@ -160,15 +243,17 @@ export default function Library(props: LibraryProps) {
             return () => run('Template duplicated', () => templatesApi.duplicate(apiCall, uid));
           case 'Rename': {
             return () => {
-              const title = window.prompt('Rename template', d.title);
-              if (!title || title === d.title) return;
-              run(title + ' renamed', () => templatesApi.update(apiCall, uid, { title }));
+              void askText({ title: 'Rename template', label: 'Template name', defaultValue: d.title, cta: 'Rename', required: true }).then(title => {
+                if (!title || title === d.title) return;
+                run(title + ' renamed', () => templatesApi.update(apiCall, uid, { title }));
+              });
             };
           }
           case 'Move to folder':
-            return moveTarget
-              ? () => run('Moved to ' + moveTarget.name, () => templatesApi.update(apiCall, uid, { folder_id: moveTarget.id }))
-              : () => flash('No folders yet — create one first');
+            return () => { void askFolder(d.title).then(target => {
+              if (!target) return;
+              run('Moved to ' + target.name, () => templatesApi.update(apiCall, uid, { folder_id: target.id }));
+            }); };
           case 'Archive':
             return isArchiveFolder
               ? () => run(d.title + ' restored', () => templatesApi.restore(apiCall, uid))
@@ -184,14 +269,16 @@ export default function Library(props: LibraryProps) {
           return () => run(d.title + ' duplicated', () => documentsApi.duplicate(apiCall, uid));
         case 'Rename':
           return () => {
-            const title = window.prompt('Rename document', d.title);
-            if (!title || title === d.title) return;
-            run(title + ' renamed', () => documentsApi.rename(apiCall, uid, title));
+            void askText({ title: 'Rename document', label: 'Document name', defaultValue: d.title, cta: 'Rename', required: true }).then(title => {
+              if (!title || title === d.title) return;
+              run(title + ' renamed', () => documentsApi.rename(apiCall, uid, title));
+            });
           };
         case 'Move to folder':
-          return moveTarget
-            ? () => run('Moved to ' + moveTarget.name, () => documentsApi.move(apiCall, uid, moveTarget.id))
-            : () => flash('No folders yet — create one first');
+          return () => { void askFolder(d.title).then(target => {
+            if (!target) return;
+            run('Moved to ' + target.name, () => documentsApi.move(apiCall, uid, target.id));
+          }); };
         case 'Archive':
           if (isArchiveFolder) return () => run(d.title + ' unarchived', () => documentsApi.unarchive(apiCall, uid));
           if (isTrashFolder) return () => run(d.title + ' restored', () => documentsApi.restore(apiCall, uid));
@@ -230,7 +317,7 @@ export default function Library(props: LibraryProps) {
         border: '1px solid #e3e7ee', flex: '0 0 40px', display: 'flex',
         flexDirection: 'column', gap: '3px', padding: '6px 5px', overflow: 'hidden',
       } as CSSProperties,
-      line1: { height: '2px', background: '#cbd5e1', borderRadius: '2px' } as CSSProperties,
+      line1: { height: '2px', background: BORDER_STRONG, borderRadius: '2px' } as CSSProperties,
       line2: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '82%' } as CSSProperties,
       line3: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '64%' } as CSSProperties,
       line4: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '74%' } as CSSProperties,
@@ -263,11 +350,12 @@ export default function Library(props: LibraryProps) {
       },
       menuBtn: {
         width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
-        background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '13px',
+        background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '.8125rem',
         lineHeight: 1, flex: '0 0 28px',
       } as CSSProperties,
-      actions: ROW_ACTIONS.map(([label, target]) => {
-        const wired = UNBACKED_ACTIONS.has(label) ? null : actionCall(label);
+      uid,
+      actions: ROW_ACTIONS.filter(([label]) => !REMOVED_ACTIONS.has(label)).map(([label, target]) => {
+        const wired = actionCall(label);
         return {
           label,
           onClick: () => {
@@ -279,7 +367,7 @@ export default function Library(props: LibraryProps) {
           style: {
             display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
             borderRadius: '7px', border: 'none', background: 'transparent', cursor: 'pointer',
-            fontSize: '12.5px',
+            fontSize: '.78125rem',
             color: (label === 'Delete' || label === 'Archive') ? '#b91c1c' : '#334155',
           } as CSSProperties,
         };
@@ -287,8 +375,91 @@ export default function Library(props: LibraryProps) {
     };
   });
 
+  /* `POST /api/folders` — the prototype only flashed "Folder created in …". */
+  const createFolder = async () => {
+    const name = await askText({ title: 'New folder', label: 'Folder name', placeholder: 'e.g. Q3 contracts', cta: 'Create', required: true });
+    if (!name) return;
+    flash('Creating ' + name + '…');
+    void foldersApi.create(apiCall, { name }).then(res => {
+      if (!res.ok) { flash('Could not create the folder · ' + res.error.message); return; }
+      flash(res.data.name + ' created');
+      router.refresh();
+    });
+  };
+
+  /* ── views and folders ─────────────────────────────────────────────────
+     These were sidebar rows: twenty-odd of them, a second copy of the filters
+     this screen already owns. They belong beside the list they filter, so the
+     sidebar can stay a short list of areas. Still `?folder=` links — each one
+     is shareable, refreshable and back-button-able exactly as before. */
+  const chipStyle = (active: boolean, tone?: string): CSSProperties => ({
+    display: 'inline-flex', alignItems: 'center', gap: '6px',
+    padding: '5px 10px', borderRadius: '99px', textDecoration: 'none',
+    border: '1px solid ' + (active ? '#c7d2fe' : '#e3e7ee'),
+    background: active ? '#eef2ff' : '#fff',
+    color: active ? '#3730a3' : '#475569',
+    fontSize: '.75rem', fontWeight: active ? 600 : 500, whiteSpace: 'nowrap',
+    borderLeft: tone ? '3px solid ' + tone : undefined,
+  });
+  const chipCount: CSSProperties = {
+    fontSize: '.65625rem', color: TEXT_MUTED,
+    fontFamily: "'Inter', 'Google Sans Flex', sans-serif",
+  };
+  const countOf = (key: string): number | null => {
+    const map: Record<string, number | undefined> = {
+      documents: counts.all, templates: counts.templates,
+      archive: counts.archived, trash: counts.trashed,
+      inbox: counts.inbox, outbox: counts.outbox, drafts: counts.drafts,
+      completed: counts.completed, expiring: counts.expiring,
+      favorites: counts.favorites, shared: counts.shared, mine: counts.mine,
+    };
+    return key in map ? (map[key] ?? null) : null;
+  };
+  const folderChips = DOCUMENT_FOLDERS
+    .map(([id, label]) => ({ id, label, tone: undefined as string | undefined }))
+    .concat(folderOptions.map(f => ({ id: f.id, label: f.name, tone: undefined })));
+  const viewChips = DOCUMENT_VIEWS.map(([id, label, tone]) => ({ id, label, tone }));
+  const chipRow = (
+    key: string,
+    title: string,
+    items: { id: string; label: string; tone?: string }[],
+    countFor: (id: string) => string,
+  ) => (
+    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+      <span style={{ ...chipCount, letterSpacing: '.04em', textTransform: 'uppercase', flex: '0 0 auto', minWidth: '52px' }}>{title}</span>
+      {items.map(item => {
+        const active = filters.folder === item.id;
+        const count = countFor(item.id);
+        return (
+          <Link key={item.id} href={folderHref(item.id)} aria-current={active ? 'page' : undefined} style={chipStyle(active, item.tone)}>
+            <span>{item.label}</span>
+            {count ? <span style={chipCount}>{count}</span> : null}
+          </Link>
+        );
+      })}
+    </div>
+  );
+
   const hasLibSelection = s.libSelected.length > 0;
   const libSelectedLabel = s.libSelected.length ? s.libSelected.length + ' selected' : '';
+
+  /* Every row currently on screen — what "select all" applies to. */
+  const libRowIds = libRows.map(r => r.uid);
+  const allSelected = libRowIds.length > 0 && libRowIds.every(id => s.libSelected.indexOf(id) > -1);
+  const someSelected = !allSelected && libRowIds.some(id => s.libSelected.indexOf(id) > -1);
+  const toggleSelectAll = () => set(st => ({
+    libSelected: allSelected
+      ? st.libSelected.filter(id => libRowIds.indexOf(id) === -1)
+      : st.libSelected.concat(libRowIds.filter(id => st.libSelected.indexOf(id) === -1)),
+  }));
+  const checkboxStyle = (on: boolean, partial = false): CSSProperties => ({
+    width: '17px', height: '17px', borderRadius: '5px', cursor: 'pointer', flex: '0 0 17px', padding: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '.6875rem', lineHeight: 1, fontWeight: 700,
+    border: '1px solid ' + (on || partial ? A : '#8492a6'),
+    background: on || partial ? A : '#fff',
+    color: '#fff',
+  });
 
   const bulkRun = (optimistic: string, call: () => Promise<ApiResult<unknown>>) => {
     flash(optimistic);
@@ -322,9 +493,11 @@ export default function Library(props: LibraryProps) {
       if (isTemplateFolder) { flash(label + suffix); set({ libSelected: [] }); return; }
       if (label === 'Download') { downloadSelection(ids); return; }
       if (label === 'Move') {
-        if (!moveTarget) { flash('No folders yet — create one first'); set({ libSelected: [] }); return; }
-        bulkRun('Moved to ' + moveTarget.name + suffix,
-          () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'move', folder_id: moveTarget.id }));
+        void askFolder(ids.length + ' document(s)').then(target => {
+          if (!target) return;
+          bulkRun('Moved to ' + target.name + suffix,
+            () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'move', folder_id: target.id }));
+        });
         return;
       }
       if (label === 'Archive') {
@@ -362,13 +535,25 @@ export default function Library(props: LibraryProps) {
       <div style={{ flex: 1, minWidth: 0, padding: '18px 20px 40px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', minWidth: 0 }}>
-            <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 700, letterSpacing: '-.3px' }}>{libFolderLabel}</h2>
-            <span style={{ fontSize: '12px', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{libCountLabel}</span>
+            <h2 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700, letterSpacing: '-.3px' }}>{libFolderLabel}</h2>
+            <span style={{ fontSize: '.75rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{libCountLabel}</span>
           </div>
           <div style={{ display: 'flex', gap: '7px', flex: '0 0 auto' }}>
-            <button type="button" onClick={() => flash('Folder created in ' + libFolderLabel)} style={ghostBtn}>New folder</button>
-            <button type="button" onClick={() => go('builder', { documentId: null })} style={primaryBtn}>Upload &amp; prepare</button>
+            <button type="button" onClick={createFolder} style={ghostBtn}>New folder</button>
+            {/* The picker is here, not on the builder: a draft with no PDF is
+                nothing the user can prepare, so the file comes first. */}
+            <UploadDocument />
           </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {chipRow('folders', 'Folders', folderChips, id => {
+            const known = countOf(id);
+            if (known !== null) return badge(known);
+            const real = folderOptions.find(f => f.id === id);
+            return badge(real ? real.documentCount : null);
+          })}
+          {chipRow('views', 'Views', viewChips, id => badge(countOf(id)))}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -379,22 +564,22 @@ export default function Library(props: LibraryProps) {
           ))}
           <button
             type="button"
-            onClick={() => set({ libStatus: 'all', libType: 'all', libTime: 'all', libOwner: 'all', query: '' })}
+            onClick={() => { setQueryDraft(''); pushFilters({ status: 'all', type: 'all', time: 'all', owner: 'all', q: '' }); }}
             style={linkBtn(A)}
           >Reset filters</button>
           <input
             type="search"
-            value={s.query}
-            onChange={e => set({ query: e.target.value })}
+            value={queryDraft}
+            onChange={e => setQueryDraft(e.target.value)}
             placeholder="Search documents and forms"
             aria-label="Search documents"
-            style={{ height: '30px', flex: 1, minWidth: '180px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 10px', fontSize: '12.5px', outline: 'none', background: '#fff' }}
+            style={{ height: '30px', flex: 1, minWidth: '180px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 10px', fontSize: '.78125rem', outline: 'none', background: '#fff' }}
           />
           <select
-            value={s.libSort}
-            onChange={e => set({ libSort: e.target.value })}
+            value={filters.sort}
+            onChange={e => pushFilters({ sort: e.target.value })}
             aria-label="Sort"
-            style={{ height: '30px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 9px', fontSize: '12px', background: '#fff', color: '#334155', outline: 'none' }}
+            style={{ height: '30px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 9px', fontSize: '.75rem', background: '#fff', color: '#334155', outline: 'none' }}
           >
             {libSortOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
@@ -404,7 +589,11 @@ export default function Library(props: LibraryProps) {
 
         {hasLibSelection ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', border: '1px solid #c7d2fe', background: '#eef2ff', borderRadius: '11px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#3730a3' }}>{libSelectedLabel}</span>
+            <span style={{ fontSize: '.78125rem', fontWeight: 600, color: '#3730a3' }}>{libSelectedLabel}</span>
+            <button type="button" onClick={toggleSelectAll} style={linkBtn(A)}>
+              {allSelected ? 'Deselect all' : 'Select all ' + libRowIds.length}
+            </button>
+            <button type="button" onClick={() => set({ libSelected: [] })} style={linkBtn('#64748b')}>Clear</button>
             <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
               {libBulk.map(b => (
                 <button key={b.label} type="button" onClick={b.onClick} style={b.style}>{b.label}</button>
@@ -416,11 +605,31 @@ export default function Library(props: LibraryProps) {
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', overflow: 'visible' }}>
           {libRows.length === 0 ? (
             <div style={{ padding: '28px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <span style={{ fontSize: '13.5px', fontWeight: 600, color: '#0f172a' }}>
+              <span style={{ fontSize: '.84375rem', fontWeight: 600, color: '#0f172a' }}>
                 {isTemplateFolder ? 'No templates yet' : 'Nothing in ' + libFolderLabel}
               </span>
-              <span style={{ fontSize: '11.5px', color: '#94a3b8', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
+              <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
                 {isTemplateFolder ? 'Save a prepared document as a template to reuse it.' : 'Upload a document or clear the filters above.'}
+              </span>
+              {isTemplateFolder ? null : (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                  <UploadDocument label="Upload a PDF" />
+                </div>
+              )}
+            </div>
+          ) : null}
+          {libRows.length ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 14px', borderBottom: '1px solid #eef1f6' }}>
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={allSelected ? 'true' : someSelected ? 'mixed' : 'false'}
+                aria-label={allSelected ? 'Deselect all documents' : 'Select all documents'}
+                onClick={toggleSelectAll}
+                style={checkboxStyle(allSelected, someSelected)}
+              >{allSelected ? '\u2713' : someSelected ? '\u2013' : ''}</button>
+              <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
+                {allSelected ? 'All ' + libRowIds.length + ' on this page selected' : 'Select all on this page'}
               </span>
             </div>
           ) : null}
@@ -432,8 +641,8 @@ export default function Library(props: LibraryProps) {
                 aria-checked={d.checked === 'true'}
                 aria-label="Select"
                 onClick={d.onCheck}
-                style={{ width: '17px', height: '17px', borderRadius: '5px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', flex: '0 0 17px' }}
-              />
+                style={checkboxStyle(d.checked === 'true')}
+              >{d.checked === 'true' ? '✓' : ''}</button>
               <span style={d.thumb}>
                 <span style={d.line1} /><span style={d.line2} /><span style={d.line3} /><span style={d.line4} />
               </span>
@@ -442,12 +651,12 @@ export default function Library(props: LibraryProps) {
                   type="button"
                   onClick={d.onOpen}
                   onDoubleClick={d.onFavorite}
-                  style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: '13.5px', fontWeight: 600, color: '#0f172a', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: '.84375rem', fontWeight: 600, color: '#0f172a', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 >{d.title}</button>
-                <span style={{ fontSize: '11px', color: '#94a3b8', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.meta}</span>
+                <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.meta}</span>
                 <span style={{ display: 'flex', gap: '7px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={d.pillStyle}>{d.statusLabel}</span>
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>{d.signers}</span>
+                  <span style={{ fontSize: '.6875rem', color: '#64748b' }}>{d.signers}</span>
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 auto' }}>

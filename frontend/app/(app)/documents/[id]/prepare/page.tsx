@@ -10,7 +10,7 @@
  */
 
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import Builder from '@/components/sf/screens/Builder';
 import { serverCaller } from '@/lib/api/client';
 import {
@@ -20,6 +20,7 @@ import {
 } from '@/lib/api/resources';
 import { toBuilderRouting } from '@/lib/sf/adapters';
 import { documentPathFor } from '@/lib/sf/routes';
+import { isSealedStatus } from '@/lib/sf/sealed';
 import type { FieldResponse, RecipientResponse, RoutingResponse } from '@/lib/api/types';
 
 export const metadata: Metadata = { title: 'Prepare document · SignForge' };
@@ -39,6 +40,12 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   if (!documentResult.ok) notFound();
 
   const document = documentResult.data;
+
+  /* A completed (or voided / declined / expired) envelope is evidence, not a
+     draft: the API locks its fields and refuses further authoring, so the
+     screen redirects to the one place that still has something to say. */
+  if (isSealedStatus(document.status)) redirect(documentPathFor('audit', documentId));
+
   const fields: FieldResponse[] = fieldsResult.ok ? fieldsResult.data : [];
   const recipients: RecipientResponse[] = recipientsResult.ok ? recipientsResult.data : [];
   const routing: RoutingResponse | null = routingResult.ok ? routingResult.data : null;
@@ -46,6 +53,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   return (
     <Builder
       documentId={document.id}
+      hasFile={Boolean(document.original_file_path)}
       title={document.title}
       pageCount={Math.max(1, document.page_count || 1)}
       fields={fields}

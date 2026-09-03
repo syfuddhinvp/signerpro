@@ -1,34 +1,39 @@
 /**
  * Server-only session layer.
  *
- * The backend (FastAPI) is the only party that verifies the JWT — it does so on
- * every API call. Here we only *read* the cookie so server components can
- * render the right chrome and guard the right subtrees.
+ * The backend verifies the JWT on every API call; here we verify it a second
+ * time (HS256, see `lib/auth/verify.ts`) before making any *privilege* decision
+ * on the identity fields the envelope carries — `is_platform_admin` in
+ * particular, which is read from the cookie body rather than the token claims.
  *
- * Cookie: `sf_session`, httpOnly, sameSite lax, secure in production, path '/'.
- * Value: base64url of `{"t": <access_token>, "u": <user record from the backend>}`.
- * The backend's JWT payload carries only `{sub, exp}` (see
- * backend/app/core/security.py), so role / organization_id / is_platform_admin
- * cannot be read out of the token — they are captured from the login/register
- * response body and travel in the same httpOnly envelope. The token itself
- * never reaches client JS.
+ * Cookie: `sf_session`, httpOnly, sameSite lax, Secure keyed on the deployment
+ * (see `lib/auth/cookie.ts`), path '/'.
+ * Value: base64url of `{t: access token, u: user, r: refresh token, rm: remember}`.
+ * The tokens never reach client JS.
+ *
+ * Rotation happens in `middleware.ts` and the auth route handlers, which can
+ * write cookies. This module deliberately never refreshes: a server component
+ * that exchanged a refresh token would burn it and have nowhere to store the
+ * rotated one.
  */
 
 import 'server-only';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import {
+  SESSION_COOKIE,
+  backendUrl,
+  decodeJwtPayload,
+  decodeSession,
+  encodeSession,
+  secondsUntilExpiry,
+  sessionCookieOptions,
+  type SessionUser,
+} from './cookie';
+import { allowUnverifiedPrivilege, verifyAccessToken } from './verify';
 
-export const SESSION_COOKIE = 'sf_session';
-
-export type SessionUser = {
-  id: string;
-  organization_id: string;
-  organization_name?: string;
-  name: string;
-  email: string;
-  role: string;
-  is_platform_admin?: boolean;
-};
+export { SESSION_COOKIE, backendUrl, encodeSession, decodeJwtPayload, sessionCookieOptions };
+export type { SessionUser };
 
 export type Session = {
   token: string;
@@ -39,60 +44,35 @@ export type Session = {
   organizationId: string;
   organizationName: string;
   isPlatformAdmin: boolean;
+  /** False when no signing secret is configured, so the cookie is untrusted. */
+  verified: boolean;
 };
 
-type Envelope = { t: string; u: SessionUser };
+async function parse(value: string): Promise<Session | null> {
+  const envelope = decodeSession(value);
+  if (!envelope) return null;
 
-function b64urlEncode(raw: string): string {
-  return Buffer.from(raw, 'utf8').toString('base64url');
-}
+  const outcome = await verifyAccessToken(envelope.t);
+  if (outcome === 'invalid') return null;
 
-function b64urlDecode(raw: string): string {
-  return Buffer.from(raw, 'base64url').toString('utf8');
-}
-
-/** Build the cookie value for a successful login/register. Used by route handlers. */
-export function encodeSession(token: string, user: SessionUser): string {
-  return b64urlEncode(JSON.stringify({ t: token, u: user } satisfies Envelope));
-}
-
-/** Decode a JWT's payload without verifying it (the backend verifies). */
-export function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const parts = token.split('.');
-  if (parts.length !== 3) return null;
-  try {
-    return JSON.parse(b64urlDecode(parts[1])) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function parse(value: string): Session | null {
-  let env: Envelope;
-  try {
-    env = JSON.parse(b64urlDecode(value)) as Envelope;
-  } catch {
-    return null;
-  }
-  if (!env || typeof env.t !== 'string' || !env.u) return null;
-
-  const claims = decodeJwtPayload(env.t);
+  const claims = decodeJwtPayload(envelope.t);
   if (!claims) return null;
-  const exp = typeof claims.exp === 'number' ? claims.exp : null;
-  if (exp !== null && exp * 1000 <= Date.now()) return null;
+  const remaining = secondsUntilExpiry(envelope.t);
+  if (remaining !== null && remaining <= 0) return null;
 
-  const userId = typeof claims.sub === 'string' ? claims.sub : env.u.id;
+  const userId = typeof claims.sub === 'string' ? claims.sub : envelope.u.id;
   if (!userId) return null;
 
   return {
-    token: env.t,
+    token: envelope.t,
     userId,
-    name: env.u.name ?? '',
-    email: env.u.email ?? '',
-    role: env.u.role ?? 'sender',
-    organizationId: env.u.organization_id ?? '',
-    organizationName: env.u.organization_name ?? '',
-    isPlatformAdmin: env.u.is_platform_admin === true,
+    name: envelope.u.name ?? '',
+    email: envelope.u.email ?? '',
+    role: envelope.u.role ?? 'sender',
+    organizationId: envelope.u.organization_id ?? '',
+    organizationName: envelope.u.organization_name ?? '',
+    isPlatformAdmin: envelope.u.is_platform_admin === true,
+    verified: outcome === 'valid',
   };
 }
 
@@ -111,13 +91,14 @@ export async function requireSession(next?: string): Promise<Session> {
   return session;
 }
 
-/** Platform-role guard: tenants are bounced back to their own workspace. */
+/**
+ * Platform-role guard. Fails closed: a session whose signature could not be
+ * checked (no secret configured) never gets platform access unless the
+ * deployment opts in with `ALLOW_UNVERIFIED_PLATFORM_ACCESS=true`.
+ */
 export async function requirePlatformSession(next?: string): Promise<Session> {
   const session = await requireSession(next);
   if (!session.isPlatformAdmin) redirect('/overview');
+  if (!session.verified && !allowUnverifiedPrivilege()) redirect('/overview');
   return session;
-}
-
-export function backendUrl(): string {
-  return process.env.BACKEND_URL ?? 'http://localhost:8000';
 }

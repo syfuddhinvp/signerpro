@@ -33,6 +33,10 @@ class AuditChainVerification(BaseModel):
     chain_head: str
     hash_algorithm: str
     valid: bool
+    #: Position of the first broken link (None when the chain verifies).
+    broken_at_index: int | None = None
+    broken_at_entry_id: str | None = None
+    reason: str | None = None
 
 
 class CertificateSummaryResponse(BaseModel):
@@ -45,8 +49,17 @@ class CertificateSummaryResponse(BaseModel):
     hash_algorithm: str
     time_source: str
     certificate_authority: str
+    #: The hash recorded when the document was sealed.
     final_sha256: str | None
     original_sha256: str | None
+    #: Recomputed from the bytes on disk at request time, not trusted from the
+    #: database. ``None`` when there is no final PDF to hash.
+    final_sha256_actual: str | None = None
+    #: False means the stored file no longer matches the seal.
+    final_pdf_intact: bool | None = None
+    original_sha256_actual: str | None = None
+    original_pdf_intact: bool | None = None
     chain_head: str
     audit_entry_count: int
     chain_valid: bool
+    chain_invalid_reason: str | None = None

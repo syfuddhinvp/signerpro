@@ -13,5 +13,8 @@ export async function POST(request: Request) {
     );
   }
 
-  return forwardAuth('/api/auth/login', { email, password }, safeNext(body?.next));
+  // "Remember this device" is transmitted now: it lengthens the backend
+  // session row (30d vs 12h) and the cookie in step with it.
+  const remember = body?.remember === true;
+  return forwardAuth('/api/auth/login', { email, password, remember }, safeNext(body?.next), { remember });
 }

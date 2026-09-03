@@ -20,12 +20,15 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.plan import (
+    ENTITLEMENT_API_ACCESS,
+    ENTITLEMENT_CUSTOM_BRANDING,
     ENTITLEMENT_MAX_API_CALLS_PER_MONTH,
     ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH,
     ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT,
     ENTITLEMENT_MAX_SMS_PER_MONTH,
     ENTITLEMENT_MAX_STORAGE_BYTES,
     ENTITLEMENT_MAX_USERS,
+    ENTITLEMENT_WEBHOOKS,
     FALLBACK_ENTITLEMENTS,
     FREE_PLAN_CODE,
     Plan,
@@ -362,6 +365,12 @@ class EntitlementService:
             return context
 
         if key == ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT:
+            # This cap is per document, not per period, so there is no usage
+            # aggregate to read: ``amount`` must be the document's COMPLETE
+            # recipient count. Callers adding recipients incrementally must use
+            # ``check_recipient_capacity`` instead, which counts the rows
+            # already attached -- otherwise three sequential single adds beat a
+            # limit of three (AUDIT_REPORT.md section 7, finding 4).
             used = 0
             projected = amount
         else:
@@ -387,6 +396,64 @@ class EntitlementService:
                 },
             )
         return context
+
+    def check_recipient_capacity(
+        self,
+        db: Session,
+        organization_id: str,
+        *,
+        document_id: str,
+        additional: int = 1,
+    ) -> EntitlementContext:
+        """Per-document recipient cap, counting the recipients already saved.
+
+        ``check_entitlement(MAX_RECIPIENTS_PER_DOCUMENT, n)`` can only see the
+        batch in front of it, so an incremental add path must come through
+        here. Adding one recipient at a time to a document that already holds
+        the plan's maximum is now a 402, not a silent overage.
+        """
+        from app.models.recipient import Recipient
+
+        existing = int(
+            db.scalar(
+                select(func.count(Recipient.id)).where(Recipient.document_id == document_id)
+            )
+            or 0
+        )
+        return self.check_entitlement(
+            db,
+            organization_id,
+            ENTITLEMENT_MAX_RECIPIENTS_PER_DOCUMENT,
+            amount=existing + max(additional, 0),
+        )
+
+    def check_storage_headroom(
+        self, db: Session, organization_id: str, *, additional_bytes: int
+    ) -> EntitlementContext:
+        """Storage quota gate for the upload path.
+
+        ``max_storage_bytes`` was metered and charted but never checked, so the
+        bar could read 340% and uploads still succeeded (AUDIT_REPORT.md
+        section 7). Callers pass the declared/actual body size.
+        """
+        return self.check_entitlement(
+            db,
+            organization_id,
+            ENTITLEMENT_MAX_STORAGE_BYTES,
+            amount=max(int(additional_bytes), 1),
+        )
+
+    def check_api_access(self, db: Session, organization_id: str) -> EntitlementContext:
+        """``api_access`` -- gates key issuance and every key-authenticated call."""
+        return self.check_entitlement(db, organization_id, ENTITLEMENT_API_ACCESS)
+
+    def check_webhooks(self, db: Session, organization_id: str) -> EntitlementContext:
+        """``webhooks`` -- gates endpoint registration and test sends."""
+        return self.check_entitlement(db, organization_id, ENTITLEMENT_WEBHOOKS)
+
+    def check_custom_branding(self, db: Session, organization_id: str) -> EntitlementContext:
+        """``custom_branding`` -- gates accent colour and logo changes."""
+        return self.check_entitlement(db, organization_id, ENTITLEMENT_CUSTOM_BRANDING)
 
     def has_headroom(self, db: Session, organization_id: str, key: str, amount: int = 1) -> bool:
         """Non-raising form of :meth:`check_entitlement`.

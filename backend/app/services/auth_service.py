@@ -12,10 +12,11 @@ Security notes for reviewers:
 from __future__ import annotations
 
 import hmac
+import time
 from datetime import datetime, timedelta, timezone
+from secrets import token_urlsafe
 
 from fastapi import HTTPException, Request, status
-from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,16 +25,19 @@ from app.core.config import get_settings
 from app.core.email import EmailMessage, email_service
 from app.core.logging import get_logger
 from app.core.security import (
+    JWTError,
     create_access_token,
     create_scoped_token,
     decode_access_token,
     generate_refresh_token,
     hash_opaque_token,
+    dummy_password_hash,
     hash_password,
     verify_password,
 )
 from app.core import totp
 from app.models.enums import UserRole
+from app.models.mfa_challenge import MfaChallenge
 from app.models.organization import Organization
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
@@ -205,12 +209,17 @@ class AuthService:
         request: Request | None = None,
     ) -> TokenResponse | MfaChallengeResponse:
         user = db.scalar(select(User).where(User.email == payload.email.lower()))
-        if not user or not verify_password(payload.password, user.password_hash):
+        # Always run one bcrypt comparison, even for an address that does not
+        # exist: skipping it answered ~80x faster and enumerated accounts.
+        password_ok = verify_password(
+            payload.password, user.password_hash if user else dummy_password_hash()
+        )
+        if not user or not password_ok:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         if user.status == "deprovisioned":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated")
         if self._mfa_active(user):
-            return self._mfa_challenge(user, remember=payload.remember)
+            return self._mfa_challenge(db, user, remember=payload.remember)
         return self._issue_session(db, user, request=request, remember=payload.remember)
 
     def refresh(
@@ -246,18 +255,64 @@ class AuthService:
     def _mfa_active(self, user: User) -> bool:
         return bool(user.mfa_secret and user.mfa_enrolled_at)
 
-    def _mfa_challenge(self, user: User, *, remember: bool = False) -> MfaChallengeResponse:
+    def _mfa_challenge(self, db: Session, user: User, *, remember: bool = False) -> MfaChallengeResponse:
+        jti = token_urlsafe(12)
         token = create_scoped_token(
             user.id,
             purpose=MFA_TOKEN_PURPOSE,
             expires_in_seconds=MFA_TOKEN_TTL_SECONDS,
             remember=bool(remember),
+            jti=jti,
         )
+        db.add(
+            MfaChallenge(
+                jti=jti,
+                user_id=user.id,
+                expires_at=_now() + timedelta(seconds=MFA_TOKEN_TTL_SECONDS),
+            )
+        )
+        db.commit()
         return MfaChallengeResponse(
             mfa_token=token,
             delivery=user.mfa_method or "totp",
             masked_target=_mask_email(user.email),
         )
+
+    # --- single-use MFA state (replay defence) ---------------------------
+    #
+    # Backed by the ``mfa_challenges`` table and ``users.mfa_last_used_step``.
+    # A challenge ``jti`` is burned when it is redeemed, and the TOTP step a
+    # code belongs to is recorded on the user, so the same code cannot be
+    # replayed through a freshly issued challenge.
+
+    def _challenge_consumed(self, db: Session, jti: str) -> bool:
+        challenge = db.get(MfaChallenge, jti)
+        return challenge is not None and challenge.consumed_at is not None
+
+    def _burn_challenge(self, db: Session, user: User, jti: str) -> None:
+        challenge = db.get(MfaChallenge, jti)
+        if challenge is None:
+            challenge = MfaChallenge(
+                jti=jti,
+                user_id=user.id,
+                expires_at=_now() + timedelta(seconds=MFA_TOKEN_TTL_SECONDS),
+            )
+            db.add(challenge)
+        challenge.consumed_at = _now()
+        db.flush()
+
+    def _matched_totp_step(self, secret: str, code: str, *, now: float | None = None) -> int | None:
+        """Which TOTP step a code corresponds to, or None. Constant-time."""
+        candidate = "".join(ch for ch in (code or "") if ch.isdigit())
+        if not secret or len(candidate) != totp.DIGITS:
+            return None
+        counter = int((now if now is not None else time.time()) // totp.PERIOD)
+        matched: int | None = None
+        for offset in range(-totp.DEFAULT_DRIFT_STEPS, totp.DEFAULT_DRIFT_STEPS + 1):
+            step = counter + offset
+            if hmac.compare_digest(totp.code_at(secret, step), candidate) and matched is None:
+                matched = step
+        return matched
 
     def _resolve_mfa_token(self, db: Session, mfa_token: str) -> tuple[User, bool]:
         try:
@@ -271,6 +326,12 @@ class AuthService:
         user = db.get(User, claims.get("sub") or "")
         if not user or not self._mfa_active(user):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid verification token")
+        jti = claims.get("jti")
+        if jti and self._challenge_consumed(db, jti):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="This verification session has already been used",
+            )
         return user, bool(claims.get("remember"))
 
     def mfa_challenge_info(self, db: Session, *, mfa_token: str) -> MfaChallengeResponse:
@@ -291,8 +352,27 @@ class AuthService:
         request: Request | None = None,
     ) -> TokenResponse:
         user, token_remember = self._resolve_mfa_token(db, mfa_token)
+        claims = decode_access_token(mfa_token)
+        now = time.time()
+
+        step = self._matched_totp_step(user.mfa_secret or "", code, now=now)
+        last_step = user.mfa_last_used_step
+        if step is not None and last_step is not None and step <= last_step:
+            # Same 30-second TOTP window replayed: reject rather than mint a
+            # second session from one code.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="That verification code has already been used"
+            )
         if not self._check_code(db, user, code):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="That verification code is not valid")
+
+        # Burn the challenge token and the TOTP step before minting a session.
+        jti = claims.get("jti")
+        if jti:
+            self._burn_challenge(db, user, jti)
+        if step is not None:
+            user.mfa_last_used_step = step
+            db.flush()
         return self._issue_session(db, user, request=request, remember=remember or token_remember)
 
     def _check_code(self, db: Session, user: User, code: str) -> bool:
@@ -341,8 +421,10 @@ class AuthService:
         user.mfa_enrolled_at = _now()
         db.commit()
 
-    def mfa_disable(self, db: Session, *, user: User, code: str | None, password: str | None = None) -> None:
-        if password is not None and not verify_password(password, user.password_hash):
+    def mfa_disable(self, db: Session, *, user: User, code: str | None, password: str) -> None:
+        # Stripping 2FA is a re-authentication event: a stolen access token
+        # must not be enough to do it.
+        if not password or not verify_password(password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password is incorrect")
         if self._mfa_active(user):
             if not code or not self._check_code(db, user, code):
@@ -363,7 +445,13 @@ class AuthService:
             recovery_codes_remaining=len(user.mfa_recovery_codes or []),
         )
 
-    def mfa_regenerate_recovery_codes(self, db: Session, *, user: User, code: str) -> MfaRecoveryCodesResponse:
+    def mfa_regenerate_recovery_codes(
+        self, db: Session, *, user: User, code: str, password: str
+    ) -> MfaRecoveryCodesResponse:
+        # Same reasoning as mfa_disable: new recovery codes invalidate the old
+        # ones and are a standalone second factor, so re-auth is required.
+        if not password or not verify_password(password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password is incorrect")
         if not self._mfa_active(user):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Multi-factor authentication is not enabled")
         if not totp.verify(user.mfa_secret or "", code):

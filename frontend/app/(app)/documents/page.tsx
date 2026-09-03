@@ -24,21 +24,26 @@ import {
   toTemplateParams,
   toTemplateRows,
 } from '@/lib/sf/adapters';
-import { DOCS, TEMPLATES } from '@/lib/sf/data';
 import type { DocumentCounts, FolderTreeResponse } from '@/lib/api/types';
 
 export const metadata: Metadata = { title: 'Documents · SignForge' };
 
 /**
- * The design has no pager: it renders one screenful of rows. We keep exactly
- * that many, and surface the real `total` in the count label instead.
+ * The design has no pager: it renders one screenful of rows, and the real
+ * `total` is surfaced in the count label instead.
+ *
+ * These used to be `DOCS.length` / `TEMPLATES.length` — the length of the
+ * prototype's seed arrays. That made the API page size a side effect of how
+ * many fake rows someone happened to paste into `data.ts`; deleting a seed row
+ * silently shrank every user's document list. They are explicit constants now.
  */
-const DOC_PAGE_SIZE = DOCS.length;
-const TEMPLATE_PAGE_SIZE = TEMPLATES.length;
+const DOC_PAGE_SIZE = 25;
+const TEMPLATE_PAGE_SIZE = 25;
 
 const EMPTY_COUNTS: DocumentCounts = {
   all: 0, action: 0, waiting: 0, completed: 0, draft: 0,
   voided: 0, archived: 0, trashed: 0, templates: 0,
+  inbox: 0, outbox: 0, drafts: 0, favorites: 0, expiring: 0, shared: 0, mine: 0,
 };
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -75,6 +80,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
       templates={toTemplateRows(templateList.items)}
       templateTotal={isTemplateFolder ? templateList.total : counts.templates}
       folderOptions={toFolderOptions(tree)}
+      counts={counts}
       initialFilters={filters}
     />
   );

@@ -1,3 +1,17 @@
+# ---------------------------------------------------------------------------
+# DEVELOPMENT compose file.
+#
+# This file deliberately bind-mounts host source into the containers so edits
+# are picked up without a rebuild. That means the running code is the host's,
+# NOT the image's -- correct for development, and the reason this file cannot
+# serve as a production reference. For production, see docker-compose.prod.yml.
+#
+# No `name:` here on purpose. Compose defaults the project name to this
+# directory (`singnerpro`), which is what the long-running dev containers and
+# the `singnerpro_postgres-data` volume were created under. Setting a name
+# would silently re-point the stack at a different, empty volume.
+# ---------------------------------------------------------------------------
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,42 +29,84 @@ services:
       timeout: 5s
       retries: 10
 
+  # Web SQL client for the dev database, on http://localhost:8080. Pre-filled
+  # with the `postgres` service; log in as signflow/signflow, database
+  # signflow. Development only -- it is absent from docker-compose.prod.yml on
+  # purpose, where the database is not published to the host at all.
+  adminer:
+    image: adminer:6.0.1
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     build:
       context: ./backend
+      target: runtime
     environment:
       DATABASE_URL: postgresql+psycopg://signflow:signflow@postgres:5432/signflow
       JWT_SECRET: change-this-secret
-      JWT_EXPIRES_MINUTES: 480
+      JWT_EXPIRES_MINUTES: 15
       APP_BASE_URL: http://localhost:3000
       UPLOAD_DIR: /app/uploads
       SIGNING_TOKEN_EXPIRE_DAYS: 14
       ENVIRONMENT: development
+      # The entrypoint runs `alembic upgrade head` under an advisory lock before
+      # starting, so a fresh `docker compose up` gets a migrated database.
+      RUN_MIGRATIONS: "1"
     ports:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
       - ./backend/scripts:/app/scripts
       - signflow-uploads:/app/uploads
+    # Dev override: a single auto-reloading uvicorn instead of the image's
+    # gunicorn worker pool, so bind-mounted edits take effect immediately.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
       postgres:
         condition: service_healthy
+    # Readiness, not liveness: this exists so `frontend` waits for a backend
+    # that has actually finished migrating, rather than racing it and serving
+    # 500s for the first half-minute of every `up`. /api/health/ready checks the
+    # database, storage, and that alembic_version matches this build's head.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
 
   frontend:
     build:
       context: ./frontend
+      # Stop at the deps stage: we want node_modules (including devDependencies)
+      # but the source comes from the bind mount below, not from the image.
+      target: deps
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      NODE_ENV: development
+      # Origins allowed to frame /sign/*. Unlike the production image -- where
+      # this must be a build arg, because `next build` bakes headers() into
+      # routes-manifest.json -- `next dev` re-evaluates next.config.ts on each
+      # request, so setting it here does work in development. Empty means
+      # frame-ancestors 'none'.
+      EMBED_FRAME_ANCESTORS: ${EMBED_FRAME_ANCESTORS:-}
     ports:
       - "3000:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
+    command: ["npm", "run", "dev"]
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres-data:
   signflow-uploads:
-

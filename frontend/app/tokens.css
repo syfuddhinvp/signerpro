@@ -1,0 +1,158 @@
+/**
+ * SignForge design tokens — the source of truth `tailwind.config.ts` reads.
+ *
+ * Colours are stored as bare HSL triplets (`H S% L%`) because the Tailwind
+ * theme wraps them as `hsl(var(--token) / <alpha-value>)`. Nothing else in the
+ * app may hard-code a colour that has a token here.
+ *
+ * Contrast: every `--color-fg-*` token meets WCAG 2.1 AA (4.5:1) against the
+ * surface it is designed for, and every border/control token meets 3:1
+ * (1.4.11). The prototype's `#94a3b8` (2.6:1 on white) is deliberately absent —
+ * `--color-fg-muted` (#5b6675, 5.6:1) is its replacement for text, and
+ * `--color-border-strong` its replacement for lines and control tracks.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ── surfaces ───────────────────────────────────────────────────────── */
+  --color-bg-canvas: 220 16% 96%;          /* #f5f6f8 */
+  --color-bg-surface: 0 0% 100%;           /* #ffffff */
+  --color-bg-surface-raised: 0 0% 100%;
+  --color-bg-subtle: 210 33% 98%;          /* #fbfcfd */
+  --color-bg-muted: 220 16% 96%;
+  --color-bg-inverse: 222 47% 11%;         /* #0f172a */
+  --color-bg-overlay: 222 47% 11%;
+
+  /* ── foreground ─────────────────────────────────────────────────────── */
+  --color-fg-default: 222 47% 11%;         /* #0f172a — 16.8:1 on white */
+  --color-fg-muted: 215 12% 41%;           /* #5b6675 — 5.6:1 on white */
+  --color-fg-subtle: 215 14% 34%;          /* #4a5462 — 7.7:1 on white */
+  --color-fg-on-solid: 0 0% 100%;
+  --color-fg-inverse: 210 40% 96%;
+  --color-fg-danger: 0 74% 42%;            /* #b91c1c */
+  --color-fg-success: 164 96% 24%;         /* #047857 */
+  --color-fg-warning: 21 90% 40%;          /* #c2410c */
+  --color-fg-info: 243 47% 42%;            /* #4338ca */
+
+  /* ── lines ──────────────────────────────────────────────────────────── */
+  --color-border-subtle: 218 25% 92%;      /* #e3e7ee */
+  --color-border-default: 214 24% 84%;     /* #cbd5e1 */
+  --color-border-strong: 215 16% 59%;      /* #8492a6 — 3.4:1 on white */
+  --color-border-danger: 0 93% 89%;
+  --color-border-success: 152 76% 80%;
+  --color-border-warning: 32 98% 83%;
+  --color-border-info: 226 100% 92%;
+
+  /* ── brand / accent ─────────────────────────────────────────────────── */
+  --color-accent-solid: 243 75% 59%;       /* #4f46e5 */
+  --color-accent-solid-hover: 244 62% 51%;
+  --color-accent-solid-active: 245 58% 44%;
+  --color-accent-subtle: 226 100% 97%;     /* #eef2ff */
+  --color-accent-muted: 226 100% 92%;      /* #c7d2fe */
+  --color-accent-fg: 244 47% 43%;          /* #3730a3 — 8.3:1 on #eef2ff */
+  --color-accent-on-solid: 0 0% 100%;
+  --color-accent-border: 226 100% 92%;
+
+  /* ── highlight (secondary emphasis) ─────────────────────────────────── */
+  --color-highlight-solid: 160 84% 39%;    /* #10b981 */
+  --color-highlight-solid-hover: 161 94% 30%;
+  --color-highlight-subtle: 152 81% 96%;   /* #ecfdf5 */
+  --color-highlight-fg: 164 96% 24%;       /* #047857 */
+  --color-highlight-border: 152 76% 80%;
+
+  /* ── status ─────────────────────────────────────────────────────────── */
+  --color-bg-danger-solid: 0 74% 42%;
+  --color-bg-danger-solid-hover: 0 70% 35%;
+  --color-bg-danger-subtle: 0 86% 97%;
+  --color-fg-on-danger: 0 0% 100%;
+  --color-bg-success-solid: 160 84% 39%;
+  --color-bg-success-subtle: 152 81% 96%;
+  --color-bg-warning-solid: 32 95% 44%;
+  --color-bg-warning-subtle: 33 100% 96%;
+  --color-bg-info-solid: 239 84% 67%;
+  --color-bg-info-subtle: 226 100% 97%;
+
+  /* ── document surface ───────────────────────────────────────────────── */
+  --color-field-surface: 226 100% 97%;
+  --color-signature-ink: 222 47% 11%;
+  --color-field-selected-ring: 243 75% 59%;
+  --color-field-border-locked: 215 16% 59%;
+
+  /* ── focus ──────────────────────────────────────────────────────────── */
+  --color-focus-ring: 243 75% 59%;
+  --focus-ring: 0 0 0 2px hsl(var(--color-bg-surface)), 0 0 0 4px hsl(var(--color-focus-ring));
+
+  /* ── type ───────────────────────────────────────────────────────────── */
+  --font-sans: 'Google Sans Flex', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Inter', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* The type scale is expressed in `rem`, so every size resolves against the
+     fluid root font size set on `html` in globals.css. The `rem` figures are the
+     old px values over a 16px base; the root now starts above 16px and grows
+     with the viewport, which is what lifts the whole UI out of the too-small
+     range people were fixing by hand with browser zoom. Page-space text — PDF
+     field labels and typed signatures — stays in px, since it has to track the
+     document's own scale rather than the reader's. */
+  --text-display-size: 1.875rem; --text-display-leading: 1.15;  --text-display-tracking: -.02em;  --text-display-weight: 700;
+  --text-heading-1-size: 1.375rem; --text-heading-1-leading: 1.2; --text-heading-1-tracking: -.02em; --text-heading-1-weight: 700;
+  --text-heading-2-size: 1.0625rem; --text-heading-2-leading: 1.3; --text-heading-2-tracking: -.01em; --text-heading-2-weight: 600;
+  --text-heading-3-size: .9375rem; --text-heading-3-leading: 1.35; --text-heading-3-weight: 600;
+  --text-body-size: .78125rem; --text-body-leading: 1.6;
+  --text-label-size: .6875rem;   --text-label-leading: 1.4;     --text-label-tracking: .04em;      --text-label-weight: 500;
+  --text-code-size: .71875rem;   --text-code-leading: 1.7;
+
+  /* ── space / radius / elevation ─────────────────────────────────────── */
+  --space-1: 4px; --space-2: 6px; --space-3: 8px; --space-4: 11px;
+  --space-5: 14px; --space-6: 16px; --space-7: 22px; --space-8: 30px;
+
+  --radius-none: 0px; --radius-sm: 8px; --radius-md: 11px; --radius-lg: 16px; --radius-full: 99px;
+
+  --shadow-1: 0 1px 2px rgb(15 23 42 / .08);
+  --shadow-2: 0 2px 6px rgb(15 23 42 / .10);
+  --shadow-3: 0 12px 28px -12px rgb(15 23 42 / .28);
+  --shadow-4: 0 40px 90px -30px rgb(15 23 42 / .60);
+
+  /* ── motion ─────────────────────────────────────────────────────────── */
+  --duration-instant: 0ms; --duration-fast: 120ms; --duration-normal: 180ms; --duration-slow: 260ms;
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0, 0, .2, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --ease-emphasized: cubic-bezier(.2, 0, 0, 1.2);
+
+  /* ── stacking ───────────────────────────────────────────────────────── */
+  --z-base: 0; --z-pdf-page: 1; --z-field-overlay: 5; --z-field-selected: 6;
+  --z-sticky-header: 20; --z-panel: 30; --z-dropdown: 50; --z-overlay: 70;
+  --z-modal: 80; --z-toast: 90; --z-tooltip: 95;
+}
+
+/**
+ * Dark theme. Declared so the token layer is complete and `darkMode: ["class",
+ * '[data-theme="dark"]']` resolves, but nothing opts in yet: the app's 1,103
+ * inline styles still hard-code light colours, so flipping this on before the
+ * Tailwind migration would produce a half-dark page. Set `data-theme="dark"`
+ * on <html> only once a surface has been migrated.
+ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-bg-canvas: 222 47% 9%;
+  --color-bg-surface: 222 44% 13%;
+  --color-bg-surface-raised: 221 39% 17%;
+  --color-bg-subtle: 222 44% 16%;
+  --color-bg-muted: 222 40% 20%;
+  --color-bg-inverse: 210 40% 96%;
+  --color-fg-default: 210 40% 96%;
+  --color-fg-muted: 215 20% 72%;
+  --color-fg-subtle: 215 18% 80%;
+  --color-fg-inverse: 222 47% 11%;
+  --color-fg-danger: 0 91% 80%;
+  --color-fg-success: 152 76% 70%;
+  --color-fg-warning: 32 98% 76%;
+  --color-fg-info: 226 100% 84%;
+  --color-border-subtle: 220 26% 22%;
+  --color-border-default: 219 22% 30%;
+  --color-border-strong: 215 18% 50%;
+  --color-accent-fg: 226 100% 84%;
+  --color-accent-subtle: 244 40% 20%;
+  --color-focus-ring: 234 89% 74%;
+}

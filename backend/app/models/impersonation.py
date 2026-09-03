@@ -12,10 +12,12 @@ class ImpersonationSession(Base, UUIDPrimaryKeyMixin):
     __table_args__ = (
         Index("ix_impersonation_sessions_token_hash", "token_hash", unique=True),
         Index("ix_impersonation_sessions_organization_id", "organization_id"),
+        # platform_service lists the active sessions for one admin.
+        Index("ix_impersonation_sessions_admin_user_id", "admin_user_id"),
     )
 
-    admin_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    admin_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     justification: Mapped[str] = mapped_column(String(255), nullable=False)
     scopes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)

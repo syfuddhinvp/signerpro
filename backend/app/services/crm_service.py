@@ -90,6 +90,24 @@ class CRMIntegrationService:
             data=payload,
         )
 
+    def trigger_document_created(self, db: Session, *, document: Document) -> None:
+        """A draft envelope now exists -> ``document.created``.
+
+        Emitted from every path that produces a real envelope — a blank draft, a
+        duplicate, a document made from a template — but never for a template
+        itself, which is a reusable definition rather than something anyone
+        signs.
+        """
+        if document.is_template:
+            return
+        webhook_service.emit(
+            db,
+            organization_id=document.organization_id,
+            event_type="document.created",
+            document_id=document.id,
+            data={"document": document_payload(document)},
+        )
+
     def trigger_document_sent(self, db: Session, *, document: Document) -> None:
         webhook_service.emit(
             db,
@@ -100,6 +118,26 @@ class CRMIntegrationService:
                 "document": document_payload(document),
                 "recipients": [recipient_payload(item) for item in (document.recipients or [])],
             },
+        )
+
+    def trigger_document_voided(self, db: Session, *, document: Document, reason: str | None = None) -> None:
+        """The sender terminated the envelope -> ``document.voided``."""
+        webhook_service.emit(
+            db,
+            organization_id=document.organization_id,
+            event_type="document.voided",
+            document_id=document.id,
+            data={"document": document_payload(document), "reason": reason},
+        )
+
+    def trigger_document_viewed(self, db: Session, *, document: Document, recipient: Recipient) -> None:
+        """A recipient opened the envelope for the first time -> ``document.viewed``."""
+        webhook_service.emit(
+            db,
+            organization_id=document.organization_id,
+            event_type="document.viewed",
+            document_id=document.id,
+            data={"document": document_payload(document), "recipient": recipient_payload(recipient)},
         )
 
     def trigger_reminders(self, db: Session, *, document: Document) -> None:

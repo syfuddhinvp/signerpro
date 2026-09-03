@@ -11,6 +11,7 @@ from app.schemas.organization import (
     OrganizationResponse,
     OrganizationSettingsUpdate,
 )
+from app.services.entitlement_service import entitlement_service
 from app.services.organization_service import organization_service
 from app.schemas.saas import OrganizationMemberRoleUpdate
 from sqlalchemy import func, select
@@ -41,6 +42,11 @@ def update_my_organization(
     ``seats_licensed``, ``accent_color`` and ``logo_url`` are all self-service.
     A slug already taken by another tenant answers 409.
     """
+    fields_set = payload.model_fields_set
+    if ("accent_color" in fields_set and payload.accent_color is not None) or (
+        "logo_url" in fields_set and payload.logo_url is not None
+    ):
+        entitlement_service.check_custom_branding(db, current_user.organization_id)
     org = organization_service.get(db, organization_id=current_user.organization_id)
     return organization_service.update_settings(db, org=org, payload=payload)
 

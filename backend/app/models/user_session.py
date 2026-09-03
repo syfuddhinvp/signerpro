@@ -16,7 +16,7 @@ class UserSession(Base, UUIDPrimaryKeyMixin):
         Index("ix_user_sessions_refresh_hash", "refresh_token_hash", unique=True),
     )
 
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     refresh_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     device: Mapped[str | None] = mapped_column(String(120), nullable=True)
     browser: Mapped[str | None] = mapped_column(String(80), nullable=True)

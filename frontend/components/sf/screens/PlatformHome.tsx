@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
-import { btn, railHead } from '@/lib/sf/ui';
+import { btn, railHead, TEXT_MUTED, TEXT_MUTED_ON_DARK, TEXT_ON_DARK } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
 import { platformInvoices as platformInvoicesApi } from '@/lib/api/resources';
 import type {
@@ -46,15 +46,13 @@ export default function PlatformHome({
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const superBannerStyle: CSSProperties = { background:'#0f172a', borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px' };
-  const superChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background:'#f59e0b', color:'#3b1d00', fontSize:'10.5px', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", letterSpacing:'.06em', whiteSpace:'nowrap', flex:'0 0 auto' };
-  const superBtn: CSSProperties = Object.assign(btn('transparent', '#e2e8f0', '#334155'), { flex:'0 0 auto' });
-  const stepUp = () => flash('Step-up MFA satisfied · elevated session valid 15 min');
+  const superChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background:'#f59e0b', color:'#3b1d00', fontSize:'.65625rem', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", letterSpacing:'.06em', whiteSpace:'nowrap', flex:'0 0 auto' };
 
-  const emptyNote: CSSProperties = { fontSize:'11.5px', color:'#94a3b8', lineHeight:1.6 };
+  const emptyNote: CSSProperties = { fontSize:'.71875rem', color:TEXT_MUTED, lineHeight:1.6 };
 
   const platformStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
-    metaStyle: { fontSize:'11px', color: x.good ? '#047857' : '#c2410c', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties,
+    metaStyle: { fontSize:'.6875rem', color: x.good ? '#047857' : '#c2410c', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties,
   }));
 
   /* The prototype scaled bars against a hardcoded 74.7; scale against the
@@ -69,7 +67,7 @@ export default function PlatformHome({
   const maxMrr = topTenants.reduce((a, t) => Math.max(a, t.mrrCents), 0);
   const tenantRows = topTenants.map(t => ({
     id: t.id, name: t.name, initials: initials(t.name), mrr: t.mrr,
-    chip: { width:'26px', height:'26px', borderRadius:'8px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'10px', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
+    chip: { width:'26px', height:'26px', borderRadius:'8px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'.625rem', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
     bar: { width: (maxMrr ? Math.round(t.mrrCents / maxMrr * 100) : 0) + '%', height:'100%', borderRadius:'99px', background: A } as CSSProperties,
   }));
 
@@ -107,16 +105,15 @@ export default function PlatformHome({
       <div style={superBannerStyle}>
         <div style={{ display:'flex', alignItems:'center', gap:'11px', minWidth:0 }}>
           <span style={superChip}>SUPER ADMIN</span>
-          <span style={{ fontSize:'12.5px', color:'#cbd5e1', lineHeight:1.5 }}>Global scope · {tenantCount} tenants · {seatsLabel} seats. Elevated session expires in 14 min.</span>
+          <span style={{ fontSize:'.78125rem', color:TEXT_ON_DARK, lineHeight:1.5 }}>Global scope · {tenantCount} tenants · {seatsLabel} seats.</span>
         </div>
-        <button type="button" onClick={stepUp} style={superBtn}>Re-authenticate</button>
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0,1fr))', gap:'12px' }}>
         {platformStats.map(st => (
           <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'7px' }}>
-            <span style={{ fontSize:'10.5px', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{st.label}</span>
-            <span style={{ fontSize:'24px', fontWeight:700, letterSpacing:'-.8px' }}>{st.value}</span>
+            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{st.label}</span>
+            <span style={{ fontSize:'1.5rem', fontWeight:700, letterSpacing:'-.8px' }}>{st.value}</span>
             <span style={st.metaStyle}>{st.meta}</span>
           </div>
         ))}
@@ -126,14 +123,14 @@ export default function PlatformHome({
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div style={railHead}>Net MRR · trailing 12 months</div>
-            <span style={{ fontSize:'11px', color:'#047857', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{nrrLabel}</span>
+            <span style={{ fontSize:'.6875rem', color:'#047857', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{nrrLabel}</span>
           </div>
           <div style={{ display:'flex', alignItems:'flex-end', gap:'7px', height:'150px' }}>
             {mrrChart.map((c, i) => (
               <div key={i} style={c.wrap} title={c.title}><div style={c.bar}></div></div>
             ))}
           </div>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}><span>{mrrTicks[0]}</span><span>{mrrTicks[1]}</span><span>{mrrTicks[2]}</span></div>
+          <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}><span>{mrrTicks[0]}</span><span>{mrrTicks[1]}</span><span>{mrrTicks[2]}</span></div>
         </div>
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Top tenants by revenue</div>
@@ -142,8 +139,8 @@ export default function PlatformHome({
               <span style={t.chip}>{t.initials}</span>
               <div style={{ display:'flex', flexDirection:'column', gap:'3px', flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', gap:'8px' }}>
-                  <span style={{ fontSize:'12.5px', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.name}</span>
-                  <span style={{ fontSize:'11.5px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#475569', flex:'0 0 auto' }}>{t.mrr}</span>
+                  <span style={{ fontSize:'.78125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.name}</span>
+                  <span style={{ fontSize:'.71875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#475569', flex:'0 0 auto' }}>{t.mrr}</span>
                 </div>
                 <div style={{ height:'4px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={t.bar}></div></div>
               </div>
@@ -158,8 +155,8 @@ export default function PlatformHome({
           {dunningRows.length ? dunningRows.map(d => (
             <div key={d.key} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fbfcfd' }}>
               <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
-                <span style={{ fontSize:'12.5px', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{d.tenant}</span>
-                <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{d.meta}</span>
+                <span style={{ fontSize:'.78125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{d.tenant}</span>
+                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{d.meta}</span>
               </div>
               <button type="button" onClick={d.onRetry} style={ghostBtn}>{d.label}</button>
             </div>
@@ -169,25 +166,25 @@ export default function PlatformHome({
           <div style={railHead}>Service health</div>
           {healthRows.length ? healthRows.map(h => (
             <div key={h.label} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', padding:'7px 0', borderTop:'1px solid #f2f4f8' }}>
-              <span style={{ fontSize:'12.5px', color:'#334155' }}>{h.label}</span>
+              <span style={{ fontSize:'.78125rem', color:'#334155' }}>{h.label}</span>
               <span style={{ display:'flex', alignItems:'center', gap:'7px' }}>
-                <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{h.meta}</span>
+                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{h.meta}</span>
                 <span style={h.dot}></span>
               </span>
             </div>
           )) : (<span style={emptyNote}>Health data unavailable.</span>)}
         </div>
         <div style={{ background:'#0f172a', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
-          <div style={{ fontSize:'11px', letterSpacing:'.08em', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>RECENT ADMIN ACTIONS</div>
+          <div style={{ fontSize:'.6875rem', letterSpacing:'.08em', color:TEXT_MUTED_ON_DARK, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>RECENT ADMIN ACTIONS</div>
           {platformAudit.length ? platformAudit.map(a => (
             <div key={a.key} style={{ display:'flex', gap:'10px', alignItems:'flex-start' }}>
               <span style={a.dot}></span>
               <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
-                <span style={{ fontSize:'12.5px', color:'#e2e8f0', fontWeight:500 }}>{a.label}</span>
-                <span style={{ fontSize:'10.5px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all' }}>{a.meta}</span>
+                <span style={{ fontSize:'.78125rem', color:'#e2e8f0', fontWeight:500 }}>{a.label}</span>
+                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all' }}>{a.meta}</span>
               </div>
             </div>
-          )) : (<span style={{ fontSize:'11.5px', color:'#64748b', lineHeight:1.6 }}>No administrative actions recorded yet.</span>)}
+          )) : (<span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.6 }}>No administrative actions recorded yet.</span>)}
         </div>
       </div>
     </section>

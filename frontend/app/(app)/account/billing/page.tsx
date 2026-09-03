@@ -10,7 +10,7 @@ import type {
   UpcomingInvoiceResponse,
 } from '@/lib/api/types';
 
-export const metadata: Metadata = { title: 'Billing · SignForge' };
+export const metadata: Metadata = { title: 'Billing & plan · Account · SignForge' };
 
 /* A workspace that has never checked out still has to render the screen, so
    every call gets a shape-complete fallback rather than throwing. */
@@ -64,7 +64,7 @@ const FALLBACK_UPCOMING: UpcomingInvoiceResponse = {
 };
 
 export default async function Page() {
-  const api = serverCaller('/billing');
+  const api = serverCaller('/account/billing');
 
   const [subResult, settingsResult, pmResult, upcomingResult, chargesResult] = await Promise.all([
     billingApi.subscription(api),

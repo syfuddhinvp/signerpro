@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, request_ip, request_user_agent
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.recipient import (
@@ -13,6 +13,7 @@ from app.schemas.recipient import (
     RecipientUpdate,
 )
 from app.services.document_service import document_service
+from app.services.entitlement_service import entitlement_service
 from app.services.recipient_service import recipient_service
 
 
@@ -27,6 +28,11 @@ def create_recipient(
     user: User = Depends(get_current_user),
 ) -> RecipientResponse:
     document = document_service.get_for_user(db, document_id=document_id, user=user)
+    # Counts the rows already attached: three sequential single adds must not
+    # beat a per-document limit of three.
+    entitlement_service.check_recipient_capacity(
+        db, user.organization_id, document_id=document.id, additional=1
+    )
     return recipient_service.create(db, document=document, user=user, payload=payload)
 
 
@@ -57,6 +63,9 @@ def bulk_add_recipients(
 ) -> list[RecipientResponse]:
     """Append recipients, optionally sourced from address-book contacts."""
     document = document_service.get_for_user(db, document_id=document_id, user=user)
+    entitlement_service.check_recipient_capacity(
+        db, user.organization_id, document_id=document.id, additional=len(payload.recipients)
+    )
     return recipient_service.bulk_create(db, document=document, user=user, payload=payload)
 
 
@@ -94,12 +103,20 @@ def delete_recipient(document_id: str, recipient_id: str, db: Session = Depends(
 def resend_recipient_link(
     document_id: str,
     recipient_id: str,
+    request: Request,
+    notify: bool = True,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, str]:
-    """
-    Manually resend the signing link to an individual recipient.
-    Returns the generated secure signing link for manual copy/share.
+    """Issue a fresh signing link for one recipient.
+
+    ``notify=true`` (the default) emails it as a resend. ``notify=false`` mints
+    it and hands it back without sending anything, which is what "copy link"
+    needs: sharing a link out-of-band should not put a second copy of it in the
+    recipient's inbox.
+
+    Either way the previous link for that recipient is superseded, so there is
+    never more than one live URL per signer.
     """
     from app.services.token_service import token_service
     from app.services.email_service import signflow_email_service
@@ -127,16 +144,26 @@ def resend_recipient_link(
         recipient_id=recipient.id,
         expires_at=document.expires_at,
     )
-    link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token)
+    if notify:
+        link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token)
+    else:
+        link = signflow_email_service.signing_link_for(token=raw_token)
 
-    # Log to audit trail
+    # Log to audit trail. The distinction matters when the trail is read back:
+    # one is an email the recipient received, the other a link the sender took.
     audit_service.log(
         db,
         document_id=document.id,
         recipient_id=recipient.id,
         user_id=user.id,
-        event_type="signer_email_sent",
-        event_message=f"Signing link manually resent/shared for {recipient.email}.",
+        event_type="signer_email_sent" if notify else "signing_link_issued",
+        ip_address=request_ip(request),
+        user_agent=request_user_agent(request),
+        event_message=(
+            f"Signing link manually resent to {recipient.email}."
+            if notify
+            else f"Signing link copied by the sender for {recipient.email}; no email was sent."
+        ),
     )
     db.commit()
 

@@ -233,14 +233,87 @@ def test_mfa_recovery_code_is_single_use(client: TestClient) -> None:
     assert replay.status_code == 401
 
 
+def test_an_mfa_challenge_token_can_only_be_redeemed_once(client: TestClient) -> None:
+    """Replay defence, now backed by the ``mfa_challenges`` table.
+
+    The redeemed ``jti`` is burned in the database rather than pruned out of a
+    TTL list inside ``users.preferences``.
+    """
+    from sqlalchemy import text
+
+    from app.core.database import get_db
+    from app.models.mfa_challenge import MfaChallenge
+
+    body = _register(client)
+    headers = _headers(body)
+    secret, _codes = _enrol_mfa(client, headers)
+
+    mfa_token = client.post(
+        "/api/auth/login", json={"email": "casey@example.com", "password": "strong-password"}
+    ).json()["mfa_token"]
+    code = totp.current_code(secret)
+    assert client.post("/api/auth/mfa/verify", json={"mfa_token": mfa_token, "code": code}).status_code == 200
+
+    replayed = client.post("/api/auth/mfa/verify", json={"mfa_token": mfa_token, "code": code})
+    assert replayed.status_code == 401
+    assert "already been used" in replayed.json()["detail"]
+    # Even the read-only challenge lookup refuses a spent token.
+    assert client.post("/api/auth/mfa/challenge", json={"mfa_token": mfa_token}).status_code == 401
+
+    db = next(client.app.dependency_overrides[get_db]())
+    rows = db.query(MfaChallenge).all()
+    assert len(rows) == 1 and rows[0].consumed_at is not None
+    # The state is no longer smuggled into the user-facing preferences column.
+    stored = db.execute(text("SELECT preferences FROM users")).scalar()
+    assert stored is None or "_mfa_guard" not in str(stored)
+
+
+def test_a_totp_code_cannot_be_replayed_through_a_fresh_challenge(client: TestClient) -> None:
+    """A new challenge token must not launder a code that was already spent.
+
+    Recorded on ``users.mfa_last_used_step``: the TOTP step a code belongs to
+    is burned with it, so re-using the same 30-second window fails even with a
+    brand-new, unspent ``mfa_token``.
+    """
+    from app.core.database import get_db
+    from app.models.user import User
+
+    body = _register(client)
+    headers = _headers(body)
+    secret, _codes = _enrol_mfa(client, headers)
+
+    first_token = client.post(
+        "/api/auth/login", json={"email": "casey@example.com", "password": "strong-password"}
+    ).json()["mfa_token"]
+    code = totp.current_code(secret)
+    assert client.post("/api/auth/mfa/verify", json={"mfa_token": first_token, "code": code}).status_code == 200
+
+    second_token = client.post(
+        "/api/auth/login", json={"email": "casey@example.com", "password": "strong-password"}
+    ).json()["mfa_token"]
+    replayed = client.post("/api/auth/mfa/verify", json={"mfa_token": second_token, "code": code})
+    assert replayed.status_code == 401
+    assert "already been used" in replayed.json()["detail"]
+
+    db = next(client.app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.email == "casey@example.com").one()
+    assert user.mfa_last_used_step is not None
+
+
 def test_mfa_disable_requires_valid_code(client: TestClient) -> None:
     body = _register(client)
     headers = _headers(body)
     secret, _codes = _enrol_mfa(client, headers)
 
-    assert client.post("/api/auth/mfa/disable", json={"code": "000000"}, headers=headers).status_code == 400
     assert client.post(
-        "/api/auth/mfa/disable", json={"code": totp.current_code(secret)}, headers=headers
+        "/api/auth/mfa/disable",
+        json={"code": "000000", "password": "strong-password"},
+        headers=headers,
+    ).status_code == 400
+    assert client.post(
+        "/api/auth/mfa/disable",
+        json={"code": totp.current_code(secret), "password": "strong-password"},
+        headers=headers,
     ).status_code == 204
     assert client.get("/api/auth/mfa", headers=headers).json()["enrolled"] is False
     assert "mfa_token" not in client.post(
@@ -359,8 +432,10 @@ def test_refresh_rotates_the_session_and_logout_revokes_it(client: TestClient) -
     assert client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]}).status_code == 401
 
     assert client.post("/api/auth/logout", headers=_headers(refreshed.json())).status_code == 204
-    rows = client.get("/api/auth/sessions", headers=_headers(refreshed.json())).json()
-    assert all(row["is_current"] is False for row in rows)
+    # The access token of a logged-out session is dead immediately: before the
+    # revocation check existed this still returned 200 for the rest of the
+    # token's life, which is what made logout cosmetic.
+    assert client.get("/api/auth/sessions", headers=_headers(refreshed.json())).status_code == 401
 
 
 # --- profile -----------------------------------------------------------------
@@ -382,3 +457,241 @@ def test_profile_update_round_trip(client: TestClient) -> None:
     assert me["locale"] == "en-GB"
     assert me["avatar_url"] == "https://cdn/x.png"
     assert me["organization_name"] == "Harbour Legal"
+
+
+# --- security regressions (audit C3 / C4 / C5 and the MFA replay findings) ----
+
+
+def _db_session():
+    """The same session factory the app under test is using."""
+    from app.core.database import get_db
+    from app.main import app as fastapi_app
+
+    return next(fastapi_app.dependency_overrides[get_db]())
+
+
+def test_mfa_challenge_token_is_not_a_bearer_credential(client: TestClient) -> None:
+    """C3: the challenge token carries purpose="mfa" and must be rejected as a
+    bearer credential. It used to authenticate every endpoint, so a password
+    alone (no second factor) was a full account takeover."""
+    body = _register(client)
+    _enrol_mfa(client, _headers(body))
+
+    challenge = client.post(
+        "/api/auth/login", json={"email": "casey@example.com", "password": "strong-password"}
+    ).json()
+    mfa_token = challenge["mfa_token"]
+    bearer = {"Authorization": f"Bearer {mfa_token}"}
+
+    assert client.get("/api/auth/me", headers=bearer).status_code == 401
+    assert client.get("/api/auth/sessions", headers=bearer).status_code == 401
+    assert client.get("/api/documents", headers=bearer).status_code == 401
+    # ...but it still works on the two endpoints that own the challenge.
+    assert client.post("/api/auth/mfa/challenge", json={"mfa_token": mfa_token}).status_code == 200
+
+
+def test_any_purpose_scoped_token_is_rejected_as_a_bearer_credential(client: TestClient) -> None:
+    """Future-proofing: signing / embed tokens minted through
+    ``create_scoped_token`` must never authenticate a user either."""
+    from app.core.security import create_scoped_token
+
+    body = _register(client)
+    for purpose in ("mfa", "signing", "embed", "anything-else"):
+        token = create_scoped_token(body["user"]["id"], purpose=purpose, expires_in_seconds=300)
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 401, f"{purpose} token was accepted"
+
+
+def test_revoked_session_token_stops_working_immediately(client: TestClient) -> None:
+    """C4: revoking a device used to be cosmetic — the access token kept
+    working until it expired because ``sid`` and ``revoked_at`` were ignored."""
+    first = _register(client)
+    second = client.post(
+        "/api/auth/login", json={"email": "casey@example.com", "password": "strong-password"}
+    ).json()
+
+    assert client.get("/api/auth/me", headers=_headers(second)).status_code == 200
+    # "Sign out other devices" from the first session.
+    assert client.delete("/api/auth/sessions", headers=_headers(first)).status_code == 204
+
+    assert client.get("/api/auth/me", headers=_headers(second)).status_code == 401
+    assert client.get("/api/auth/me", headers=_headers(first)).status_code == 200
+
+
+def test_expired_session_row_rejects_the_access_token(client: TestClient) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select
+
+    from app.models.user_session import UserSession
+
+    body = _register(client)
+    db = _db_session()
+    row = db.scalar(select(UserSession))
+    row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    db.commit()
+
+    assert client.get("/api/auth/me", headers=_headers(body)).status_code == 401
+
+
+def test_suspended_organization_locks_out_its_users(client: TestClient) -> None:
+    """The audit found tenant suspension was entirely unenforced on the API."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from app.models.organization import Organization
+
+    body = _register(client)
+    assert client.get("/api/auth/me", headers=_headers(body)).status_code == 200
+
+    db = _db_session()
+    org = db.scalar(select(Organization).where(Organization.id == body["user"]["organization_id"]))
+    org.suspended_at = datetime.now(timezone.utc)
+    db.commit()
+
+    response = client.get("/api/auth/me", headers=_headers(body))
+    assert response.status_code == 403
+    assert "suspended" in response.json()["detail"].lower()
+
+
+def test_deprovisioned_user_cannot_use_an_existing_token(client: TestClient) -> None:
+    from sqlalchemy import select
+
+    from app.models.user import User
+
+    body = _register(client)
+    db = _db_session()
+    user = db.scalar(select(User).where(User.id == body["user"]["id"]))
+    user.status = "deprovisioned"
+    db.commit()
+
+    assert client.get("/api/auth/me", headers=_headers(body)).status_code == 403
+
+
+def test_mfa_challenge_token_and_totp_code_cannot_be_replayed(client: TestClient) -> None:
+    """The same (mfa_token, code) pair used to mint an unlimited number of
+    sessions for the five-minute life of the challenge."""
+    body = _register(client)
+    secret, _codes = _enrol_mfa(client, _headers(body))
+
+    mfa_token = client.post(
+        "/api/auth/login", json={"email": "casey@example.com", "password": "strong-password"}
+    ).json()["mfa_token"]
+    code = totp.current_code(secret)
+
+    first = client.post("/api/auth/mfa/verify", json={"mfa_token": mfa_token, "code": code})
+    assert first.status_code == 200, first.text
+
+    replay = client.post("/api/auth/mfa/verify", json={"mfa_token": mfa_token, "code": code})
+    assert replay.status_code == 401
+
+    # A fresh challenge does not rescue a code from an already-used TOTP step.
+    fresh = client.post(
+        "/api/auth/login", json={"email": "casey@example.com", "password": "strong-password"}
+    ).json()["mfa_token"]
+    assert client.post("/api/auth/mfa/verify", json={"mfa_token": fresh, "code": code}).status_code == 401
+
+
+def test_mfa_disable_requires_the_account_password(client: TestClient) -> None:
+    """A stolen access token must not be enough to strip 2FA."""
+    body = _register(client)
+    headers = _headers(body)
+    secret, _codes = _enrol_mfa(client, headers)
+
+    # No password at all: the schema rejects it.
+    no_password = client.post("/api/auth/mfa/disable", json={"code": totp.current_code(secret)}, headers=headers)
+    assert no_password.status_code == 422
+
+    wrong = client.post(
+        "/api/auth/mfa/disable",
+        json={"code": totp.current_code(secret), "password": "not-the-password"},
+        headers=headers,
+    )
+    assert wrong.status_code == 403
+    assert client.get("/api/auth/mfa", headers=headers).json()["enrolled"] is True
+
+
+def test_recovery_code_regeneration_requires_the_account_password(client: TestClient) -> None:
+    body = _register(client)
+    headers = _headers(body)
+    secret, _codes = _enrol_mfa(client, headers)
+
+    assert client.post(
+        "/api/auth/mfa/recovery-codes", json={"code": totp.current_code(secret)}, headers=headers
+    ).status_code == 422
+    assert client.post(
+        "/api/auth/mfa/recovery-codes",
+        json={"code": totp.current_code(secret), "password": "not-the-password"},
+        headers=headers,
+    ).status_code == 403
+    regenerated = client.post(
+        "/api/auth/mfa/recovery-codes",
+        json={"code": totp.current_code(secret), "password": "strong-password"},
+        headers=headers,
+    )
+    assert regenerated.status_code == 200
+    assert len(regenerated.json()["recovery_codes"]) == 10
+
+
+def test_access_tokens_are_short_lived(client: TestClient) -> None:
+    """Refresh-token rotation carries the session; the access token itself is
+    a ~15-minute credential so revocation latency stays small."""
+    from app.core.config import Settings, get_settings
+
+    # The shipped default is what matters; a deployment may still override it.
+    assert Settings.model_fields["jwt_expires_minutes"].default == 15
+    body = _register(client)
+    assert body["expires_in"] == get_settings().jwt_expires_minutes * 60
+
+
+def test_login_runs_bcrypt_even_for_an_unknown_account(client: TestClient) -> None:
+    """Timing oracle: bcrypt used to be skipped entirely for unknown
+    addresses, answering ~80x faster and enumerating registered users."""
+    import time
+
+    _register(client)
+
+    def timed(email: str) -> float:
+        reset_rate_limits()
+        start = time.perf_counter()
+        response = client.post("/api/auth/login", json={"email": email, "password": "wrong-password"})
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid email or password"
+        return time.perf_counter() - start
+
+    known = min(timed("casey@example.com") for _ in range(3))
+    unknown = min(timed("nobody@example.com") for _ in range(3))
+    # Generous bound: the point is that the unknown path is no longer an order
+    # of magnitude cheaper, not that the two are identical.
+    assert unknown > known / 3
+
+
+def test_production_rejects_a_default_or_weak_jwt_secret(monkeypatch) -> None:
+    """C5: the guard that already existed for SECRET_ENCRYPTION_KEY."""
+    import pytest
+
+    from app.core import crypto
+    from app.core.config import get_settings
+
+    settings = get_settings()
+
+    def check(secret: str, environment: str) -> None:
+        monkeypatch.setattr(settings, "jwt_secret", secret, raising=False)
+        monkeypatch.setattr(settings, "environment", environment, raising=False)
+        crypto.verify_jwt_secret_configured()
+
+    for secret in ("change-me-in-production", "", "short-secret"):
+        with pytest.raises(crypto.InsecureJwtSecret):
+            check(secret, "production")
+
+    # Anything not explicitly development/test is treated as production.
+    with pytest.raises(crypto.InsecureJwtSecret):
+        check("change-me-in-production", "staging")
+    with pytest.raises(crypto.InsecureJwtSecret):
+        check("change-me-in-production", "")
+
+    # A real secret passes; development keeps its defaults.
+    check("k" * 48, "production")
+    check("change-me-in-production", "development")
+    check("change-me-in-production", "test")

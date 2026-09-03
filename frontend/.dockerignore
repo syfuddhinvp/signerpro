@@ -1,7 +1,32 @@
+# Everything that must never enter the build context.
 node_modules
 .next
 out
 build
 dist
-.env*.local
+coverage
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# VCS and tooling
+.git
+.gitignore
+.github
+*.log
+npm-debug.log*
 .npm
+.DS_Store
+
+# Non-npm package managers — npm is the single source of truth (audit finding 41)
+package-lock.json
+yarn.lock
+bun.lockb
+
+# Build caches and docs
+*.tsbuildinfo
+Dockerfile
+.dockerignore
+README.md

@@ -15,8 +15,8 @@ class Field(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_fields_recipient_id", "recipient_id"),
     )
 
-    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), nullable=False)
-    recipient_id: Mapped[str] = mapped_column(ForeignKey("recipients.id"), nullable=False)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    recipient_id: Mapped[str] = mapped_column(ForeignKey("recipients.id", ondelete="CASCADE"), nullable=False)
     type: Mapped[FieldType] = mapped_column(Enum(FieldType), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -43,5 +43,7 @@ class Field(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     document: Mapped["Document"] = relationship(back_populates="fields")
     recipient: Mapped["Recipient"] = relationship(back_populates="fields")
-    signatures: Mapped[list["Signature"]] = relationship(back_populates="field", cascade="all, delete-orphan")
+    signatures: Mapped[list["Signature"]] = relationship(
+        back_populates="field", cascade="all, delete-orphan", passive_deletes=True
+    )
 

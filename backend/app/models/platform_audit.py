@@ -21,9 +21,9 @@ class PlatformAuditEntry(Base, UUIDPrimaryKeyMixin):
     )
 
     action: Mapped[str] = mapped_column(String(80), nullable=False)
-    actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     actor_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), nullable=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
     detail: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(80), nullable=True)
     entry_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)

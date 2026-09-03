@@ -12,7 +12,7 @@ from app.services.webhook_service import (
     validate_endpoint_url,
     webhook_service,
 )
-from app.tests.conftest import auth_headers
+from app.tests.conftest import auth_headers, upgrade_plan
 from app.tests.test_document_flow import (
     add_field,
     add_recipient,
@@ -34,6 +34,18 @@ class RecordingTransport:
         if self.raises is not None:
             raise self.raises
         return self.status_code, "ok"
+
+
+def _entitled_headers(client: TestClient) -> dict[str, str]:
+    """A tenant that has actually bought the ``webhooks`` entitlement.
+
+    Team declares ``webhooks: False`` and that is now enforced, so these tests
+    pay for Business first. Previously they exercised the surface from an
+    unentitled org, which is exactly the hole AUDIT_REPORT.md section 7 found.
+    """
+    headers = auth_headers(client)
+    upgrade_plan(client, headers, "business")
+    return headers
 
 
 @pytest.fixture()
@@ -99,7 +111,7 @@ def test_public_https_url_is_accepted() -> None:
 
 
 def test_api_rejects_ssrf_url(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     response = client.post(
         "/api/webhooks",
         headers=headers,
@@ -113,7 +125,7 @@ def test_api_rejects_ssrf_url(client: TestClient) -> None:
 # --------------------------------------------------------------------------- #
 
 def test_event_type_catalogue(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     response = client.get("/api/webhooks/event-types", headers=headers)
     assert response.status_code == 200
     names = {item["event_type"] for item in response.json()}
@@ -122,8 +134,101 @@ def test_event_type_catalogue(client: TestClient) -> None:
     assert not [name for name in names if "loan" in name or "realtor" in name or "crm" in name]
 
 
+def test_catalogue_covers_the_whole_lifecycle_from_creation(client: TestClient) -> None:
+    """The lifecycle an integration can subscribe to starts at creation."""
+    headers = _entitled_headers(client)
+    names = {
+        item["event_type"]
+        for item in client.get("/api/webhooks/event-types", headers=headers).json()
+    }
+    assert "document.created" in names
+
+
+def test_draft_creation_emits_document_created_before_any_send(
+    client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
+) -> None:
+    """A draft is an event, not silence until send time."""
+    headers = _entitled_headers(client)
+    create_endpoint(client, headers)
+
+    created = client.post("/api/documents", headers=headers, json={"title": "Draft one"})
+    assert created.status_code == 201, created.text
+
+    events = [h["X-SignFlow-Event"] for _, _, h in transport.calls]
+    assert events == ["document.created"]
+    payload = transport.calls[0][1]
+    assert b'"status":"draft"' in payload.replace(b", ", b",").replace(b": ", b":")
+
+
+def test_send_emits_document_sent(
+    client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
+) -> None:
+    headers = _entitled_headers(client)
+    create_endpoint(client, headers)
+    document_id = create_uploaded_document(client, pdf_bytes, headers)
+    signer_id = add_recipient(client, document_id, headers, "Signer One", "one@example.com")
+    add_field(client, document_id, headers, signer_id, "text", "Input", 680)
+    transport.calls.clear()
+
+    sent = client.post(f"/api/documents/{document_id}/send", headers=headers)
+    assert sent.status_code == 200, sent.text
+    assert "document.sent" in [h["X-SignFlow-Event"] for _, _, h in transport.calls]
+
+
+def test_view_decline_and_void_emit_their_events(
+    client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
+) -> None:
+    headers = _entitled_headers(client)
+    create_endpoint(client, headers)
+    document_id = create_uploaded_document(client, pdf_bytes, headers)
+    signer_id = add_recipient(client, document_id, headers, "Signer One", "one@example.com")
+    add_field(client, document_id, headers, signer_id, "text", "Input", 680)
+    sent = client.post(f"/api/documents/{document_id}/send", headers=headers)
+    token = token_from_link(sent.json()["signing_links"][0]["signing_link"])
+    transport.calls.clear()
+
+    client.post(f"/api/sign/{token}/viewed")
+    assert "document.viewed" in [h["X-SignFlow-Event"] for _, _, h in transport.calls]
+
+    client.post(f"/api/sign/{token}/consent")
+    transport.calls.clear()
+    declined = client.post(f"/api/sign/{token}/decline", json={"reason": "wrong party"})
+    assert declined.status_code in {200, 204}, declined.text
+    events = [h["X-SignFlow-Event"] for _, _, h in transport.calls]
+    assert "recipient.declined" in events
+    assert "document.declined" in events
+
+
+def test_void_emits_document_voided(
+    client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
+) -> None:
+    headers = _entitled_headers(client)
+    create_endpoint(client, headers)
+    document_id = create_uploaded_document(client, pdf_bytes, headers)
+    signer_id = add_recipient(client, document_id, headers, "Signer One", "one@example.com")
+    add_field(client, document_id, headers, signer_id, "text", "Input", 680)
+    client.post(f"/api/documents/{document_id}/send", headers=headers)
+    transport.calls.clear()
+
+    voided = client.post(f"/api/documents/{document_id}/void", headers=headers, params={"reason": "superseded"})
+    assert voided.status_code == 200, voided.text
+    assert "document.voided" in [h["X-SignFlow-Event"] for _, _, h in transport.calls]
+
+
+def test_templates_are_not_envelopes_and_emit_nothing(
+    client: TestClient, transport: RecordingTransport
+) -> None:
+    headers = _entitled_headers(client)
+    create_endpoint(client, headers)
+    created = client.post(
+        "/api/documents", headers=headers, json={"title": "Template one", "is_template": True}
+    )
+    assert created.status_code == 201, created.text
+    assert transport.calls == []
+
+
 def test_endpoint_crud_and_secret_shown_once(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     created = create_endpoint(client, headers, event_types=["document.completed"])
     assert created["secret"].startswith("whsec_")
 
@@ -148,7 +253,7 @@ def test_endpoint_crud_and_secret_shown_once(client: TestClient) -> None:
 
 
 def test_unknown_event_type_rejected(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     response = client.post(
         "/api/webhooks",
         headers=headers,
@@ -158,7 +263,7 @@ def test_unknown_event_type_rejected(client: TestClient) -> None:
 
 
 def test_endpoints_are_tenant_scoped(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     created = create_endpoint(client, headers)
 
     other = client.post(
@@ -185,7 +290,7 @@ def test_endpoints_are_tenant_scoped(client: TestClient) -> None:
 def test_completed_document_emits_neutral_events_with_valid_signature(
     client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
 ) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers)
     sign_document(client, pdf_bytes, headers)
 
@@ -217,7 +322,7 @@ def test_completed_document_emits_neutral_events_with_valid_signature(
 def test_event_type_subscription_filters_delivery(
     client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
 ) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers, event_types=["document.completed"])
     sign_document(client, pdf_bytes, headers)
     events = {headers_["X-SignFlow-Event"] for _, _, headers_ in transport.calls}
@@ -228,7 +333,7 @@ def test_event_type_subscription_filters_delivery(
 def test_inactive_endpoint_receives_nothing(
     client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
 ) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers)
     client.patch(f"/api/webhooks/{endpoint['id']}", headers=headers, json={"is_active": False})
     sign_document(client, pdf_bytes, headers)
@@ -243,7 +348,7 @@ def test_broken_endpoint_does_not_break_signing(
     client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
 ) -> None:
     transport.raises = RuntimeError("connection refused")
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers)
 
     document_id = sign_document(client, pdf_bytes, headers)  # asserts completion internally
@@ -265,7 +370,7 @@ def test_http_500_from_endpoint_does_not_break_signing(
     client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
 ) -> None:
     transport.status_code = 500
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers)
     sign_document(client, pdf_bytes, headers)
     deliveries = client.get(f"/api/webhooks/{endpoint['id']}/deliveries", headers=headers).json()
@@ -288,7 +393,7 @@ def test_retries_back_off_then_exhaust_and_replay_recovers(
     client: TestClient, pdf_bytes: bytes, transport: RecordingTransport
 ) -> None:
     transport.raises = RuntimeError("boom")
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers, event_types=["document.completed"])
     sign_document(client, pdf_bytes, headers)
 
@@ -336,7 +441,7 @@ def test_retries_back_off_then_exhaust_and_replay_recovers(
 
 
 def test_replay_is_tenant_scoped(client: TestClient, pdf_bytes: bytes, transport: RecordingTransport) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers)
     sign_document(client, pdf_bytes, headers)
     delivery_id = client.get(f"/api/webhooks/{endpoint['id']}/deliveries", headers=headers).json()[0]["id"]
@@ -359,7 +464,7 @@ def test_replay_is_tenant_scoped(client: TestClient, pdf_bytes: bytes, transport
 # --------------------------------------------------------------------------- #
 
 def test_send_test_event(client: TestClient, transport: RecordingTransport) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers)
     response = client.post(f"/api/webhooks/{endpoint['id']}/test", headers=headers)
     assert response.status_code == 200, response.text
@@ -369,7 +474,7 @@ def test_send_test_event(client: TestClient, transport: RecordingTransport) -> N
 
 
 def test_test_event_rejected_when_not_subscribed(client: TestClient, transport: RecordingTransport) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     endpoint = create_endpoint(client, headers, event_types=["document.completed"])
     response = client.post(f"/api/webhooks/{endpoint['id']}/test", headers=headers)
     assert response.status_code == 400
@@ -380,7 +485,7 @@ def test_test_event_rejected_when_not_subscribed(client: TestClient, transport: 
 # --------------------------------------------------------------------------- #
 
 def test_webhook_activity_is_audited(client: TestClient, pdf_bytes: bytes, transport: RecordingTransport) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     create_endpoint(client, headers, event_types=["document.completed"])
     document_id = sign_document(client, pdf_bytes, headers)
     logs = client.get(f"/api/documents/{document_id}/audit-logs", headers=headers).json()

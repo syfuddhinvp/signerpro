@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.core.database import get_db
 from app.models.enums import UserRole
 from app.models.user import User
+from app.tests.conftest import upgrade_plan
 
 
 def register(client: TestClient, *, org: str, name: str, email: str) -> dict[str, str]:
@@ -60,8 +61,6 @@ def test_org_admin_owns_the_tenant_profile_fields(client: TestClient) -> None:
             "region": "eu-west-1",
             "company_size": "11-50",
             "seats_licensed": 25,
-            "accent_color": "#1d4ed8",
-            "logo_url": "https://cdn.example.com/acme.png",
         },
     )
     assert response.status_code == status.HTTP_200_OK, response.text
@@ -70,8 +69,18 @@ def test_org_admin_owns_the_tenant_profile_fields(client: TestClient) -> None:
     assert body["region"] == "eu-west-1"
     assert body["company_size"] == "11-50"
     assert body["seats_licensed"] == 25
-    assert body["accent_color"] == "#1d4ed8"
-    assert body["logo_url"] == "https://cdn.example.com/acme.png"
+
+    # Branding is a paid feature: the entry plan may not set it, so it moved
+    # out of this test and into test_custom_branding_is_entitlement_gated.
+    upgrade_plan(client, headers, "business")
+    branded = client.patch(
+        "/api/organizations/me",
+        headers=headers,
+        json={"accent_color": "#1d4ed8", "logo_url": "https://cdn.example.com/acme.png"},
+    )
+    assert branded.status_code == status.HTTP_200_OK, branded.text
+    assert branded.json()["accent_color"] == "#1d4ed8"
+    assert branded.json()["logo_url"] == "https://cdn.example.com/acme.png"
     # And they are readable back by any member, not only the admin.
     assert client.get("/api/organizations/me", headers=headers).json()["slug"] == "acme-realty"
 

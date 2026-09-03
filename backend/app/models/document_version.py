@@ -12,7 +12,7 @@ class DocumentVersion(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "document_versions"
     __table_args__ = (Index("ix_document_versions_document_id", "document_id"),)
 
-    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), nullable=False)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     version_type: Mapped[DocumentVersionType] = mapped_column(Enum(DocumentVersionType), nullable=False)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)

@@ -15,9 +15,10 @@ import Signer from '@/components/sf/screens/Signer';
 import { useSF, type Recipient, type SFField } from '@/lib/sf/state';
 import type { SignerField } from '@/lib/sf/adapters';
 import { btn, inputStyle } from '@/lib/sf/ui';
+import type { OtherPlacement } from '@/components/sf/screens/Signer';
 import {
   completeSigning, declineSigning, markViewed, reassignSigning, saveFieldValue, saveSignature,
-  type ActionResult,
+  uploadAttachment, type ActionResult,
 } from './actions';
 
 export type SignSurfaceProps = {
@@ -31,9 +32,12 @@ export type SignSurfaceProps = {
   canReassign: boolean;
   signerName: string;
   documentTitle: string;
-  /** `/api/sign/{token}/pdf`, proxied through this route's own PDF handler. */
+  /** `/api/sign/{token}/pdf`, proxied through this route's own PDF handler.
+   *  Both the download button and the rendered document read from it. */
   pdfHref: string;
   consentVersion: string;
+  /** Other recipients' placements, redacted to geometry by the API. */
+  otherPlacements: OtherPlacement[];
 };
 
 type ModalKind = 'signature' | 'disclosure' | 'decline' | 'reassign' | null;
@@ -54,23 +58,23 @@ const cardHead: CSSProperties = {
 };
 const cardBody: CSSProperties = { padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px' };
 const textareaStyle: CSSProperties = {
-  border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '12.5px',
+  border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem',
   resize: 'vertical', outline: 'none', width: '100%', color: '#0f172a',
 };
 const iconBtn: CSSProperties = {
   width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
-  background: '#fff', color: '#64748b', cursor: 'pointer', fontSize: '12px',
+  background: '#fff', color: '#64748b', cursor: 'pointer', fontSize: '.75rem',
 };
 const tab = (on: boolean): CSSProperties => ({
   height: '30px', padding: '0 13px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-  fontSize: '12.5px', fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent',
+  fontSize: '.78125rem', fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent',
   color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
 });
 
 export default function SignSurface(props: SignSurfaceProps) {
   const {
     token, fields, recipients, initialValues, pageCount, readOnly,
-    canDecline, canReassign, signerName, documentTitle, pdfHref, consentVersion,
+    canDecline, canReassign, signerName, documentTitle, pdfHref, consentVersion, otherPlacements,
   } = props;
   const { s, set, flash } = useSF();
   const router = useRouter();
@@ -110,6 +114,13 @@ export default function SignSurface(props: SignSurfaceProps) {
   const onSaveValue = (field: SFField, value: string | boolean) => {
     if (readOnly) return;
     apply(() => saveFieldValue(token, field.id, value));
+  };
+
+  const onUploadAttachment = (field: SFField, file: File) => {
+    if (readOnly) return;
+    const form = new FormData();
+    form.append('upload', file, file.name);
+    apply(() => uploadAttachment(token, field.id, form), 'Uploading ' + file.name + '…');
   };
 
   /* ── signature ceremony ── */
@@ -207,6 +218,10 @@ export default function SignSurface(props: SignSurfaceProps) {
         onReassign={() => (canReassign ? setModal('reassign') : flash('This envelope can no longer be reassigned'))}
         onFinish={finish}
         onDownload={() => window.open(pdfHref, '_blank', 'noopener')}
+        pdfUrl={pdfHref}
+        otherPlacements={otherPlacements}
+        onUploadAttachment={onUploadAttachment}
+        stampEndpoint={(fieldId) => `/sign/${encodeURIComponent(token)}/fields/${encodeURIComponent(fieldId)}/attachment`}
       />
 
       {modal === 'signature' ? (
@@ -214,8 +229,8 @@ export default function SignSurface(props: SignSurfaceProps) {
           <div style={card('680px')}>
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.2px' }}>Adopt your signature</span>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>Draw or type — it is bound to this envelope with a SHA-256 hash</span>
+                <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Adopt your signature</span>
+                <span style={{ fontSize: '.75rem', color: '#64748b' }}>Draw or type — it is bound to this envelope with a SHA-256 hash</span>
               </div>
               <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}>✕</button>
             </div>
@@ -235,7 +250,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
                     onPointerLeave={onPointerUp}
-                    style={{ width: '100%', height: '200px', touchAction: 'none', background: '#fbfcfd', border: '1px dashed #cbd5e1', borderRadius: '12px', cursor: 'crosshair' }}
+                    style={{ width: '100%', height: '200px', touchAction: 'none', background: '#fbfcfd', border: '1px dashed #8492a6', borderRadius: '12px', cursor: 'crosshair' }}
                   />
                   <button type="button" onClick={clearCanvas} style={ghostBtn}>Clear</button>
                 </div>
@@ -255,7 +270,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                         type="button"
                         onClick={() => setTypeFace(face)}
                         aria-pressed={typeFace === face}
-                        style={{ flex: '1 1 160px', minHeight: '58px', border: '1px solid ' + (typeFace === face ? '#4f46e5' : '#e3e7ee'), borderRadius: '12px', background: '#fff', cursor: 'pointer', fontFamily: `'${face}', cursive`, fontSize: '24px', color: '#0f172a' }}
+                        style={{ flex: '1 1 160px', minHeight: '58px', border: '1px solid ' + (typeFace === face ? '#4f46e5' : '#e3e7ee'), borderRadius: '12px', background: '#fff', cursor: 'pointer', fontFamily: `'${face}', cursive`, fontSize: '1.5rem', color: '#0f172a' }}
                       >
                         {typedName || signerName}
                       </button>
@@ -263,7 +278,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                   </div>
                 </div>
               )}
-              <div style={{ fontSize: '11.5px', color: '#64748b', lineHeight: 1.6 }}>
+              <div style={{ fontSize: '.71875rem', color: '#64748b', lineHeight: 1.6 }}>
                 By selecting Adopt and sign, I agree this signature and initials are the electronic representation of my signature for all purposes.
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -280,13 +295,13 @@ export default function SignSurface(props: SignSurfaceProps) {
           <div style={card('520px')}>
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.2px' }}>Electronic Record and Signature Disclosure</span>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>{'Consent v' + consentVersion + ' · accepted for ' + documentTitle}</span>
+                <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Electronic Record and Signature Disclosure</span>
+                <span style={{ fontSize: '.75rem', color: '#64748b' }}>{'Consent v' + consentVersion + ' · accepted for ' + documentTitle}</span>
               </div>
               <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}>✕</button>
             </div>
             <div style={cardBody}>
-              <div style={{ fontSize: '12.5px', color: '#475569', lineHeight: 1.65, maxHeight: '240px', overflow: 'auto' }}>
+              <div style={{ fontSize: '.78125rem', color: '#475569', lineHeight: 1.65, maxHeight: '240px', overflow: 'auto' }}>
                 You have already consented to transact business electronically for this envelope. Your electronic signature has the same legal effect as a handwritten one, and every action you take is recorded in a tamper-evident audit trail with its own SHA-256 checksum. You may request a paper copy from the sender at any time, and you may withdraw consent for future envelopes by contacting them directly.
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -302,13 +317,13 @@ export default function SignSurface(props: SignSurfaceProps) {
           <div style={card('520px')}>
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.2px' }}>Decline to sign</span>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>The sender is notified and the envelope closes for everyone</span>
+                <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Decline to sign</span>
+                <span style={{ fontSize: '.75rem', color: '#64748b' }}>The sender is notified and the envelope closes for everyone</span>
               </div>
               <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}>✕</button>
             </div>
             <div style={cardBody}>
-              <div style={{ fontSize: '12.5px', color: '#475569', lineHeight: 1.65 }}>
+              <div style={{ fontSize: '.78125rem', color: '#475569', lineHeight: 1.65 }}>
                 Declining stops this envelope permanently. Your reason is recorded in the audit trail and shared with the sender.
               </div>
               <textarea
@@ -333,8 +348,8 @@ export default function SignSurface(props: SignSurfaceProps) {
           <div style={card('520px')}>
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.2px' }}>Reassign this envelope</span>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>Your link is retired and a new invitation is emailed</span>
+                <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Reassign this envelope</span>
+                <span style={{ fontSize: '.75rem', color: '#64748b' }}>Your link is retired and a new invitation is emailed</span>
               </div>
               <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}>✕</button>
             </div>
@@ -371,7 +386,7 @@ export default function SignSurface(props: SignSurfaceProps) {
       ) : null}
 
       {s.toast ? (
-        <div role="status" style={{ position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 90, background: '#0f172a', color: '#f1f5f9', padding: '11px 16px', borderRadius: '11px', fontSize: '12.5px', boxShadow: '0 18px 40px -18px rgba(15,23,42,.6)', animation: 'sfIn .16s ease' }}>{s.toast}</div>
+        <div role="status" style={{ position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 90, background: '#0f172a', color: '#f1f5f9', padding: '11px 16px', borderRadius: '11px', fontSize: '.78125rem', boxShadow: '0 18px 40px -18px rgba(15,23,42,.6)', animation: 'sfIn .16s ease' }}>{s.toast}</div>
       ) : null}
     </>
   );

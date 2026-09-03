@@ -17,7 +17,7 @@ class Recipient(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_recipients_contact_id", "contact_id"),
     )
 
-    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), nullable=False)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     role_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -25,7 +25,7 @@ class Recipient(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # sign | approve | copy | inperson
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="sign", server_default="sign")
     color: Mapped[str | None] = mapped_column(String(9), nullable=True)
-    contact_id: Mapped[str | None] = mapped_column(ForeignKey("contacts.id"), nullable=True)
+    contact_id: Mapped[str | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
     signing_order: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     status: Mapped[RecipientStatus] = mapped_column(Enum(RecipientStatus), nullable=False, default=RecipientStatus.waiting)
     viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -44,8 +44,14 @@ class Recipient(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     consent_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="recipients")
-    fields: Mapped[list["Field"]] = relationship(back_populates="recipient", cascade="all, delete-orphan")
-    signatures: Mapped[list["Signature"]] = relationship(back_populates="recipient", cascade="all, delete-orphan")
-    signing_tokens: Mapped[list["SigningToken"]] = relationship(back_populates="recipient", cascade="all, delete-orphan")
+    fields: Mapped[list["Field"]] = relationship(
+        back_populates="recipient", cascade="all, delete-orphan", passive_deletes=True
+    )
+    signatures: Mapped[list["Signature"]] = relationship(
+        back_populates="recipient", cascade="all, delete-orphan", passive_deletes=True
+    )
+    signing_tokens: Mapped[list["SigningToken"]] = relationship(
+        back_populates="recipient", cascade="all, delete-orphan", passive_deletes=True
+    )
     audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="recipient")
 

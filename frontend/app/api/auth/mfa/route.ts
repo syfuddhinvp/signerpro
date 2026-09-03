@@ -19,9 +19,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const remember = body?.remember === true;
   return forwardAuth(
     '/api/auth/mfa/verify',
-    { mfa_token: mfaToken, code: code.trim(), remember: body?.remember === true },
+    { mfa_token: mfaToken, code: code.trim(), remember },
     safeNext(body?.next),
+    { remember },
   );
 }

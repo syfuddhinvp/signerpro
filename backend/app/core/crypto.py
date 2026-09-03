@@ -32,6 +32,10 @@ class EncryptionKeyMissing(RuntimeError):
     """Raised when no encryption key is configured in a production environment."""
 
 
+class InsecureJwtSecret(RuntimeError):
+    """Raised when a production environment is signing tokens with a default key."""
+
+
 def _derive_key(secret: str, version: str) -> bytes:
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -70,8 +74,12 @@ def _configured_secrets() -> dict[str, str]:
 
     current = getattr(settings, "secret_encryption_key", None)
     if not current:
+        from app.core.config import is_production
+
         environment = (getattr(settings, "environment", "development") or "").lower()
-        if environment == "production":
+        # Fail closed: only an explicitly named development/test environment
+        # may fall back to a key derived from JWT_SECRET.
+        if is_production(environment):
             raise EncryptionKeyMissing(
                 "SECRET_ENCRYPTION_KEY must be set in production: tenant gateway "
                 "secrets cannot be encrypted at rest without it."
@@ -97,6 +105,38 @@ def reset_keyring_cache() -> None:
     """Forget derived keys (tests / after a config reload)."""
 
     _keyring.cache_clear()
+
+
+def verify_jwt_secret_configured() -> None:
+    """Startup check: refuse to run production on a guessable signing key.
+
+    Same shape as the encryption-key guard above. ``JWT_SECRET`` signs every
+    access token, so a published default there is a mint-any-identity hole,
+    including ``is_platform_admin``.
+    """
+
+    from app.core.config import (
+        INSECURE_JWT_SECRETS,
+        MIN_JWT_SECRET_LENGTH,
+        get_settings,
+        is_production,
+    )
+
+    settings = get_settings()
+    if not is_production(getattr(settings, "environment", "development")):
+        return
+
+    secret = (getattr(settings, "jwt_secret", "") or "").strip()
+    if not secret:
+        raise InsecureJwtSecret("JWT_SECRET must be set in production.")
+    if secret.lower() in INSECURE_JWT_SECRETS:
+        raise InsecureJwtSecret(
+            "JWT_SECRET is a well-known default value; set a unique secret in production."
+        )
+    if len(secret) < MIN_JWT_SECRET_LENGTH:
+        raise InsecureJwtSecret(
+            f"JWT_SECRET must be at least {MIN_JWT_SECRET_LENGTH} characters in production."
+        )
 
 
 def verify_encryption_configured() -> None:

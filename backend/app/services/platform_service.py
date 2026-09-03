@@ -15,12 +15,14 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any, Iterable
 
-from jose import jwt
+import jwt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.security import JWT_ALGORITHM
+from fastapi import HTTPException, status
+
+from app.core.security import IMPERSONATION_TOKEN_PURPOSE, JWT_ALGORITHM
 from app.models.document import Document
 from app.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from app.models.impersonation import ImpersonationSession
@@ -30,6 +32,7 @@ from app.models.plan import Plan
 from app.models.platform_audit import PlatformAuditEntry
 from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.system_log import SystemLog
+from app.models.enums import UserRole
 from app.models.user import User
 
 # Role keys used by the permission matrix and the directory (ORG-10).
@@ -62,25 +65,53 @@ PERMISSION_MATRIX: list[tuple[str, list[bool]]] = [
     ("View organization documents and reports", [True, True, True, True]),
 ]
 
-#: Security-posture rows the platform ships with (FLG-5) — the prototype's SEC_DEFS.
+#: Security-posture rows the platform ships with (FLG-5).
+#:
+#: **None of these controls is implemented.** There is no SAML/OIDC handler, no
+#: SCIM endpoint, no IP allowlist check on any dependency, no residency
+#: routing, no key-rotation job and no DLP scanner. The rows exist because the
+#: console renders a roadmap tracker; they are shipped *disabled* and every
+#: response marks them ``implemented=False`` / ``enforced=False`` so nobody can
+#: read a toggle here as a control that is actually in force.
 SECURITY_POSTURE_DEFAULTS: list[dict[str, Any]] = [
-    {"key": "sso", "label": "SAML 2.0 / OIDC single sign-on", "detail": "Okta · enforced for enterprise tenants", "enabled": True},
-    {"key": "scim", "label": "SCIM 2.0 provisioning", "detail": "deprovision within 60s of IdP removal", "enabled": True},
-    {"key": "ipAllow", "label": "IP allowlist for admin console", "detail": "currently open to all egress ranges", "enabled": False},
-    {"key": "residency", "label": "Regional data residency pinning", "detail": "us-east-1 · eu-central-1 · ap-southeast-2", "enabled": True},
-    {"key": "keyRotation", "label": "HSM key rotation (90 days)", "detail": "rotated automatically", "enabled": True},
-    {"key": "dlp", "label": "DLP scanning on uploaded documents", "detail": "blocks PII patterns before send", "enabled": False},
+    {"key": "sso", "label": "SAML 2.0 / OIDC single sign-on", "detail": "Not implemented — no SSO handler exists; password login is the only path.", "enabled": False},
+    {"key": "scim", "label": "SCIM 2.0 provisioning", "detail": "Not implemented — no SCIM endpoint exists; deprovisioning is manual.", "enabled": False},
+    {"key": "ipAllow", "label": "IP allowlist for admin console", "detail": "Not implemented — no dependency checks the caller's address.", "enabled": False},
+    {"key": "residency", "label": "Regional data residency pinning", "detail": "Not implemented — all tenants share one region.", "enabled": False},
+    {"key": "keyRotation", "label": "HSM key rotation (90 days)", "detail": "Not implemented — there is no rotation job and no HSM integration.", "enabled": False},
+    {"key": "dlp", "label": "DLP scanning on uploaded documents", "detail": "Not implemented — uploads are not scanned.", "enabled": False},
 ]
 
+#: Posture keys backed by code that actually enforces something. Empty today;
+#: adding a key here is the signal that the control became real.
+IMPLEMENTED_SECURITY_CONTROLS: frozenset[str] = frozenset()
+
+
+def security_posture_view(row) -> dict[str, Any]:
+    """The row as the API reports it, with enforcement stated explicitly."""
+    implemented = row.key in IMPLEMENTED_SECURITY_CONTROLS
+    return {
+        "key": row.key,
+        "label": row.label,
+        "detail": row.detail,
+        "enabled": bool(row.enabled),
+        "implemented": implemented,
+        "enforced": implemented and bool(row.enabled),
+    }
+
+
+#: Compliance records the *operator* maintains. The platform cannot substantiate
+#: a certification, so it ships asserting none: a row saying "certified" here
+#: could be shown to a customer as evidence of an audit that never happened.
 CERTIFICATION_DEFAULTS: list[dict[str, Any]] = [
-    {"name": "SOC 2 Type II", "status": "certified", "sort_order": 0},
-    {"name": "ISO 27001", "status": "certified", "sort_order": 1},
-    {"name": "ISO 27018", "status": "certified", "sort_order": 2},
-    {"name": "HIPAA", "status": "certified", "sort_order": 3},
-    {"name": "21 CFR Part 11", "status": "certified", "sort_order": 4},
-    {"name": "eIDAS QES", "status": "certified", "sort_order": 5},
-    {"name": "GDPR", "status": "certified", "sort_order": 6},
-    {"name": "FedRAMP", "status": "in_process", "sort_order": 7},
+    {"name": "SOC 2 Type II", "status": "not_assessed", "sort_order": 0},
+    {"name": "ISO 27001", "status": "not_assessed", "sort_order": 1},
+    {"name": "ISO 27018", "status": "not_assessed", "sort_order": 2},
+    {"name": "HIPAA", "status": "not_assessed", "sort_order": 3},
+    {"name": "21 CFR Part 11", "status": "not_assessed", "sort_order": 4},
+    {"name": "eIDAS QES", "status": "not_assessed", "sort_order": 5},
+    {"name": "GDPR", "status": "not_assessed", "sort_order": 6},
+    {"name": "FedRAMP", "status": "not_assessed", "sort_order": 7},
 ]
 
 #: Feature-flag catalogue (FLG-1) — the prototype's FLAG_META.
@@ -477,6 +508,12 @@ def _hash_token(raw: str) -> str:
     return sha256(raw.encode("utf-8")).hexdigest()
 
 
+#: The only scopes an impersonation session may hold. ``read`` permits safe
+#: HTTP methods only; ``write`` additionally permits mutations, minus the
+#: privilege-granting surface enumerated in ``app.api.deps``.
+IMPERSONATION_SCOPES: frozenset[str] = frozenset({"read", "write"})
+
+
 def start_impersonation(
     db: Session,
     *,
@@ -488,14 +525,37 @@ def start_impersonation(
     scopes: list[str] | None,
     ip_address: str | None = None,
 ) -> tuple[ImpersonationSession, str]:
+    """Mint an impersonation credential and the row that governs it.
+
+    The token is *not* an ordinary access token. It carries
+    ``purpose=impersonation`` so ``get_current_user`` routes it through
+    ``authorize_impersonation``, which re-reads this row on every request. That
+    makes the three properties the session claims actually true:
+
+    * **scope** — ``read`` sessions are refused on any unsafe method;
+    * **revocation** — ``ended_at`` is checked per request, so ending a session
+      kills the token immediately rather than at its ``exp``;
+    * **attribution** — ``imp`` names the admin, and the request context is
+      stamped so every audit row written downstream records who really acted.
+    """
     settings = get_settings()
+    requested = [scope.strip().lower() for scope in (scopes or ["read"]) if scope.strip()]
+    unknown = sorted(set(requested) - IMPERSONATION_SCOPES)
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown impersonation scope(s): {', '.join(unknown)}",
+        )
+    granted = sorted(set(requested) or {"read"})
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
     token = jwt.encode(
         {
             "sub": target.id,
             "exp": expires_at,
+            "purpose": IMPERSONATION_TOKEN_PURPOSE,
             "imp": admin.id,
             "org": org.id,
+            "scopes": granted,
         },
         settings.jwt_secret,
         algorithm=JWT_ALGORITHM,
@@ -504,7 +564,7 @@ def start_impersonation(
         admin_user_id=admin.id,
         organization_id=org.id,
         justification=justification,
-        scopes=scopes or ["read"],
+        scopes=granted,
         token_hash=_hash_token(token),
         expires_at=expires_at,
     )
@@ -516,7 +576,7 @@ def start_impersonation(
         organization_id=org.id,
         detail=f"Impersonating {target.email}: {justification}",
         ip_address=ip_address,
-        metadata={"target_user_id": target.id, "ttl_seconds": ttl_seconds, "scopes": scopes or ["read"]},
+        metadata={"target_user_id": target.id, "ttl_seconds": ttl_seconds, "scopes": granted},
     )
     record_system_log(
         db,
@@ -526,7 +586,7 @@ def start_impersonation(
         organization_id=org.id,
         actor_email=admin.email,
         ip_address=ip_address,
-        payload={"target_user_id": target.id, "justification": justification},
+        payload={"target_user_id": target.id, "justification": justification, "scopes": granted},
     )
     return session, token
 
@@ -551,6 +611,83 @@ def end_impersonation(db: Session, *, admin: User, ip_address: str | None = None
             metadata={"session_id": session.id},
         )
     return len(sessions)
+
+
+# --- Role assignment (one implementation, two routes) ----------------------
+
+
+def apply_role_assignment(
+    db: Session, *, admin: User, user: User, role: str, ip_address: str | None = None
+) -> tuple[UserRole, bool]:
+    """Assign a platform or tenant role, enforcing every lock-out guard.
+
+    ``PATCH /api/saas/directory/{id}/role`` and ``PATCH /api/saas/users/{id}/role``
+    used to be two implementations with different guards; the second had none
+    and assigned ``user.role`` directly. They now share this one, which refuses
+    to (a) drop the caller's own platform access, (b) leave a tenant without an
+    administrator, or (c) remove the *last platform administrator*, which would
+    permanently lock everybody out of ``/api/saas/*`` — there is no bootstrap
+    route to recover from that.
+
+    Returns ``(role, is_platform_admin)`` and records the platform audit row.
+    The caller commits.
+    """
+    key = str(role).strip().lower()
+    if key in {"super", "orgadmin", "admin"}:
+        target_role = UserRole.admin
+        platform = key == "super"
+    elif key in {"sender", "viewer"}:
+        target_role = UserRole.sender
+        platform = False
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown role")
+
+    if user.is_platform_admin and not platform:
+        remaining_platform = db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.is_platform_admin.is_(True), User.id != user.id)
+        )
+        if not remaining_platform:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The platform must keep at least one platform administrator",
+            )
+
+    if user.id == admin.id and not platform:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="You cannot drop your own platform access"
+        )
+
+    if user.role == UserRole.admin and target_role != UserRole.admin:
+        remaining = db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.organization_id == user.organization_id,
+                User.role == UserRole.admin,
+                User.id != user.id,
+            )
+        )
+        if not remaining:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An organization must keep at least one administrator",
+            )
+
+    user.role = target_role
+    user.is_platform_admin = platform
+    db.add(user)
+    record_platform_audit(
+        db,
+        action="user.role_assigned",
+        actor=admin,
+        organization_id=user.organization_id,
+        detail=f"{user.email} -> {key}",
+        ip_address=ip_address,
+        metadata={"user_id": user.id, "role": key, "is_platform_admin": platform},
+    )
+    return target_role, platform
 
 
 def sla_due_at(priority: str, *, created_at: datetime | None = None) -> datetime:

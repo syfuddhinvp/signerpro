@@ -1,12 +1,93 @@
 @import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,100..1000&family=Inter:wght@100..900&family=Caveat:wght@400..700&family=Dancing+Script:wght@400..700&family=Great+Vibes&display=swap');
+@import './tokens.css';
 
-html, body { margin:0; padding:0; background:#f5f6f8; }
+/**
+ * Tailwind is wired to `components` + `utilities` only.
+ *
+ * `@tailwind base` (preflight) is deliberately omitted: the app currently
+ * styles itself with ~1,100 inline `style={{…}}` objects that assume the
+ * browser's default box model and control styling, so dropping preflight in
+ * before that migration would restyle every screen at once. Utilities and the
+ * token layer work without it, which is what the focus and contrast rules
+ * below need. Add `@tailwind base` as the first step of the migration, not
+ * before it.
+ */
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Fluid root font size. Every UI text size in the app is expressed in `rem`
+ * (tokens.css type scale, and the inline style objects), so this single value
+ * scales the whole interface: the px-based scale read too small at a 16px root,
+ * which is why the app looked right only at Chrome's 110%.
+ *
+ * The floor keeps phones legible, the `vw` term grows type with the viewport,
+ * and the ceiling stops ultrawide monitors from ballooning it. Because the
+ * `rem` in the middle term resolves against the *initial* root (16px), not this
+ * declaration, the expression is stable and does not feed back on itself.
+ */
+html { font-size: clamp(17px, 1.0125rem + 0.11vw, 19px); }
+
+html, body { margin:0; padding:0; background: hsl(var(--color-bg-canvas)); color: hsl(var(--color-fg-default)); }
 * { box-sizing: border-box; }
-a { color:#4f46e5; text-decoration:none; }
-a:hover { color:#3730a3; text-decoration:underline; }
+a { color: hsl(var(--color-accent-solid)); text-decoration:none; }
+a:hover { color: hsl(var(--color-accent-fg)); text-decoration:underline; }
 input, select, textarea, button { font-family: inherit; }
 [data-sf-num] { font-variant-numeric: tabular-nums; }
-::selection { background:#c7d2fe; }
+::selection { background: hsl(var(--color-accent-muted)); }
 [data-sf-scroll]::-webkit-scrollbar { width:10px; height:10px; }
-[data-sf-scroll]::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:8px; border:3px solid transparent; background-clip:content-box; }
+[data-sf-scroll]::-webkit-scrollbar-thumb { background: hsl(var(--color-border-default)); border-radius:8px; border:3px solid transparent; background-clip:content-box; }
 @keyframes sfIn { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform:none } }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Keyboard focus (WCAG 2.4.7).
+
+   Every input, select, search box and control in the app sets
+   `outline: 'none'` inline — 23 occurrences across `lib/sf/ui.ts` and the
+   screens — which removed the only visible indicator a keyboard user had.
+   Inline styles beat stylesheet rules on specificity, so the replacement ring
+   has to be `!important`; it is scoped to `:focus-visible`, so pointer users
+   never see it.
+
+   `:where()` keeps specificity at zero for the selector itself, so a component
+   that wants its own ring can still override the colour.
+   ────────────────────────────────────────────────────────────────────────── */
+:where(a[href], button, input, select, textarea, summary, [role="button"], [role="tab"], [role="switch"], [role="option"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid hsl(var(--color-focus-ring)) !important;
+  outline-offset: 2px !important;
+  border-radius: inherit;
+}
+
+/* A mouse click must not paint the ring, but the element must never be left
+   with no indicator at all when focus arrives from the keyboard. */
+:where(a[href], button, input, select, textarea, summary, [role="button"], [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* The canvas and the signing surface are dark; the indigo ring disappears on
+   them, so those regions get a light ring instead. */
+:where([data-sf-dark]) :where(a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline-color: hsl(var(--color-fg-inverse)) !important;
+}
+
+/* Skip link: present in the DOM, only visible once focused. */
+.sf-skip-link {
+  position: absolute; left: 8px; top: -60px; z-index: var(--z-tooltip);
+  padding: 10px 14px; border-radius: var(--radius-sm);
+  background: hsl(var(--color-bg-surface)); color: hsl(var(--color-fg-default));
+  border: 1px solid hsl(var(--color-border-strong)); font-size: .8125rem; font-weight: 600;
+  transition: top var(--duration-fast) var(--ease-out);
+}
+.sf-skip-link:focus { top: 8px; }
+
+/* Modal: while one is open the page behind it must not scroll. Focus
+   containment itself is JS (`components/sf/Modals.tsx`). */
+body:has([data-sf-modal-open]) { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

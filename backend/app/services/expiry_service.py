@@ -40,12 +40,26 @@ TERMINAL_DOCUMENT_STATUSES = frozenset(
 )
 
 #: In-flight statuses an expiry sweep may transition.
-EXPIRABLE_DOCUMENT_STATUSES = tuple(
-    status for status in DocumentStatus if status not in TERMINAL_DOCUMENT_STATUSES
+#:
+#: Only envelopes that are actually *out for signature* can expire. A draft or
+#: prepared document carrying an ``expires_at`` has never been sent to anybody,
+#: so expiring it would strand work the sender has not yet dispatched — it can
+#: simply be sent later, at which point ``send()`` recomputes the deadline.
+EXPIRABLE_DOCUMENT_STATUSES = (
+    DocumentStatus.sent,
+    DocumentStatus.viewed,
+    DocumentStatus.partially_completed,
 )
 
 TERMINAL_RECIPIENT_STATUSES = frozenset(
-    {RecipientStatus.completed, RecipientStatus.declined, RecipientStatus.expired}
+    # ``notified`` is terminal too: a CC has discharged everything ever asked
+    # of them the moment the copy is delivered.
+    {
+        RecipientStatus.completed,
+        RecipientStatus.notified,
+        RecipientStatus.declined,
+        RecipientStatus.expired,
+    }
 )
 
 

@@ -13,12 +13,14 @@ from app.schemas.billing import (
     ChargeResponse,
     CheckoutRequest,
     CheckoutResponse,
+    CheckoutStatusResponse,
     PaymentMethodCreate,
     PaymentMethodResponse,
     PlanChangePreview,
     PlanResponse,
     SeatChangeRequest,
     SeatChangeResponse,
+    SetupSessionRequest,
     SubscriptionResponse,
     UpcomingInvoiceResponse,
     UsageResponse,
@@ -83,15 +85,70 @@ def create_checkout(
     user: User = Depends(require_org_admin),
 ) -> CheckoutResponse:
     base_url = get_settings().app_base_url.rstrip("/")
+    default_url = f"{base_url}/account/billing"
     session = billing_service.start_checkout(
         db,
         organization_id=user.organization_id,
         plan_code=payload.plan_code,
-        success_url=payload.success_url or f"{base_url}/dashboard/billing",
-        cancel_url=payload.cancel_url or f"{base_url}/dashboard/billing",
+        success_url=payload.success_url or default_url,
+        cancel_url=payload.cancel_url or default_url,
+        ui_mode=payload.ui_mode,
+        return_url=payload.return_url or payload.success_url or default_url,
     )
+    return _checkout_response(session)
+
+
+def _checkout_response(session) -> CheckoutResponse:
     return CheckoutResponse(
-        session_id=session.session_id, url=session.url, provider=session.provider, plan_code=session.plan_code
+        session_id=session.session_id,
+        url=session.url,
+        client_secret=session.client_secret,
+        provider=session.provider,
+        plan_code=session.plan_code,
+        mode=session.mode,
+        ui_mode=session.ui_mode,
+        livemode=session.livemode,
+    )
+
+
+@router.post("/setup-session", response_model=CheckoutResponse)
+def create_setup_session(
+    payload: SetupSessionRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+) -> CheckoutResponse:
+    """Open a provider session that stores a card and charges nothing.
+
+    This replaces the card form the app used to render. No PAN, expiry or CVC
+    field exists in this application any more: they are typed into the
+    provider's own iframe and this endpoint never sees them.
+    """
+    base_url = get_settings().app_base_url.rstrip("/")
+    session = billing_service.start_setup_session(
+        db,
+        organization_id=user.organization_id,
+        return_url=payload.return_url or f"{base_url}/account/billing",
+        ui_mode=payload.ui_mode,
+    )
+    return _checkout_response(session)
+
+
+@router.get("/checkout/{session_id}", response_model=CheckoutStatusResponse)
+def confirm_checkout(
+    session_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+) -> CheckoutStatusResponse:
+    """Confirm a session *with the provider* after the browser comes back.
+
+    The UI calls this on the return_url landing and reports whatever it says.
+    A session that is still ``open`` is reported as such -- a redirect is not
+    a receipt.
+    """
+    return CheckoutStatusResponse.model_validate(
+        billing_service.confirm_checkout_session(
+            db, organization_id=user.organization_id, session_id=session_id
+        )
     )
 
 
@@ -101,7 +158,12 @@ def change_plan(
     db: Session = Depends(get_db),
     user: User = Depends(require_org_admin),
 ) -> SubscriptionResponse:
-    billing_service.change_plan(db, organization_id=user.organization_id, plan_code=payload.plan_code)
+    billing_service.change_plan(
+        db,
+        organization_id=user.organization_id,
+        plan_code=payload.plan_code,
+        payment_method_id=payload.payment_method_id,
+    )
     return _subscription_response(db, user.organization_id)
 
 
@@ -167,7 +229,10 @@ def change_seats(
 ) -> SeatChangeResponse:
     """Add (``delta > 0``) or release (``delta < 0``) licensed seats."""
     result = billing_service.change_seats(
-        db, organization_id=user.organization_id, delta=payload.delta
+        db,
+        organization_id=user.organization_id,
+        delta=payload.delta,
+        payment_method_id=payload.payment_method_id,
     )
     return SeatChangeResponse(
         subscription=_subscription_response(db, user.organization_id),

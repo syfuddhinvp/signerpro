@@ -12,10 +12,12 @@ class EmbedSession(Base, UUIDPrimaryKeyMixin):
     __table_args__ = (
         Index("ix_embed_sessions_token_hash", "token_hash", unique=True),
         Index("ix_embed_sessions_organization_id", "organization_id"),
+        # ON DELETE CASCADE when a document is purged.
+        Index("ix_embed_sessions_document_id", "document_id"),
     )
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
-    document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     # builder | routing | signing
     landing: Mapped[str] = mapped_column(String(20), nullable=False, default="builder", server_default="builder")

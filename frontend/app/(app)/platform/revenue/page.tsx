@@ -9,6 +9,7 @@
 
 import type { Metadata } from 'next';
 import Revenue from '@/components/sf/screens/Revenue';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 import { serverCaller } from '@/lib/api/client';
 import { organizations as organizationsApi, revenue as revenueApi } from '@/lib/api/resources';
 import {
@@ -73,8 +74,21 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
   const delivered = events.filter(e => e.processed && !e.error).length;
   const destination = balance.payout_destination || 'Provider';
 
+  /* $0 MRR because the book is empty and $0 MRR because Stripe is unreachable
+     are different facts. Say which one this is. */
+  const revenueError = !summaryResult.ok ? summaryResult.error.message
+    : !balanceResult.ok ? balanceResult.error.message
+    : !churnResult.ok ? churnResult.error.message
+    : null;
+
   return (
-    <Revenue
+    <>
+      {revenueError ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Revenue, balance and churn figures" detail={revenueError} />
+        </div>
+      ) : null}
+      <Revenue
       stats={toRevenueStats(summary)}
       balanceTiles={toBalanceTiles(balance)}
       subsByPlan={toSubsByPlan(summary)}
@@ -83,7 +97,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
       payoutDestination={destination[0].toUpperCase() + destination.slice(1)}
       deliveredPct={(events.length ? Math.round(delivered * 100 / events.length) : 100) + '%'}
       availableLabel={formatCents(balance.available_cents, balance.currency || 'USD')}
-      liveMode={liveMode}
-    />
+        liveMode={liveMode}
+      />
+    </>
   );
 }

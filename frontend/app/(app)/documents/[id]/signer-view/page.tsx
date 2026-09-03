@@ -13,12 +13,14 @@
  */
 
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import Signer from '@/components/sf/screens/Signer';
+import SignerPreview from '@/components/sf/screens/SignerPreview';
 import { serverCaller } from '@/lib/api/client';
 import { documents as documentsApi, fields as fieldsApi, recipients as recipientsApi } from '@/lib/api/resources';
 import { toSignerFields, toSignerRecipients, toSignValues } from '@/lib/sf/adapters';
 import { documentPathFor } from '@/lib/sf/routes';
+import { isSealedStatus } from '@/lib/sf/sealed';
 import type { FieldResponse, RecipientResponse } from '@/lib/api/types';
 
 export const metadata: Metadata = { title: 'Signer view · SignForge' };
@@ -39,6 +41,10 @@ export default async function Page({
   if (!documentResult.ok) notFound();
   const document = documentResult.data;
 
+  /* Previewing "what the recipient will see" has no meaning once they have
+     seen it and signed: the envelope is sealed and its trail is the record. */
+  if (isSealedStatus(document.status)) redirect(documentPathFor('audit', documentId));
+
   const [fieldsResult, recipientsResult] = await Promise.all([
     fieldsApi.list(api, document.id),
     recipientsApi.list(api, document.id),
@@ -54,16 +60,40 @@ export default async function Page({
     : (recipientList.find(r => r.role === 'sign') ?? recipientList[0]);
 
   const assigned = toSignerFields(apiFields).filter(f => !previewed || f.to === previewed.id);
-  // Nothing placed yet: the store's authoring fields keep the designed surface
-  // intact instead of rendering blank paper.
-  if (!assigned.length) return <Signer />;
+  // The real document, through the session proxy — the same bytes the recipient
+  // is served, so the preview is a preview rather than a mock-up (audit C2).
+  const pdfUrl = `/api/proxy/documents/${document.id}/pdf`;
+  // Everyone else's placements, greyed out, exactly as the recipient sees them.
+  const others = toSignerFields(apiFields)
+    .filter(f => previewed && f.to !== previewed.id)
+    .map(f => ({ id: f.id, type: f.apiType, page_number: f.page, x: f.x, y: f.y, width: f.w, height: f.h }));
+
+  /* Field counts per recipient, so the preview's recipient chips say how much
+     each of them is actually being asked to do. */
+  const allFields = toSignerFields(apiFields);
+  const previewRecipients = recipientList.map(r => ({
+    id: r.id,
+    name: r.name,
+    role: r.role,
+    fieldCount: allFields.filter(f => f.to === r.id).length,
+  }));
 
   return (
-    <Signer
-      fields={assigned}
-      recipients={recipientList}
-      pageCount={document.page_count || 1}
-      initialValues={toSignValues(assigned)}
-    />
+    <SignerPreview
+      documentId={document.id}
+      recipients={previewRecipients}
+      selectedId={previewed ? previewed.id : null}
+    >
+      <Signer
+        fields={assigned}
+        recipients={recipientList}
+        pageCount={document.page_count || 1}
+        title={document.title}
+        initialValues={toSignValues(assigned)}
+        pdfUrl={pdfUrl}
+        otherPlacements={others}
+        viewOnly={previewed ? previewed.role === 'copy' : false}
+      />
+    </SignerPreview>
   );
 }

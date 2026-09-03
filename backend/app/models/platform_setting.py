@@ -16,7 +16,7 @@ class SecurityPosture(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     label: Mapped[str] = mapped_column(String(160), nullable=False)
     detail: Mapped[str | None] = mapped_column(String(255), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
-    updated_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class Certification(Base, UUIDPrimaryKeyMixin, TimestampMixin):

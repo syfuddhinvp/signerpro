@@ -213,7 +213,7 @@ def get_security_posture(
     rows = platform_service.ensure_security_posture(db)
     order = [spec["key"] for spec in platform_service.SECURITY_POSTURE_DEFAULTS]
     rows.sort(key=lambda row: order.index(row.key) if row.key in order else len(order))
-    return [SecurityPostureRow.model_validate(row) for row in rows]
+    return [SecurityPostureRow(**platform_service.security_posture_view(row)) for row in rows]
 
 
 @platform_router.patch("/security-posture", response_model=list[SecurityPostureRow])
@@ -238,6 +238,9 @@ def update_security_posture(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown security keys: {', '.join(sorted(unknown))}",
         )
+    # These switches record *intent*; none of the six controls is implemented,
+    # so the response reports enforced=False whatever is stored here. Saying so
+    # in the audit detail keeps the trail from implying a control was turned on.
     for key, value in changes.items():
         rows[key].enabled = value
         rows[key].updated_by_user_id = admin.id
@@ -247,7 +250,11 @@ def update_security_posture(
         db,
         action="security_posture.changed",
         actor=admin,
-        detail=" · ".join(f"{key}={'on' if value else 'off'}" for key, value in changes.items()),
+        detail=" · ".join(
+            f"{key}={'on' if value else 'off'}"
+            + ("" if key in platform_service.IMPLEMENTED_SECURITY_CONTROLS else " (not enforced: unimplemented)")
+            for key, value in changes.items()
+        ),
         ip_address=request_ip(request),
         metadata=changes,
     )
@@ -264,15 +271,16 @@ def get_compliance(
     rotation = db.scalar(
         select(SecurityPosture).where(SecurityPosture.key == "keyRotation")
     )
+    implemented = "keyRotation" in platform_service.IMPLEMENTED_SECURITY_CONTROLS
+    # There is no key-rotation job. The previous implementation derived a
+    # plausible-looking timestamp from the interval and returned it as if a
+    # rotation had happened; a customer could have been shown that as evidence.
     last_rotation = None
-    if rotation is not None and rotation.enabled:
-        # Derived from the interval rather than stored: there is no rotation
-        # job yet, and inventing a column for it would be a lie in the schema.
-        last_rotation = rotation.updated_at or now_utc() - timedelta(
-            days=platform_service.KEY_ROTATION_INTERVAL_DAYS
-        )
+    if implemented and rotation is not None and rotation.enabled:
+        last_rotation = rotation.updated_at
     return ComplianceResponse(
         certifications=[CertificationRow.model_validate(row) for row in certifications],
         last_key_rotation_at=last_rotation,
         rotation_interval_days=platform_service.KEY_ROTATION_INTERVAL_DAYS,
+        key_rotation_implemented=implemented,
     )

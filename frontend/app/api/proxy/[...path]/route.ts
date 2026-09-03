@@ -17,7 +17,18 @@
 import { NextResponse } from 'next/server';
 import { backendUrl, getSession } from '@/lib/auth/session';
 
-const FORWARDED_REQUEST_HEADERS = ['content-type', 'accept', 'idempotency-key'];
+/**
+ * The backend generates one of these per request, binds it to every log line
+ * it emits, and echoes it back. Without forwarding it here the browser's view
+ * of a request and the backend's view share no identifier at all, so
+ * correlating "the user saw this error" with the server logs is impossible.
+ *
+ * The id is minted here when the caller did not supply one, and echoed on the
+ * response so client-side error reporting can quote it.
+ */
+const REQUEST_ID_HEADER = 'x-request-id';
+
+const FORWARDED_REQUEST_HEADERS = ['content-type', 'accept', 'idempotency-key', REQUEST_ID_HEADER];
 
 /**
  * Response headers copied from upstream. Everything else (hop-by-hop headers,
@@ -28,6 +39,7 @@ const FORWARDED_RESPONSE_HEADERS = [
   'content-disposition',
   'etag',
   'last-modified',
+  REQUEST_ID_HEADER,
 ];
 
 function unauthorized() {
@@ -58,6 +70,10 @@ async function forward(request: Request, segments: string[]): Promise<Response> 
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  // Mint one if the browser did not send it, so every hop shares an id even
+  // when the client is a plain `fetch`.
+  const requestId = headers.get(REQUEST_ID_HEADER) ?? crypto.randomUUID();
+  headers.set(REQUEST_ID_HEADER, requestId);
 
   const method = request.method.toUpperCase();
   let body: BodyInit | undefined;
@@ -73,15 +89,21 @@ async function forward(request: Request, segments: string[]): Promise<Response> 
   } catch {
     return NextResponse.json(
       { detail: `Cannot reach the SignForge API at ${target}.` },
-      { status: 503 },
+      { status: 503, headers: { [REQUEST_ID_HEADER]: requestId } },
     );
   }
 
   if (upstream.status === 204 || upstream.status === 304) {
-    return new NextResponse(null, { status: upstream.status });
+    return new NextResponse(null, {
+      status: upstream.status,
+      headers: { [REQUEST_ID_HEADER]: upstream.headers.get(REQUEST_ID_HEADER) ?? requestId },
+    });
   }
 
-  const responseHeaders = new Headers({ 'cache-control': 'no-store' });
+  const responseHeaders = new Headers({
+    'cache-control': 'no-store',
+    [REQUEST_ID_HEADER]: requestId,
+  });
   for (const name of FORWARDED_RESPONSE_HEADERS) {
     const value = upstream.headers.get(name);
     if (value) responseHeaders.set(name, value);

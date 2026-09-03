@@ -23,7 +23,29 @@ export type ApiRequestInit = {
   cache?: RequestCache;
   next?: { revalidate?: number | false; tags?: string[] };
   signal?: AbortSignal;
+  /** Milliseconds before the request is aborted. Pass `0` to disable. */
+  timeoutMs?: number;
 };
+
+/**
+ * Default request deadline. Without one a hung backend hangs a server render
+ * until the platform's own (much longer) limit fires, so every call gets a
+ * timeout unless the caller opts out with `timeoutMs: 0`.
+ */
+export const DEFAULT_TIMEOUT_MS = 15_000;
+
+/** Longer deadline for the endpoints that stream or generate files. */
+export const DOWNLOAD_TIMEOUT_MS = 60_000;
+
+/** The caller's signal, the deadline, or both. */
+export function requestSignal(init: ApiRequestInit, fallbackMs = DEFAULT_TIMEOUT_MS): AbortSignal | undefined {
+  const ms = init.timeoutMs ?? fallbackMs;
+  const deadline = ms > 0 ? AbortSignal.timeout(ms) : undefined;
+  if (!deadline) return init.signal;
+  if (!init.signal) return deadline;
+  // `AbortSignal.any` is Node 20+ / modern browsers; degrade to the caller's.
+  return typeof AbortSignal.any === 'function' ? AbortSignal.any([init.signal, deadline]) : init.signal;
+}
 
 export type ValidationIssue = {
   /** FastAPI's `loc`, e.g. `['body', 'email']`. */
@@ -92,6 +114,15 @@ export function detailMessage(payload: unknown, fallback: string): string {
       const first = detail[0] as { msg?: string };
       if (first && typeof first.msg === 'string') return first.msg;
     }
+    /* The billing/entitlement errors answer with a structured detail —
+       `{ error: 'subscription_inactive', message: '…', plan, … }` — and used to
+       fall through to the generic fallback, so a 402 on upload or send read as
+       "The request could not be completed." instead of naming the reason. */
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      const message = (detail as { message?: unknown; detail?: unknown }).message
+        ?? (detail as { detail?: unknown }).detail;
+      if (typeof message === 'string' && message) return message;
+    }
   }
   return fallback;
 }
@@ -155,15 +186,18 @@ export async function requestJson<T>(
       method,
       headers,
       body,
-      signal: init.signal,
+      signal: requestSignal(init),
       cache: init.cache ?? 'no-store',
       ...(init.next ? { next: init.next } : {}),
     } as RequestInit);
   } catch (cause) {
+    const timedOut = cause instanceof Error && (cause.name === 'TimeoutError' || cause.name === 'AbortError');
     return apiFail({
       kind: 'network',
       status: 0,
-      message: cause instanceof Error ? cause.message : 'The SignForge API is unreachable.',
+      message: timedOut
+        ? 'The SignForge API did not respond in time.'
+        : cause instanceof Error ? cause.message : 'The SignForge API is unreachable.',
     });
   }
 

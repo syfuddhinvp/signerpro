@@ -9,7 +9,7 @@ from app.main import app
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mixins import now_utc
 from app.models.user import User
-from app.tests.conftest import auth_headers
+from app.tests.conftest import auth_headers, upgrade_plan
 
 
 def _db():
@@ -224,7 +224,7 @@ def test_revenue_summary(client: TestClient) -> None:
     assert body["arr_cents"] == body["mrr_cents"] * 12
     assert len(body["series"]) >= 1
 
-    client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    upgrade_plan(client, headers, "business")
     upgraded = client.get("/api/saas/revenue", headers=headers).json()
     assert upgraded["mrr_cents"] == 2800
     assert any(entry["plan_code"] == "business" for entry in upgraded["by_plan"])

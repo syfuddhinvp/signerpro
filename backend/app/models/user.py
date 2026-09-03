@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, JSON, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.crypto import EncryptedString
@@ -13,7 +13,7 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "users"
     __table_args__ = (Index("ix_users_email", "email", unique=True),)
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -25,6 +25,10 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     mfa_secret: Mapped[str | None] = mapped_column(EncryptedString(255), nullable=True)
     mfa_enrolled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     mfa_recovery_codes: Mapped[list | None] = mapped_column(JSON, nullable=True)  # hashed
+    #: Highest TOTP step already redeemed. A code for this step or earlier is a
+    #: replay and must be rejected. Wave 1 kept this inside ``preferences``;
+    #: a real column is indexable, comparable and not user-facing.
+    mfa_last_used_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Profile / preferences (AUTH-9, AUTH-10, PREF-1)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

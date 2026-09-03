@@ -1,8 +1,20 @@
 from fastapi.testclient import TestClient
 
-from app.tests.conftest import auth_headers
+from app.tests.conftest import auth_headers, upgrade_plan
 from app.tests.test_document_flow import add_recipient, create_uploaded_document
 
+
+
+def _entitled_headers(client: TestClient) -> dict[str, str]:
+    """A tenant that has actually bought the ``api_access`` entitlement.
+
+    Team declares ``api_access: False`` and that is now enforced, so these tests
+    pay for Business first. Previously they exercised the surface from an
+    unentitled org, which is exactly the hole AUDIT_REPORT.md section 7 found.
+    """
+    headers = auth_headers(client)
+    upgrade_plan(client, headers, "business")
+    return headers
 
 def create_key(client: TestClient, headers: dict[str, str], scopes: list[str], label: str = "Server key") -> tuple[str, str]:
     response = client.post("/api/api-keys", headers=headers, json={"label": label, "mode": "test", "scopes": scopes})
@@ -12,7 +24,7 @@ def create_key(client: TestClient, headers: dict[str, str], scopes: list[str], l
 
 
 def test_scope_catalogue(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     response = client.get("/api/api-keys/scopes", headers=headers)
     assert response.status_code == 200
     scopes = {item["scope"] for item in response.json()}
@@ -20,7 +32,7 @@ def test_scope_catalogue(client: TestClient) -> None:
 
 
 def test_secret_is_returned_exactly_once(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     key_id, secret = create_key(client, headers, ["documents:read"])
     assert secret.startswith("sk_test_")
 
@@ -39,7 +51,7 @@ def test_secret_is_returned_exactly_once(client: TestClient) -> None:
 
 
 def test_key_authenticates_and_scope_is_enforced(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     _, read_secret = create_key(client, headers, ["documents:read"])
 
     assert client.get("/api/v1/documents").status_code == 401
@@ -59,7 +71,7 @@ def test_key_authenticates_and_scope_is_enforced(client: TestClient) -> None:
 
 
 def test_last_used_at_is_tracked(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     key_id, secret = create_key(client, headers, ["documents:read"])
     assert client.get(f"/api/api-keys/{key_id}", headers=headers).json()["last_used_at"] is None
     client.get("/api/v1/documents", headers={"X-API-Key": secret})
@@ -67,7 +79,7 @@ def test_last_used_at_is_tracked(client: TestClient) -> None:
 
 
 def test_scope_grant_and_revoke(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     key_id, secret = create_key(client, headers, ["documents:read"])
     granted = client.post(f"/api/api-keys/{key_id}/scopes/grant", headers=headers, json={"scopes": ["contacts:read"]})
     assert granted.status_code == 200
@@ -83,7 +95,7 @@ def test_scope_grant_and_revoke(client: TestClient) -> None:
 
 
 def test_revocation_blocks_access_and_restore_reenables(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     key_id, secret = create_key(client, headers, ["documents:read"])
     assert client.get("/api/v1/documents", headers={"X-API-Key": secret}).status_code == 200
 
@@ -98,7 +110,7 @@ def test_revocation_blocks_access_and_restore_reenables(client: TestClient) -> N
 
 
 def test_roll_invalidates_the_old_secret(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     key_id, secret = create_key(client, headers, ["documents:read"])
     rolled = client.post(f"/api/api-keys/{key_id}/roll", headers=headers)
     assert rolled.status_code == 200
@@ -109,7 +121,7 @@ def test_roll_invalidates_the_old_secret(client: TestClient) -> None:
 
 
 def test_keys_are_tenant_scoped(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     key_id, _ = create_key(client, headers, ["documents:read"])
     other = client.post(
         "/api/auth/register",
@@ -126,7 +138,7 @@ def test_keys_are_tenant_scoped(client: TestClient) -> None:
 
 
 def test_usage_summary(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     _, secret = create_key(client, headers, ["documents:read"])
     client.get("/api/v1/documents", headers={"X-API-Key": secret})
     usage = client.get("/api/api-keys/usage", headers=headers)
@@ -138,7 +150,7 @@ def test_usage_summary(client: TestClient) -> None:
 
 
 def test_api_settings_roundtrip(client: TestClient) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     updated = client.patch(
         "/api/organizations/me/api-settings",
         headers=headers,
@@ -154,7 +166,7 @@ def test_api_settings_roundtrip(client: TestClient) -> None:
 
 
 def test_embed_session_lifecycle_and_origin_lock(client: TestClient, pdf_bytes: bytes) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     document_id = create_uploaded_document(client, pdf_bytes, headers)
     recipient_id = add_recipient(client, document_id, headers, "Buyer", "buyer@example.com")
     client.patch(
@@ -191,7 +203,7 @@ def test_embed_session_lifecycle_and_origin_lock(client: TestClient, pdf_bytes: 
 
 
 def test_embed_session_expires(client: TestClient, pdf_bytes: bytes) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     document_id = create_uploaded_document(client, pdf_bytes, headers)
     created = client.post(
         "/api/embed/sessions",
@@ -217,7 +229,7 @@ def test_embed_session_expires(client: TestClient, pdf_bytes: bytes) -> None:
 
 
 def test_embed_session_via_api_key_requires_write_scope(client: TestClient, pdf_bytes: bytes) -> None:
-    headers = auth_headers(client)
+    headers = _entitled_headers(client)
     document_id = create_uploaded_document(client, pdf_bytes, headers)
     _, read_secret = create_key(client, headers, ["documents:read"], label="read only")
     _, write_secret = create_key(client, headers, ["documents:write"], label="writer")
@@ -225,3 +237,29 @@ def test_embed_session_via_api_key_requires_write_scope(client: TestClient, pdf_
     payload = {"landing": "builder", "document": {"document_id": document_id}}
     assert client.post("/api/embed/sessions", headers={"X-API-Key": read_secret}, json=payload).status_code == 403
     assert client.post("/api/embed/sessions", headers={"X-API-Key": write_secret}, json=payload).status_code == 201
+
+
+def test_a_key_stops_working_when_the_org_downgrades_below_api_access(client: TestClient) -> None:
+    """Gating issuance is not enough.
+
+    Keys outlive the plan that bought them, so ``api_access`` has to be
+    re-checked on every key-authenticated call. Before this, an org that
+    dropped back to Team kept a fully working live key for as long as it chose
+    not to rotate it.
+    """
+    headers = _entitled_headers(client)
+    _key_id, secret = create_key(client, headers, ["documents:read"])
+    assert client.get("/api/v1/documents", headers={"X-API-Key": secret}).status_code == 200
+
+    downgraded = client.post("/api/billing/change-plan", json={"plan_code": "team"}, headers=headers)
+    assert downgraded.status_code == 200, downgraded.text
+
+    refused = client.get("/api/v1/documents", headers={"X-API-Key": secret})
+    assert refused.status_code == 402, refused.text
+    detail = refused.json()["detail"]
+    assert detail["error"] == "feature_not_available"
+    assert detail["feature"] == "api_access"
+
+    # Paying again restores it; the key itself was never revoked.
+    upgrade_plan(client, headers, "business")
+    assert client.get("/api/v1/documents", headers={"X-API-Key": secret}).status_code == 200

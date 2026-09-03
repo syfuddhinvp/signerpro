@@ -8,9 +8,10 @@ import { useNav } from '@/lib/sf/nav';
 import {
   TICKET_FILTERS, TK_STATUS_TONE, TK_STATUS_LABEL, TK_PRIO_TONE, TK_PRIO_LABEL
 } from '@/lib/sf/data';
-import { btn, pill, inputStyle, lbl, railHead } from '@/lib/sf/ui';
+import { btn, pill, inputStyle, lbl, railHead, BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
 import { apiCall, type ApiResult } from '@/lib/api/browser';
 import { support as supportApi } from '@/lib/api/resources';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 import {
   toAgentOptions, toSupportTicket, toSupportTickets, toTicketCounts,
   type SupportTicketRow
@@ -33,7 +34,6 @@ export type SupportProps = {
   scope: 'all' | undefined;
 };
 
-const EMPTY_PAGE: TicketPage = { items: [], total: 0, counts: { all: 0, open: 0, pending: 0, escalated: 0, resolved: 0 } };
 
 export default function Support({ page, detail, agents, stats, quickReplies, scope }: SupportProps) {
   const { s, set, flash, accent, initials, isPlat: isPlatFn } = useSF();
@@ -49,6 +49,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const [busy, setBusy] = useState(false);
   const firstLoad = useRef(true);
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
   useEffect(() => { setTkPage(page); }, [page]);
   useEffect(() => { setOpenDetail(detail); }, [detail]);
 
@@ -61,7 +62,10 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
     const timer = setTimeout(() => {
       void supportApi.ticketPage(apiCall, { status: statusParam, q: queryParam, scope, limit: 200 }).then(res => {
         if (cancelled) return;
-        setTkPage(res.ok ? res.data : EMPTY_PAGE);
+        /* Same rule as Logs: a failed refetch keeps the last good page rather
+           than rendering an outage as an empty queue. */
+        if (res.ok) { setTkPage(res.data); setFetchError(null); }
+        else setFetchError(res.error.message);
       });
     }, 220);
     return () => { cancelled = true; clearTimeout(timer); };
@@ -75,7 +79,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const successBtn = btn('#059669', '#fff', '#059669');
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const dangerStyle = btn('#fff', '#b91c1c', '#fecaca');
-  const textareaStyle: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'9px', padding:'8px 10px', fontSize:'12.5px', resize:'vertical', outline:'none', width:'100%', color:'#0f172a' };
+  const textareaStyle: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'9px', padding:'8px 10px', fontSize:'.78125rem', resize:'vertical', outline:'none', width:'100%', color:'#0f172a' };
 
   const tkList = toSupportTickets(tkPage.items);
   const tkCounts: Dict<number> = toTicketCounts(tkPage.counts);
@@ -85,9 +89,9 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
     return {
       id, label, count: String(tkCounts[id] ?? 0), selected: (on ? 'true' : 'false') as 'true' | 'false',
       onClick: () => set({ ticketFilter: id }),
-      style: { height:'26px', padding:'0 9px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'11.5px', fontWeight: on ? 600 : 500, display:'inline-flex', alignItems:'center', gap:'5px',
+      style: { height:'26px', padding:'0 9px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500, display:'inline-flex', alignItems:'center', gap:'5px',
         background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties,
-      badge: { fontSize:'10px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: on ? '#64748b' : '#94a3b8' } as CSSProperties
+      badge: { fontSize:'.625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: on ? '#64748b' : TEXT_MUTED } as CSSProperties
     };
   });
 
@@ -119,7 +123,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
     wrapStyle: { display:'flex', flexDirection:'column', gap:'7px', padding:'12px 13px', borderRadius:'12px',
       border:'1px solid ' + (m.internal ? '#fde68a' : '#eef1f6'),
       background: m.internal ? '#fffbeb' : (m.side === 'agent' ? '#f8faff' : '#fbfcfd') } as CSSProperties,
-    chip: { width:'26px', height:'26px', borderRadius:'99px', display:'grid', placeItems:'center', fontSize:'10px', fontWeight:700, flex:'0 0 26px',
+    chip: { width:'26px', height:'26px', borderRadius:'99px', display:'grid', placeItems:'center', fontSize:'.625rem', fontWeight:700, flex:'0 0 26px',
       background: m.side === 'agent' ? A : '#0f172a', color:'#fff' } as CSSProperties,
     internalPill: Object.assign(pill({ bg:'#fef3c7', fg:'#92400e', bd:'#fde68a' }), { marginLeft:'auto' }) as CSSProperties
   }));
@@ -143,31 +147,31 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
 
   const ticketStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
-    metaStyle: { fontSize:'10.5px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: x.good ? '#047857' : '#c2410c' } as CSSProperties
+    metaStyle: { fontSize:'.65625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: x.good ? '#047857' : '#c2410c' } as CSSProperties
   }));
 
   const ticketScopeLabel = isPlat ? 'Queue · ' + tkPage.total + ' tickets' : 'Your tickets · ' + tkPage.total;
   const openNewTicket = () => set({ modal: 'ticket' });
 
-  const slaBoxStyle: CSSProperties = { height:'32px', display:'flex', alignItems:'center', padding:'0 10px', borderRadius:'9px', fontSize:'12px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif",
+  const slaBoxStyle: CSSProperties = { height:'32px', display:'flex', alignItems:'center', padding:'0 10px', borderRadius:'9px', fontSize:'.75rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif",
     border:'1px solid ' + (tk && tk.status === 'resolved' ? '#a7f3d0' : '#fed7aa'), background: tk && tk.status === 'resolved' ? '#ecfdf5' : '#fff7ed',
     color: tk && tk.status === 'resolved' ? '#047857' : '#c2410c' };
 
   const tkTags = tk ? tk.tags.concat([tk.category]).map(label => ({
     label,
-    style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'10.5px', color:'#475569', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties
+    style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties
   })) : [];
-  const tkEnvelopeStyle: CSSProperties = { padding:'4px 9px', borderRadius:'99px', border:'1px solid #c7d2fe', background:'#eef2ff', fontSize:'10.5px', color:'#3730a3', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", cursor:'pointer' };
+  const tkEnvelopeStyle: CSSProperties = { padding:'4px 9px', borderRadius:'99px', border:'1px solid #c7d2fe', background:'#eef2ff', fontSize:'.65625rem', color:'#3730a3', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", cursor:'pointer' };
 
   const internalRow: CSSProperties = { display:'inline-flex', alignItems:'center', gap:'9px', height:'30px', padding:'0 11px', borderRadius:'9px', cursor:'pointer',
     border:'1px solid ' + (s.replyInternal ? '#fde68a' : '#e3e7ee'), background: s.replyInternal ? '#fffbeb' : '#fff' };
-  const internalSwitch: CSSProperties = { width:'32px', height:'18px', borderRadius:'99px', background: s.replyInternal ? '#f59e0b' : '#cbd5e1', position:'relative', flex:'0 0 32px' };
+  const internalSwitch: CSSProperties = { width:'32px', height:'18px', borderRadius:'99px', background: s.replyInternal ? '#f59e0b' : BORDER_STRONG, position:'relative', flex:'0 0 32px' };
   const internalKnob: CSSProperties = { position:'absolute', top:'2px', left: s.replyInternal ? '16px' : '2px', width:'14px', height:'14px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
 
   const macros = quickReplies.map(([label, body]) => ({
     label,
     onClick: () => set({ replyDraft: body }),
-    style: { padding:'5px 10px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'11px', color:'#475569', cursor:'pointer' } as CSSProperties
+    style: { padding:'5px 10px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.6875rem', color:'#475569', cursor:'pointer' } as CSSProperties
   }));
 
   /* Internal notes are platform-only and the API enforces it (403); the switch
@@ -206,17 +210,22 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
     mutate(() => supportApi.update(apiCall, tk.ticketId, { assignee_user_id: value }), 'Could not assign the ticket');
   };
 
-  const emptyNoteStyle: CSSProperties = { margin:'15px 17px', border:'1px dashed #cbd5e1', borderRadius:'12px', padding:'22px', textAlign:'center', fontSize:'12px', color:'#94a3b8', lineHeight:1.6 };
+  const emptyNoteStyle: CSSProperties = { margin:'15px 17px', border:'1px dashed #8492a6', borderRadius:'12px', padding:'22px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 };
 
   return (
     <section data-screen-label="Support" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1fr) minmax(0,1.5fr)', gap:'16px', alignItems:'start' }}>
+      {fetchError ? (
+        <div style={{ gridColumn:'1 / -1' }}>
+          <ApiUnavailable what="The ticket queue" detail={fetchError} onRetry={() => setFetchError(null)} />
+        </div>
+      ) : null}
 
       <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'10px' }}>
           {ticketStats.map(st => (
             <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'13px', padding:'12px 13px', display:'flex', flexDirection:'column', gap:'5px' }}>
-              <span style={{ fontSize:'10px', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{st.label}</span>
-              <span style={{ fontSize:'20px', fontWeight:700, letterSpacing:'-.6px' }}>{st.value}</span>
+              <span style={{ fontSize:'.625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{st.label}</span>
+              <span style={{ fontSize:'1.25rem', fontWeight:700, letterSpacing:'-.6px' }}>{st.value}</span>
               <span style={st.metaStyle}>{st.meta}</span>
             </div>
           ))}
@@ -234,14 +243,14 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
               ))}
             </div>
             <input type="search" value={s.ticketQuery} onChange={(e) => set({ ticketQuery: e.target.value })} placeholder="Search subject, ticket id, requester…" aria-label="Search tickets"
-              style={{ height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 11px', fontSize:'12.5px', outline:'none', background:'#fbfcfd' }} />
+              style={{ height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'#fbfcfd' }} />
           </div>
           {tickets.map(t => (
             <button key={t.id} type="button" onClick={t.onOpen} style={t.rowStyle}>
               <span style={t.priorityBar}></span>
               <span style={{ display:'flex', flexDirection:'column', gap:'4px', flex:1, minWidth:0, textAlign:'left' }}>
-                <span style={{ fontSize:'12.5px', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.subject}</span>
-                <span style={{ fontSize:'10.5px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.meta}</span>
+                <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.subject}</span>
+                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.meta}</span>
                 <span style={{ display:'flex', gap:'5px', flexWrap:'wrap' }}>
                   <span style={t.statusPill}>{t.statusLabel}</span>
                   <span style={t.priorityPill}>{t.priorityLabel}</span>
@@ -262,8 +271,8 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
         <div style={{ padding:'15px 17px', borderBottom:'1px solid #eef1f6', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
             <div style={{ display:'flex', flexDirection:'column', gap:'4px', minWidth:0 }}>
-              <span style={{ fontSize:'15px', fontWeight:700, letterSpacing:'-.2px' }}>{tk.subject}</span>
-              <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
+              <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.2px' }}>{tk.subject}</span>
+              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
                 {tk.id + ' · ' + tk.tenant + ' · ' + tk.requesterEmail + ' · opened ' + tk.created}
               </span>
             </div>
@@ -318,12 +327,12 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
               <div style={{ display:'flex', alignItems:'center', gap:'9px' }}>
                 <span style={m.chip}>{m.initials}</span>
                 <div style={{ display:'flex', flexDirection:'column', gap:'1px', minWidth:0 }}>
-                  <span style={{ fontSize:'12px', fontWeight:600, color:'#0f172a' }}>{m.author}</span>
-                  <span style={{ fontSize:'10.5px', color:'#94a3b8', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{m.role} · {m.ts}</span>
+                  <span style={{ fontSize:'.75rem', fontWeight:600, color:'#0f172a' }}>{m.author}</span>
+                  <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{m.role} · {m.ts}</span>
                 </div>
                 {m.internal ? (<span style={m.internalPill}>Internal note</span>) : null}
               </div>
-              <div style={{ fontSize:'12.5px', color:'#334155', lineHeight:1.65, whiteSpace:'pre-wrap' }}>{m.body}</div>
+              <div style={{ fontSize:'.78125rem', color:'#334155', lineHeight:1.65, whiteSpace:'pre-wrap' }}>{m.body}</div>
             </div>
           ))}
         </div>
@@ -335,7 +344,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           <div style={{ display:'flex', alignItems:'center', gap:'9px', flexWrap:'wrap' }}>
             {isPlat ? (
               <button type="button" role="switch" aria-checked={s.replyInternal ? 'true' : 'false'} onClick={() => set(st => ({ replyInternal: !st.replyInternal }))} style={internalRow}>
-                <span style={{ fontSize:'12px', color:'#334155' }}>Internal note</span>
+                <span style={{ fontSize:'.75rem', color:'#334155' }}>Internal note</span>
                 <span style={internalSwitch}><span style={internalKnob}></span></span>
               </button>
             ) : null}

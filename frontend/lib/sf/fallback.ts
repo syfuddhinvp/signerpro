@@ -4,6 +4,7 @@
  * like default Next.js scaffolding.
  */
 import type { CSSProperties } from 'react';
+import { TEXT_MUTED } from '@/lib/sf/ui';
 
 export const SF_FONT = "'Google Sans Flex', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif";
 
@@ -21,20 +22,20 @@ export const fallbackCard: CSSProperties = {
 
 export const fallbackMark: CSSProperties = {
   width: '34px', height: '34px', borderRadius: '10px', background: '#4f46e5', color: '#fff',
-  display: 'grid', placeItems: 'center', fontSize: '13px', fontWeight: 700, letterSpacing: '-.5px',
+  display: 'grid', placeItems: 'center', fontSize: '.8125rem', fontWeight: 700, letterSpacing: '-.5px',
 };
 
 export const fallbackTitle: CSSProperties = {
-  margin: 0, fontSize: '19px', fontWeight: 650, letterSpacing: '-.01em', color: '#0f172a',
+  margin: 0, fontSize: '1.1875rem', fontWeight: 650, letterSpacing: '-.01em', color: '#0f172a',
 };
 
 export const fallbackBody: CSSProperties = {
-  margin: 0, fontSize: '13px', lineHeight: 1.6, color: '#64748b',
+  margin: 0, fontSize: '.8125rem', lineHeight: 1.6, color: '#64748b',
   fontFamily: "'Inter', 'Google Sans Flex', sans-serif",
 };
 
 export const fallbackCode: CSSProperties = {
-  ...fallbackBody, fontSize: '11px', color: '#94a3b8', wordBreak: 'break-all',
+  ...fallbackBody, fontSize: '.6875rem', color: TEXT_MUTED, wordBreak: 'break-all',
 };
 
 export const fallbackRow: CSSProperties = { display: 'flex', gap: '9px', marginTop: '4px' };
@@ -42,7 +43,7 @@ export const fallbackRow: CSSProperties = { display: 'flex', gap: '9px', marginT
 export const fallbackPrimary: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: '7px', height: '34px', padding: '0 14px',
   borderRadius: '9px', border: '1px solid #4f46e5', background: '#4f46e5', color: '#fff',
-  fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', textDecoration: 'none',
+  fontSize: '.78125rem', fontWeight: 600, cursor: 'pointer', textDecoration: 'none',
   fontFamily: SF_FONT,
 };
 

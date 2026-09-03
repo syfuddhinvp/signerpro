@@ -3,14 +3,22 @@
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
 import { SB_LANG_TABS } from '@/lib/sf/data';
-import { btn, inputStyle, jsonBoxStyle, lbl, linkBtn, pill, railHead, TONE_BAD, TONE_GOOD } from '@/lib/sf/ui';
+import { btn, inputStyle, jsonBoxStyle, lbl, linkBtn, pill, railHead, TONE_BAD, TONE_GOOD, TEXT_MUTED } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
+import { useDialogs } from '@/components/sf/DialogProvider';
 
 /**
- * Real endpoints on this deployment's own API, in the order the design lists
- * them. Every send below is an actual request through `/api/proxy`, so these
- * have to be paths the backend serves — not the prototype's `/v1/...` mock
- * catalogue.
+ * THERE IS NO SANDBOX BACKEND.
+ *
+ * Every send below is a real, session-authenticated request against the
+ * caller's own production tenant, through `/api/proxy`. The prototype dressed
+ * this screen as a seeded test tenant with a `sk_test_…` key and a Test/Live
+ * toggle; none of that existed — the toggle was client-side only, the key was
+ * a string that was never sent, and a `DELETE` on `/api/documents/library`
+ * would have destroyed real documents.
+ *
+ * What remains: the same real endpoints, an unmissable warning, and an explicit
+ * confirmation before any request that can write.
  */
 const SB_PATH_OPTIONS: string[] = [
   '/api/me',
@@ -27,13 +35,14 @@ const API_PREFIX = '/api/';
 export default function Sandbox() {
   const { s, set, flash, accent } = useSF();
   const A = accent();
+  const { askConfirm } = useDialogs();
   const st: any = s;
 
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'13px', lineHeight:1 };
-  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'11.5px' });
-  const codeArea: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'10px', padding:'10px 11px', fontSize:'11.5px', lineHeight:1.7,
+  const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
+  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.71875rem' });
+  const codeArea: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'10px', padding:'10px 11px', fontSize:'.71875rem', lineHeight:1.7,
     fontFamily:"'Inter', 'Google Sans Flex', sans-serif", resize:'vertical', outline:'none', width:'100%', color:'#0f172a', background:'#fbfcfd' };
 
   /* The request the Send button will actually issue — the snippets are generated
@@ -50,7 +59,7 @@ export default function Sandbox() {
   const sbFullPath = sbPath + sbQueryString;
   const sbBodyLine = String(st.sbBody).replace(/\n\s*/g, ' ');
   const sbSnippets: Record<string, string> = {
-    curl: 'curl -X ' + st.sbMethod + ' "https://api.signforge.com' + sbFullPath + '" \\\n  -H "Authorization: Bearer sk_' + st.sbEnv + '_…" \\\n  -H "Content-Type: application/json"' + (st.sbMethod === 'GET' ? '' : " \\\n  -d '" + sbBodyLine + "'"),
+    curl: 'curl -X ' + st.sbMethod + ' "https://api.signforge.com' + sbFullPath + '" \\\n  -H "Authorization: Bearer $SIGNFORGE_KEY" \\\n  -H "Content-Type: application/json"' + (st.sbMethod === 'GET' ? '' : " \\\n  -d '" + sbBodyLine + "'"),
     node: 'const sf = new SignForge(process.env.SIGNFORGE_KEY);\nconst res = await sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nconsole.log(res);',
     python: 'import signforge\n\nsf = signforge.Client(os.environ["SIGNFORGE_KEY"])\nres = sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', json=' + sbBodyLine) + ')\nprint(res)',
     php: '$sf = new \\SignForge\\Client(getenv("SIGNFORGE_KEY"));\n$res = $sf->request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nprint_r($res);'
@@ -58,7 +67,7 @@ export default function Sandbox() {
   const sbLangTabs = SB_LANG_TABS.map(([id, label]) => {
     const on = st.sbLang === id;
     return { id, label, selected: on ? 'true' : 'false', onClick: () => set({ sbLang: id } as any),
-      style: { height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'11.5px', fontWeight: on ? 600 : 500,
+      style: { height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500,
         background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
   });
   const sbPathOptions = SB_PATH_OPTIONS.map(p => ({ id: p, label: p }));
@@ -69,25 +78,29 @@ export default function Sandbox() {
     onRemove: () => set((x: any) => ({ sbParams: x.sbParams.filter((_y: any, j: number) => j !== i) } as any))
   }));
   const sbHistory = st.sbHistory.map((h: any, i: number) => ({
-    key: i, label: h.method + ' ' + h.path, meta: h.status + ' · ' + h.ms + 'ms · ' + h.env,
-    onClick: () => set({ sbMethod: h.method, sbResponse: { status: h.status, ms: h.ms, body: h.body }, sbEnv: h.env } as any),
+    key: i, label: h.method + ' ' + h.path, meta: h.status + ' · ' + h.ms + 'ms',
+    onClick: () => set({ sbMethod: h.method, sbResponse: { status: h.status, ms: h.ms, body: h.body } } as any),
     pill: pill(h.status < 300 ? TONE_GOOD : TONE_BAD),
     style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'9px 10px', borderRadius:'10px', border:'1px solid #eef1f6', background:'#fbfcfd', cursor:'pointer', textAlign:'left' } as CSSProperties
   }));
 
-  const sbTestStyle: CSSProperties = { height:'28px', padding:'0 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'12px', fontWeight: st.sbEnv === 'test' ? 600 : 500,
-    background: st.sbEnv === 'test' ? '#fff' : 'transparent', color: st.sbEnv === 'test' ? '#0f172a' : '#64748b', boxShadow: st.sbEnv === 'test' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
-  const sbLiveStyle: CSSProperties = { height:'28px', padding:'0 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'12px', fontWeight: st.sbEnv === 'live' ? 600 : 500,
-    background: st.sbEnv === 'live' ? '#fff' : 'transparent', color: st.sbEnv === 'live' ? '#92400e' : '#64748b', boxShadow: st.sbEnv === 'live' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
-  const sbKeyLabel = 'sk_' + st.sbEnv + '_' + (st.sbEnv === 'test' ? '41ab••••02de' : '9f2b••••4c71');
   const sbBodyVisible = st.sbMethod !== 'GET';
   const sbSendLabel = st.sbSending ? 'Sending…' : 'Send request';
   /** A real call through `/api/proxy`; the status, latency and body are the API's. */
-  const sbSend = () => {
-    if (st.sbEnv === 'live') { flash('Live mode blocked in the sandbox — switch to test'); return; }
+  const sbSend = async () => {
     if (st.sbSending) return;
     const method = st.sbMethod as 'GET' | 'POST' | 'PATCH' | 'DELETE';
     const path = sbPath;
+    /* Anything other than GET writes to the caller's real workspace. */
+    if (method !== 'GET') {
+      const ok = await askConfirm({
+        title: method + ' ' + sbFullPath,
+        message: 'This runs against your live workspace and can create, change or delete real data. There is no test tenant.',
+        cta: 'Send request',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     if (!path.startsWith(API_PREFIX)) { flash('Only this deployment\u2019s own /api paths can be called'); return; }
 
     let body: unknown;
@@ -111,7 +124,7 @@ export default function Sandbox() {
       const status = res.ok ? res.status : res.error.status;
       const payload = res.ok ? res.data : { error: { status: res.error.status, kind: res.error.kind, message: res.error.message } };
       const rendered = payload === undefined ? '' : JSON.stringify(payload, null, 2);
-      const entry = { method, path: sbFullPath, status, ms, env: st.sbEnv, body: rendered };
+      const entry = { method, path: sbFullPath, status, ms, env: 'live', body: rendered };
       set((x: any) => ({ sbSending: false, sbResponse: { status, ms, body: rendered },
         sbHistory: [entry].concat(x.sbHistory).slice(0, 6) } as any));
     });
@@ -127,35 +140,34 @@ export default function Sandbox() {
      the parsed body, not the response headers, so nothing here is invented. */
   const sbHeaders = ([
     ['content-type','application/json'],
-    ['signforge-mode', st.sbEnv],
     ['status', sbStatus],
     ['duration', sbLatency]
   ] as [string, string][]).map(([k, v]) => ({ k, v }));
   const sbEmptyNote = 'Send a request to see the response, headers and timing.';
 
   return (
-    <section data-screen-label="Sandbox" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.15fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
+    <section data-screen-label="API console" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.15fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
+      <div style={{ gridColumn:'1 / -1', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:'14px', padding:'13px 15px', display:'flex', flexDirection:'column', gap:'4px' }}>
+        <span style={{ fontSize:'.8125rem', fontWeight:700, color:'#b91c1c' }}>Live workspace — not a sandbox</span>
+        <span style={{ fontSize:'.75rem', color:'#991b1b', lineHeight:1.6 }}>
+          Requests are sent with your own session against your organization&rsquo;s real data. There is no test tenant and no test key.
+          A POST, PATCH or DELETE here creates, changes or deletes real documents, contacts and templates — permanently.
+        </span>
+      </div>
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'13px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
             <div style={railHead}>Request</div>
-            <div style={{ display:'flex', alignItems:'center', gap:'9px' }}>
-              <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px' }}>
-                <button type="button" onClick={() => set({ sbEnv: 'test' } as any)} style={sbTestStyle}>Test</button>
-                <button type="button" onClick={() => set({ sbEnv: 'live' } as any)} style={sbLiveStyle}>Live</button>
-              </div>
-              <span style={{ fontSize:'10.5px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{sbKeyLabel}</span>
-            </div>
           </div>
 
           <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
-            <select value={st.sbMethod} onChange={(e) => set({ sbMethod: e.target.value, sbResponse: null } as any)} aria-label="Method" style={{ height:'34px', width:'104px', flex:'0 0 104px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'12.5px', background:'#fff', color:'#0f172a', outline:'none' }}>
+            <select value={st.sbMethod} onChange={(e) => set({ sbMethod: e.target.value, sbResponse: null } as any)} aria-label="Method" style={{ height:'34px', width:'104px', flex:'0 0 104px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', background:'#fff', color:'#0f172a', outline:'none' }}>
               <option value="GET">GET</option>
               <option value="POST">POST</option>
               <option value="PATCH">PATCH</option>
               <option value="DELETE">DELETE</option>
             </select>
-            <select value={sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'12.5px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", background:'#fff', color:'#0f172a', outline:'none' }}>
+            <select value={sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", background:'#fff', color:'#0f172a', outline:'none' }}>
               {sbPathOptions.map(o => (<option key={o.id} value={o.id}>{o.label}</option>))}
             </select>
             <button type="button" onClick={sbSend} style={primaryBtn}>{sbSendLabel}</button>
@@ -205,7 +217,7 @@ export default function Sandbox() {
             {hasSbResponse ? (
               <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
                 <span style={sbStatusPill}>{sbStatus}</span>
-                <span style={{ fontSize:'11px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{sbLatency}</span>
+                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{sbLatency}</span>
               </div>
             ) : null}
           </div>
@@ -215,7 +227,7 @@ export default function Sandbox() {
               <div style={{ display:'flex', flexDirection:'column', gap:'5px', borderTop:'1px solid #f2f4f8', paddingTop:'10px' }}>
                 <span style={railHead}>Headers</span>
                 {sbHeaders.map(h => (
-                  <div key={h.k} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'11px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
+                  <div key={h.k} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.6875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
                     <span style={{ color:'#64748b' }}>{h.k}</span><span style={{ color:'#0f172a', wordBreak:'break-all' }}>{h.v}</span>
                   </div>
                 ))}
@@ -223,7 +235,7 @@ export default function Sandbox() {
             </div>
           ) : null}
           {sbEmpty ? (
-            <div style={{ border:'1px dashed #cbd5e1', borderRadius:'12px', padding:'22px', textAlign:'center', fontSize:'12px', color:'#94a3b8', lineHeight:1.6 }}>{sbEmptyNote}</div>
+            <div style={{ border:'1px dashed #8492a6', borderRadius:'12px', padding:'22px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 }}>{sbEmptyNote}</div>
           ) : null}
         </div>
 
@@ -235,10 +247,10 @@ export default function Sandbox() {
           {sbHistory.map((h: any) => (
             <button key={h.key} type="button" onClick={h.onClick} style={h.style}>
               <span style={h.pill}>{h.label}</span>
-              <span style={{ marginLeft:'auto', fontSize:'10.5px', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{h.meta}</span>
+              <span style={{ marginLeft:'auto', fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{h.meta}</span>
             </button>
           ))}
-          <span style={{ fontSize:'11.5px', color:'#94a3b8', lineHeight:1.5 }}>Sandbox calls run against a seeded test tenant. Nothing is emailed and no card is charged.</span>
+          <span style={{ fontSize:'.71875rem', color:'#b91c1c', lineHeight:1.5 }}>These calls run against your live workspace with your own session. There is no test tenant, nothing is sandboxed, and writes are permanent.</span>
         </div>
       </div>
     </section>

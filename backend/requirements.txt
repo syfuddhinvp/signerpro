@@ -1,20 +1,37 @@
-fastapi==0.115.6
+fastapi==0.141.1
 uvicorn[standard]==0.34.0
 SQLAlchemy==2.0.36
 psycopg[binary]==3.2.3
 alembic==1.14.0
 pydantic-settings==2.7.1
-python-jose[cryptography]==3.3.0
-cryptography>=42.0.0  # secret encryption at rest (app/core/crypto.py)
+PyJWT==2.13.0
+cryptography>=50.0.0  # secret encryption at rest (app/core/crypto.py)
 passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
-python-multipart==0.0.20
-pypdf==5.1.0
+bcrypt==4.2.1
+python-multipart==0.0.31
+pypdf==6.16.2
 reportlab==4.2.5
 email-validator==2.2.0
-pytest==8.3.4
 httpx==0.28.1
 anyio==4.7.0
 
+# Pinned transitives. Not imported directly, but they process untrusted input
+# and their own parents do not pin them tightly enough:
+#   pillow  <- reportlab. Decodes signer-supplied signature PNGs (pdf_service).
+#   pyasn1  <- rsa.
+pillow>=12.3.0
+pyasn1>=0.6.4
+
 # Optional: only needed when STORAGE_BACKEND=s3 (imported lazily by app/core/storage.py)
 # boto3>=1.34.0
+
+# Selected by RATE_LIMIT_BACKEND=redis and imported lazily by
+# app/core/ratelimit.py, so it costs nothing at startup when unused. Installed
+# unconditionally nonetheless: without it in the image, RATE_LIMIT_BACKEND=redis
+# cannot be turned on at all -- create_backend() catches the ImportError, logs
+# ratelimit.redis_init_failed and falls back to in-process counters, i.e. a
+# security control that fails *open* and looks configured. And redis-py is the
+# production-recommended backend precisely because in-process counters multiply
+# every login/OTP/password-reset limit by the worker count. Pure Python, no
+# native build, ~1 MB.
+redis>=5.0.0

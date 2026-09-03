@@ -46,13 +46,13 @@ import socket
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from sqlalchemy import event as sa_event, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, is_production
 from app.models.mixins import uuid_str
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.services.audit_service import audit_service
@@ -63,6 +63,11 @@ from app.services.audit_service import audit_service
 # --------------------------------------------------------------------------- #
 
 EVENT_CATALOGUE: dict[str, str] = {
+    # The lifecycle starts when the envelope exists, not when it goes out: an
+    # integration that only hears about a document at `document.sent` cannot
+    # mirror drafts, attach metadata while one is being prepared, or notice a
+    # draft that was never sent.
+    "document.created": "A document was created (still a draft, not yet sent).",
     "document.sent": "A document was sent out for signature.",
     "document.viewed": "A recipient opened the document for the first time.",
     "document.completed": "Every recipient has signed and the final PDF is sealed.",
@@ -128,7 +133,10 @@ def validate_endpoint_url(url: str, *, allow_insecure: bool | None = None) -> st
     """
     settings = get_settings()
     if allow_insecure is None:
-        allow_insecure = settings.environment in {"development", "test"}
+        # ``is_production`` fails *closed*: anything that is not explicitly a
+        # development/test environment is production, so a misconfigured
+        # ENVIRONMENT string cannot re-enable the bypass.
+        allow_insecure = not is_production(settings.environment)
 
     parsed = urlparse(url.strip())
     if parsed.scheme not in {"http", "https"}:
@@ -194,13 +202,76 @@ def serialize(payload: dict[str, Any]) -> bytes:
 Transport = Callable[[str, bytes, dict[str, str]], tuple[int, str]]
 
 
+def resolve_and_pin(url: str) -> tuple[str, dict[str, str]]:
+    """Re-validate ``url`` *at delivery time* and pin it to a checked address.
+
+    Validation at endpoint-creation time is TOCTOU-vulnerable: a host that
+    resolves to a public address when the endpoint is registered can resolve to
+    ``169.254.169.254`` when the delivery (or any of its retries) actually
+    fires. Re-resolving here closes the window, and connecting to the literal
+    address we just checked closes the second one — otherwise the socket layer
+    would resolve the name a *third* time and could get a different answer.
+
+    Returns ``(url_to_request, extra_headers)``. The Host header and the TLS
+    SNI name keep the original hostname, so virtual hosting and certificate
+    validation still work.
+    """
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        # An IP literal cannot be rebound; validate it and use it as-is.
+        if _is_blocked_ip(ipaddress.ip_address(host)):
+            raise WebhookUrlError("Webhook URL resolves to a blocked address range")
+        return url, {}
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise WebhookUrlError("Webhook URL host could not be resolved") from exc
+
+    chosen: str | None = None
+    for info in infos:
+        address = info[4][0]
+        try:
+            candidate = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if _is_blocked_ip(candidate):
+            # One blocked answer condemns the name: a rebinding attacker only
+            # needs the *pinned* address to be internal, so refusing outright
+            # is the only safe reading of a mixed answer.
+            raise WebhookUrlError("Webhook URL resolves to a blocked address range")
+        if chosen is None:
+            chosen = address
+
+    if chosen is None:
+        raise WebhookUrlError("Webhook URL host could not be resolved")
+
+    literal = f"[{chosen}]" if ":" in chosen else chosen
+    netloc = f"{literal}:{parsed.port}" if parsed.port else literal
+    pinned = urlunparse(parsed._replace(netloc=netloc))
+    return pinned, {"Host": parsed.netloc}
+
+
 def _http_transport(url: str, body: bytes, headers: dict[str, str]) -> tuple[int, str]:
+    request_url, extra_headers = url, {}
+    sni: str | None = None
+    if is_production(get_settings().environment):
+        parsed = urlparse(url)
+        sni = parsed.hostname
+        request_url, extra_headers = resolve_and_pin(url)
     response = httpx.post(
-        url,
+        request_url,
         content=body,
-        headers=headers,
+        headers={**headers, **extra_headers},
         timeout=REQUEST_TIMEOUT_SECONDS,
         follow_redirects=False,
+        extensions={"sni_hostname": sni} if extra_headers and sni else {},
     )
     return response.status_code, (response.text or "")[:500]
 

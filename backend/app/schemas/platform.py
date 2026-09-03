@@ -182,7 +182,11 @@ class PlatformOverview(BaseModel):
     envelopes_30d: int
     mrr_cents: int
     incidents_90d: int
-    uptime_pct: float
+    #: ``None`` until a real availability signal exists. Nothing in this
+    #: system measures uptime, so a number here would be fabricated.
+    uptime_pct: float | None = None
+    #: The real, derived figure that used to be laundered into ``uptime_pct``.
+    errors_24h: int = 0
     mrr_series: list[int]
     health: list[PlatformHealthRow]
 
@@ -225,6 +229,12 @@ class SecurityPostureRow(BaseModel):
     label: str
     detail: str | None = None
     enabled: bool
+    #: False when nothing in the codebase enforces this control. The console
+    #: previously rendered every row as a live switch; enabling "IP allowlist
+    #: for admin console" changed a boolean and nothing else.
+    implemented: bool = False
+    #: ``enabled`` is only meaningful when the control exists.
+    enforced: bool = False
 
 
 class SecurityPostureUpdate(BaseModel):
@@ -247,8 +257,17 @@ class CertificationRow(BaseModel):
 
 class ComplianceResponse(BaseModel):
     certifications: list[CertificationRow]
+    #: ``None`` unless a rotation actually happened. There is no rotation job,
+    #: so this used to be derived from an interval and presented as a fact.
     last_key_rotation_at: datetime | None = None
     rotation_interval_days: int
+    #: False while no key-rotation job exists.
+    key_rotation_implemented: bool = False
+    #: Explains, in the payload itself, what the certification statuses mean.
+    disclaimer: str = (
+        "Certification statuses are operator-maintained records, not assertions "
+        "made by this system. Nothing here is evidence of an audit."
+    )
 
 
 # --- Logs & audit ----------------------------------------------------------

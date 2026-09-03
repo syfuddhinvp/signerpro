@@ -10,14 +10,14 @@
 import { useState, useTransition } from 'react';
 import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { btn, inputStyle } from '@/lib/sf/ui';
+import { btn, inputStyle, TEXT_MUTED } from '@/lib/sf/ui';
 import { SignState } from './states';
 import { acceptConsent, sendOtp, verifyOtp } from './actions';
 
 const stack: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', marginTop: '4px' };
 const row: CSSProperties = { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' };
 const note: CSSProperties = {
-  margin: 0, fontSize: '11.5px', color: '#94a3b8', lineHeight: 1.6,
+  margin: 0, fontSize: '.71875rem', color: TEXT_MUTED, lineHeight: 1.6,
   fontFamily: "'Inter', 'Google Sans Flex', sans-serif",
 };
 
@@ -91,7 +91,7 @@ export function ConsentGate({
       body={signerName + ', before you can open ' + documentTitle + ' you need to agree to sign electronically. Your electronic signature has the same legal effect as a handwritten one, and every action is recorded in a tamper-evident audit trail with its own SHA-256 checksum.'}
     >
       <div style={stack}>
-        <label style={{ display: 'flex', gap: '9px', alignItems: 'flex-start', textAlign: 'left', fontSize: '12.5px', color: '#475569', lineHeight: 1.6 }}>
+        <label style={{ display: 'flex', gap: '9px', alignItems: 'flex-start', textAlign: 'left', fontSize: '.78125rem', color: '#475569', lineHeight: 1.6 }}>
           <input
             type="checkbox"
             checked={agreed}

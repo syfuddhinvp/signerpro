@@ -14,10 +14,14 @@ request id / organization id / user id bound by the ASGI middleware in
 
 from __future__ import annotations
 
+import anyio
 import json
 import logging
 import sys
+import threading
+import time
 import uuid
+from hashlib import sha256
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import Any, Iterator
@@ -27,6 +31,10 @@ REQUEST_ID_HEADER = "X-Request-ID"
 _request_id: ContextVar[str | None] = ContextVar("signflow_request_id", default=None)
 _organization_id: ContextVar[str | None] = ContextVar("signflow_organization_id", default=None)
 _user_id: ContextVar[str | None] = ContextVar("signflow_user_id", default=None)
+#: Set for the duration of a request authenticated by a platform-admin
+#: impersonation token. Everything that writes an evidentiary record consults
+#: it so an impersonated action is never attributed to the tenant's own user.
+_impersonation: ContextVar[dict | None] = ContextVar("signflow_impersonation", default=None)
 
 # Attributes present on every stdlib LogRecord; anything else the caller put in
 # ``extra=`` is merged into the JSON payload.
@@ -182,6 +190,16 @@ def set_user_id(user_id: str | None) -> None:
         _user_id.set(user_id)
 
 
+def set_impersonation(context: dict | None) -> None:
+    """Record that this request is a platform admin acting as a tenant user."""
+    _impersonation.set(context)
+
+
+def get_impersonation() -> dict | None:
+    """``{"admin_user_id", "admin_email", "session_id", "scopes"}`` or ``None``."""
+    return _impersonation.get()
+
+
 # ---------------------------------------------------------------------------
 # system_logs persistence (ACT-1)
 #
@@ -241,6 +259,44 @@ def should_persist_request(method: str, path: str, status_code: int) -> bool:
     return method.upper() in _MUTATING_METHODS or status_code >= 400
 
 
+#: Cache of ``user_id -> (email, organization_id)`` for request-log attribution.
+#: Every persisted mutating request used to pay a ``db.get(User, ...)`` -- two
+#: of them while impersonating -- on top of the insert, tripling the query cost
+#: of the audit-of-record write and the connection pressure with it. Neither
+#: field is volatile: ``organization_id`` never changes for a user, and an
+#: email change going 30 seconds stale in a log row's attribution is harmless.
+_IDENTITY_TTL_SECONDS = 30.0
+_identity_cache: dict[str, tuple[float, tuple[str | None, str | None]]] = {}
+_identity_lock = threading.Lock()
+
+
+def _identity(db, user_id: str | None) -> tuple[str | None, str | None]:
+    """``(email, organization_id)`` for a user id, memoised briefly."""
+    if not user_id:
+        return (None, None)
+    now = time.monotonic()
+    with _identity_lock:
+        cached = _identity_cache.get(user_id)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+
+    from app.models.user import User
+
+    user = db.get(User, user_id)
+    value = (user.email, user.organization_id) if user is not None else (None, None)
+    with _identity_lock:
+        if len(_identity_cache) > 4096:  # unbounded growth is a leak, not a cache
+            _identity_cache.clear()
+        _identity_cache[user_id] = (now + _IDENTITY_TTL_SECONDS, value)
+    return value
+
+
+def reset_identity_cache() -> None:
+    """Test hook: forget every memoised identity."""
+    with _identity_lock:
+        _identity_cache.clear()
+
+
 def persist_request_log(
     *,
     method: str,
@@ -250,37 +306,44 @@ def persist_request_log(
     request_id: str,
     client_ip: str | None,
     user_id: str | None,
+    impersonating_admin_id: str | None = None,
 ) -> None:
     """Append one ``system_logs`` row. Never raises.
 
     The tenant is resolved from the bearer token's subject rather than from a
     context variable: FastAPI runs sync endpoints in a worker thread, so
-    anything the dependencies bind there is invisible here. That costs one
-    primary-key lookup, and only on requests that are actually persisted.
-    API-key traffic carries no user, so those rows are platform-scoped.
+    anything the dependencies bind there is invisible here. That lookup is
+    memoised (see ``_identity``), leaving one INSERT on the persisted path.
+
+    Called from a worker thread, never from the event loop -- this does
+    blocking database I/O, and the ASGI middleware is async.
     """
 
     try:
         from app.core.database import background_session
-        from app.models.user import User
         from app.services import platform_service
 
         safe_path = redact_path(path)
         level = "error" if status_code >= 500 else "warn" if status_code >= 400 else "info"
         with background_session() as db:
-            actor = db.get(User, user_id) if user_id else None
+            actor_email, actor_org = _identity(db, user_id)
+            impersonator_email, _ = _identity(db, impersonating_admin_id)
+            payload = {"method": method, "path": safe_path, "duration_ms": duration_ms}
+            if impersonator_email is not None:
+                payload["impersonated_by"] = impersonator_email
+                payload["impersonated_user"] = actor_email or user_id
             platform_service.record_system_log(
                 db,
                 message=f"{method} {safe_path} -> {status_code}",
                 source=log_source_for(path),
                 level=level,
-                organization_id=actor.organization_id if actor else None,
-                actor_email=actor.email if actor else None,
+                organization_id=actor_org,
+                actor_email=impersonator_email or actor_email,
                 status_code=status_code,
                 latency_ms=int(duration_ms),
                 request_id=request_id,
                 ip_address=client_ip,
-                payload={"method": method, "path": safe_path, "duration_ms": duration_ms},
+                payload=payload,
             )
             db.commit()
     except Exception:  # pragma: no cover - logging must never break a request
@@ -303,13 +366,29 @@ class RequestLoggingMiddleware:
             await self.app(scope, receive, send)
             return
 
-        import time
-
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
         request_id = headers.get(REQUEST_ID_HEADER.lower()) or new_request_id()
-        user_id = _user_id_from_authorization(headers.get("authorization"))
+        user_id, impersonating_admin_id, raw_token = _principal_from_authorization(
+            headers.get("authorization")
+        )
 
         tokens = bind_request_context(request_id=request_id, user_id=user_id)
+        # Bound *here*, not in the auth dependency: FastAPI runs sync
+        # dependencies and sync endpoints in separate worker threads, each with
+        # its own copy of this context, so anything the dependency binds is
+        # invisible to the endpoint. The claim alone is not authorization - the
+        # session row is still re-checked per request in ``app.api.deps`` - it
+        # is only the attribution marker. It is cleared for every other request
+        # so a recycled context cannot leak one caller's marker into the next.
+        impersonation_context = (
+            {
+                "admin_user_id": impersonating_admin_id,
+                "token_hash": sha256(raw_token.encode("utf-8")).hexdigest(),
+            }
+            if impersonating_admin_id and raw_token
+            else None
+        )
+        tokens.append((_impersonation, _impersonation.set(impersonation_context)))
         # Explicitly clear the tenant for this request: get_current_user sets it
         # without a token, and a recycled task context must not let one request
         # inherit the previous caller's organization.
@@ -325,7 +404,19 @@ class RequestLoggingMiddleware:
                 message = {**message, "headers": raw_headers}
             await send(message)
 
-        def persist(status_code: int, duration_ms: float) -> None:
+        async def persist(status_code: int, duration_ms: float) -> None:
+            """Write the ``system_logs`` row from a worker thread.
+
+            ``persist_request_log`` does blocking database I/O, and this is an
+            async ASGI callable -- calling it inline stalled the whole event
+            loop, and therefore every other in-flight request, for the duration
+            of an INSERT plus COMMIT. It still runs before the request task
+            completes, so ordering (and every test that reads the row back on
+            the next request) is unchanged.
+            """
+            await anyio.to_thread.run_sync(_persist_sync, status_code, duration_ms)
+
+        def _persist_sync(status_code: int, duration_ms: float) -> None:
             persist_request_log(
                 method=(scope.get("method") or "GET"),
                 path=scope.get("path") or "",
@@ -334,6 +425,7 @@ class RequestLoggingMiddleware:
                 request_id=request_id,
                 client_ip=(scope.get("client") or [None])[0],
                 user_id=user_id,
+                impersonating_admin_id=impersonating_admin_id,
             )
 
         try:
@@ -348,7 +440,7 @@ class RequestLoggingMiddleware:
                     "duration_ms": duration_ms,
                 },
             )
-            persist(500, duration_ms)
+            await persist(500, duration_ms)
             raise
         else:
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
@@ -365,19 +457,32 @@ class RequestLoggingMiddleware:
                 },
             )
             if should_persist_request(scope.get("method") or "GET", scope.get("path") or "", status):
-                persist(status, duration_ms)
+                await persist(status, duration_ms)
         finally:
             reset_request_context(tokens)
 
 
-def _user_id_from_authorization(authorization: str | None) -> str | None:
-    """Best-effort user id from a bearer token; never raises."""
+def _principal_from_authorization(
+    authorization: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    """Best-effort ``(subject, impersonating_admin_id, raw_token)``; never raises.
+
+    The second element is the ``imp`` claim of an impersonation token. Without
+    it the request log records the *tenant's* user as the actor for everything
+    a support engineer does while impersonating them.
+    """
 
     if not authorization or not authorization.lower().startswith("bearer "):
-        return None
+        return None, None, None
     try:
         from app.core.security import decode_access_token
 
-        return decode_access_token(authorization.split(" ", 1)[1].strip()).get("sub")
+        raw = authorization.split(" ", 1)[1].strip()
+        claims = decode_access_token(raw)
+        return claims.get("sub"), claims.get("imp"), raw
     except Exception:
-        return None
+        return None, None, None
+
+
+def _user_id_from_authorization(authorization: str | None) -> str | None:
+    return _principal_from_authorization(authorization)[0]

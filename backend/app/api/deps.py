@@ -1,29 +1,207 @@
+from datetime import datetime, timezone
+from hashlib import sha256
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.logging import set_organization_id, set_user_id
-from app.core.security import decode_access_token
+from app.core.logging import set_impersonation, set_organization_id, set_user_id
+from app.core.security import (
+    ACCESS_TOKEN_PURPOSE,
+    IMPERSONATION_TOKEN_PURPOSE,
+    JWTError,
+    decode_access_token,
+    decode_token,
+)
+from app.models.impersonation import ImpersonationSession
 from app.models.enums import UserRole
+from app.models.organization import Organization
 from app.models.user import User
+from app.models.user_session import UserSession
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+_INVALID = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token"
+)
 
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
+
+def _aware(value: datetime | None) -> datetime | None:
+    """SQLite hands back naive datetimes; compare in UTC regardless."""
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+
+# ---------------------------------------------------------------------------
+# Platform-admin impersonation (C8)
+#
+# An impersonation token is a *different kind of credential* to an access
+# token, and is resolved here rather than by the ordinary path. Three
+# properties the feature advertised were previously decorative:
+#
+#   scope        - ``scopes`` was written to the session row and read nowhere.
+#   revocation   - ``token_hash`` was written and read nowhere, so ending a
+#                  session left the JWT working until it expired.
+#   attribution  - the ``imp`` claim was decoded nowhere, so every action was
+#                  logged as the tenant's own administrator.
+#
+# All three now hang off one per-request lookup of the session row.
+# ---------------------------------------------------------------------------
+
+#: Methods a ``read``-scoped session may use.
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+#: Surfaces no impersonation session may mutate, whatever its scope. These
+#: grant *durable* access that outlives the session's TTL - an invitation, an
+#: API key, a role change or a credential change - which is exactly how a
+#: 15-minute support session becomes a permanent backdoor.
+IMPERSONATION_FORBIDDEN_PREFIXES: tuple[str, ...] = (
+    "/api/invitations",
+    "/api/api-keys",
+    "/api/auth",
+    "/api/organizations/members",
+    "/api/users",
+)
+
+
+def _impersonation_denied(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+def authorize_impersonation(
+    db: Session, *, token: str, payload: dict, request: Request | None
+) -> ImpersonationSession:
+    """Resolve an impersonation token against its (still live) session row."""
+    token_hash = sha256(token.encode("utf-8")).hexdigest()
+    row = db.execute(
+        select(ImpersonationSession, User.email)
+        .outerjoin(User, User.id == ImpersonationSession.admin_user_id)
+        .where(ImpersonationSession.token_hash == token_hash)
+    ).first()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This impersonation session is not recognised",
+        )
+    session, admin_email = row
+    now = datetime.now(timezone.utc)
+    expires_at = _aware(session.expires_at)
+    if session.ended_at is not None or (expires_at and expires_at <= now):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This impersonation session has ended",
+        )
+
+    scopes = {str(scope).lower() for scope in (session.scopes or ["read"])}
+    method = (request.method if request else "GET").upper()
+    path = request.url.path if request else "/"
+    if method not in SAFE_METHODS:
+        if "write" not in scopes:
+            raise _impersonation_denied(
+                "This impersonation session is read-only; it cannot modify tenant data"
+            )
+        if any(path.startswith(prefix) for prefix in IMPERSONATION_FORBIDDEN_PREFIXES):
+            raise _impersonation_denied(
+                "Impersonation cannot grant or change credentials, invitations, API keys or roles"
+            )
+
+    set_impersonation(
+        {
+            "session_id": session.id,
+            "admin_user_id": session.admin_user_id,
+            "admin_email": admin_email,
+            "organization_id": session.organization_id,
+            "scopes": sorted(scopes),
+            "justification": session.justification,
+        }
+    )
+    return session
+
+
+def get_current_user(
+    request: Request,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+) -> User:
+    """Authenticate a bearer access token.
+
+    Four things are checked here, all of which used to be missing:
+
+    1. ``purpose`` — the MFA challenge token (and any future signing / embed
+       scoped token) is *not* an access credential and is rejected outright.
+    2. ``sid`` — the session row the token belongs to must still be live.
+       Logout, "sign out other devices" and admin-forced logout revoke that
+       row; without this check they were cosmetic until the token expired.
+    3. The user must still be active.
+    4. The user's organization must not be suspended.
+
+    Cost: exactly one extra query per authenticated request. User, organization
+    and session are fetched in a single row via joins rather than three
+    round-trips.
+    """
+    set_impersonation(None)
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
+        payload = decode_token(token)
     except JWTError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token") from exc
+        raise _INVALID from exc
+    user_id = payload.get("sub")
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token")
-    user = db.get(User, user_id)
-    if not user:
+        raise _INVALID
+
+    # Legacy tokens carry no purpose at all and are treated as access tokens,
+    # exactly as ``decode_token`` documents.
+    purpose = payload.get("purpose", ACCESS_TOKEN_PURPOSE)
+    impersonation: ImpersonationSession | None = None
+    if purpose == IMPERSONATION_TOKEN_PURPOSE:
+        impersonation = authorize_impersonation(db, token=token, payload=payload, request=request)
+    elif purpose != ACCESS_TOKEN_PURPOSE:
+        raise _INVALID
+
+    session_id = payload.get("sid")
+    query = select(User, Organization.suspended_at, UserSession).join(
+        Organization, Organization.id == User.organization_id
+    )
+    if session_id:
+        # Outer join on the literal sid: a missing/foreign session row still
+        # returns the user row, and is then rejected below.
+        query = query.outerjoin(
+            UserSession,
+            (UserSession.id == session_id) & (UserSession.user_id == User.id),
+        )
+    else:
+        # Tokens minted without a session (invitation acceptance, platform
+        # impersonation) carry no sid; there is nothing to revoke.
+        query = query.outerjoin(UserSession, UserSession.id.is_(None))
+    row = db.execute(query.where(User.id == user_id)).first()
+    if row is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    user, org_suspended_at, session_row = row
+
+    if session_id:
+        now = datetime.now(timezone.utc)
+        expires_at = _aware(session_row.expires_at) if session_row else None
+        if session_row is None or session_row.revoked_at is not None or (expires_at and expires_at <= now):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="This session has been signed out"
+            )
+
+    if (user.status or "active") != "active":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated")
+    if org_suspended_at is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This organization is suspended")
+
+    if impersonation is not None:
+        # The token names a subject; the session names the tenant. If they ever
+        # disagree, or the subject is itself a platform admin, the credential is
+        # not what it claims to be.
+        if user.organization_id != impersonation.organization_id or user.is_platform_admin:
+            raise _INVALID
+
     # The request middleware cannot know the tenant; stamp it so every log record
     # emitted downstream carries it.
     set_user_id(user.id)
@@ -151,6 +329,7 @@ class OrgPrincipal:
 
 
 def get_org_principal(
+    request: Request,
     db: Session = Depends(get_db),
     token: str | None = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)),
     raw_key: str | None = Depends(api_key_header),
@@ -163,6 +342,6 @@ def get_org_principal(
         set_organization_id(api_key.organization_id)
         return OrgPrincipal(organization_id=api_key.organization_id, api_key=api_key)
     if token:
-        user = get_current_user(db=db, token=token)
+        user = get_current_user(request=request, db=db, token=token)
         return OrgPrincipal(organization_id=user.organization_id, user=user)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")

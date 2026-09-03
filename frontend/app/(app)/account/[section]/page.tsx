@@ -2,21 +2,21 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import AccountArea from '@/components/sf/AccountArea';
-import { ACCOUNT_SECTIONS, type AccountSection } from '@/lib/sf/routes';
+import { ACCOUNT_AREA_SECTIONS, type AccountAreaSection } from '@/lib/sf/routes';
 
 type Params = { section: string };
 
 export function generateStaticParams(): Params[] {
-  return ACCOUNT_SECTIONS.map((section) => ({ section }));
+  return ACCOUNT_AREA_SECTIONS.map((section) => ({ section }));
 }
 
-function isSection(value: string): value is AccountSection {
-  return (ACCOUNT_SECTIONS as readonly string[]).includes(value);
+function isSection(value: string): value is AccountAreaSection {
+  return (ACCOUNT_AREA_SECTIONS as readonly string[]).includes(value);
 }
 
-const TITLES: Record<AccountSection, string> = {
-  profile: 'Profile', subscription: 'Subscription', security: 'Security',
-  payment: 'Payment methods', notifications: 'Notifications', email: 'Email addresses',
+const TITLES: Record<AccountAreaSection, string> = {
+  profile: 'Profile', security: 'Security',
+  notifications: 'Notifications', email: 'Email addresses',
   integrations: 'Integrations', cloud: 'Cloud storage', teams: 'Teams',
   orgs: 'Organizations', audit: 'Account audit log',
 };

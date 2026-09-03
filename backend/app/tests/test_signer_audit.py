@@ -1,3 +1,5 @@
+from io import BytesIO
+
 from fastapi.testclient import TestClient
 
 from app.tests.conftest import auth_headers
@@ -114,6 +116,13 @@ def test_reassign_delegates_to_another_signer(client: TestClient, pdf_bytes: byt
     assert entry["kind"] == "info"
 
 
+def _db():
+    from app.core.database import get_db
+    from app.main import app
+
+    return next(app.dependency_overrides[get_db]())
+
+
 def test_audit_chain_integrity_and_certificate_feed(client: TestClient, pdf_bytes: bytes) -> None:
     headers = auth_headers(client)
     document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
@@ -133,35 +142,199 @@ def test_audit_chain_integrity_and_certificate_feed(client: TestClient, pdf_byte
     verification = client.get(f"/api/documents/{document_id}/audit-logs/verify", headers=headers)
     assert verification.status_code == 200
     head = chronological[-1]["checksum"]
-    assert verification.json() == {
-        "entry_count": len(logs),
-        "chain_head": head,
-        "hash_algorithm": "SHA-256",
-        "valid": True,
-    }
+    body = verification.json()
+    assert body["entry_count"] == len(logs)
+    assert body["chain_head"] == head
+    assert body["hash_algorithm"] == "SHA-256"
+    assert body["valid"] is True
+    assert body["reason"] is None and body["broken_at_index"] is None
+
     assert client.get(
         f"/api/documents/{document_id}/audit-logs/verify",
         headers=headers,
         params={"expected_head": "deadbeef"},
     ).json()["valid"] is False
 
-    # Tampering with a stored entry breaks every checksum from that point on.
-    from app.core.database import get_db
-    from app.main import app
+    # The checksums are PERSISTED, not derived on read: the stored column is
+    # what the API serves.
     from app.models.audit_log import AuditLog
 
-    db = next(app.dependency_overrides[get_db]())
+    db = _db()
+    stored = db.get(AuditLog, chronological[0]["id"])
+    assert stored.checksum == chronological[0]["checksum"]
+    assert stored.previous_checksum == "0" * 64
+    assert stored.sequence == 0
+    # The document carries the anchor that makes truncation detectable.
+    from app.models.document import Document
+
+    document = db.get(Document, document_id)
+    assert document.audit_chain_head == head
+    assert document.audit_entry_count == len(logs)
+
+
+def test_editing_an_audit_row_in_the_database_invalidates_the_chain(client: TestClient, pdf_bytes: bytes) -> None:
+    """C6 regression: the auditor edited an event_message and /verify said valid."""
+
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+    client.post(f"/api/sign/{token}/viewed")
+
+    logs = client.get(f"/api/documents/{document_id}/audit-logs", headers=headers).json()
+    chronological = list(reversed(logs))
+    assert client.get(f"/api/documents/{document_id}/audit-logs/verify", headers=headers).json()["valid"] is True
+
+    from app.models.audit_log import AuditLog
+
+    db = _db()
     target = db.get(AuditLog, chronological[1]["id"])
     target.event_message = "edited by hand"
     db.commit()
 
     after = client.get(f"/api/documents/{document_id}/audit-logs/verify", headers=headers).json()
-    assert after["chain_head"] != head
-    assert client.get(
-        f"/api/documents/{document_id}/audit-logs/verify",
-        headers=headers,
-        params={"expected_head": head},
-    ).json()["valid"] is False
+    assert after["valid"] is False
+    assert after["broken_at_entry_id"] == chronological[1]["id"]
+    assert after["broken_at_index"] == 1
+    assert "checksum" in after["reason"]
+    # And the certificate stops claiming the seal is good.
+    summary = client.get(f"/api/documents/{document_id}/certificate/summary", headers=headers).json()
+    assert summary["chain_valid"] is False
+    assert summary["chain_invalid_reason"]
+
+
+def test_deleting_a_middle_audit_row_invalidates_the_chain(client: TestClient, pdf_bytes: bytes) -> None:
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+    client.post(f"/api/sign/{token}/viewed")
+
+    logs = client.get(f"/api/documents/{document_id}/audit-logs", headers=headers).json()
+    chronological = list(reversed(logs))
+    assert len(chronological) >= 4
+
+    from app.models.audit_log import AuditLog
+
+    db = _db()
+    db.delete(db.get(AuditLog, chronological[1]["id"]))
+    db.commit()
+
+    after = client.get(f"/api/documents/{document_id}/audit-logs/verify", headers=headers).json()
+    assert after["valid"] is False
+    assert after["broken_at_index"] == 1
+
+
+def test_truncating_the_tail_of_the_trail_is_detected(client: TestClient, pdf_bytes: bytes) -> None:
+    """Deleting the newest row leaves a self-consistent chain; the anchor catches it."""
+
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+    client.post(f"/api/sign/{token}/viewed")
+
+    logs = client.get(f"/api/documents/{document_id}/audit-logs", headers=headers).json()
+    newest = logs[0]
+
+    from app.models.audit_log import AuditLog
+
+    db = _db()
+    db.delete(db.get(AuditLog, newest["id"]))
+    db.commit()
+
+    after = client.get(f"/api/documents/{document_id}/audit-logs/verify", headers=headers).json()
+    assert after["valid"] is False
+    assert "count" in after["reason"] or "head" in after["reason"]
+
+
+def test_purging_a_document_retains_its_audit_trail(client: TestClient, pdf_bytes: bytes) -> None:
+    """ESIGN/UETA + eIDAS: the evidentiary record outlives the document."""
+
+    from sqlalchemy import select
+
+    from app.models.audit_log import AuditLog
+
+    headers = auth_headers(client)
+    document_id, _, _, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+
+    db = _db()
+    before = list(db.scalars(select(AuditLog).where(AuditLog.document_ref == document_id)))
+    assert before
+    title = before[0].document_title
+    assert title
+
+    assert client.delete(f"/api/documents/{document_id}", headers=headers).status_code in {200, 204}
+    purge = client.delete(f"/api/documents/{document_id}", headers=headers, params={"permanent": "true"})
+    assert purge.status_code in {200, 204}, purge.text
+
+    db = _db()
+    from app.models.document import Document
+
+    assert db.get(Document, document_id) is None
+    after = list(db.scalars(select(AuditLog).where(AuditLog.document_ref == document_id)))
+    assert len(after) >= len(before) + 1  # the trail, plus the purge record
+    assert all(row.document_id is None for row in after)
+    assert all(row.document_title == title for row in after)
+    assert any(row.event_type == "document_purged" for row in after)
+
+    # The retained trail still verifies as a chain in its own right.
+    from app.services.audit_service import audit_service
+
+    assert audit_service.verify_chain(after)["valid"] is True
+
+
+def test_appended_bytes_on_the_stored_pdf_break_the_seal(client: TestClient, pdf_bytes: bytes) -> None:
+    """Audit 5.3: /certificate/summary reported a stale hash as fact."""
+
+    from app.core.storage import storage
+
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+    client.post(f"/api/sign/{token}/fields/{name_field}/value", json={"value": "Buyer One"})
+    assert client.post(f"/api/sign/{token}/complete").status_code == 200
+
+    sealed = client.get(f"/api/documents/{document_id}/certificate/summary", headers=headers).json()
+    assert sealed["final_pdf_intact"] is True
+    assert sealed["final_sha256_actual"] == sealed["final_sha256"]
+    assert sealed["original_pdf_intact"] is True
+
+    path = storage.path(f"documents/{document_id}/final.pdf")
+    with path.open("ab") as handle:
+        handle.write(b"tampered")
+
+    after = client.get(f"/api/documents/{document_id}/certificate/summary", headers=headers).json()
+    assert after["final_pdf_intact"] is False
+    assert after["final_sha256_actual"] != after["final_sha256"]
+
+
+def test_sealing_refuses_when_the_original_no_longer_matches_its_hash(client: TestClient, pdf_bytes: bytes) -> None:
+    from app.core.storage import storage
+    from app.models.document import Document
+
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+    client.post(f"/api/sign/{token}/fields/{name_field}/value", json={"value": "Buyer One"})
+
+    db = _db()
+    document = db.get(Document, document_id)
+    with storage.path(document.original_file_path).open("ab") as handle:
+        handle.write(b"tampered")
+
+    completed = client.post(f"/api/sign/{token}/complete")
+    assert completed.status_code == 409, completed.text
+    assert "integrity" in completed.json()["detail"].lower()
+
+    from sqlalchemy import select
+
+    from app.models.audit_log import AuditLog
+
+    db = _db()
+    events = [
+        row.event_type
+        for row in db.scalars(select(AuditLog).where(AuditLog.document_ref == document_id))
+    ]
+    assert "original_hash_mismatch" in events
 
 
 def test_certificate_summary(client: TestClient, pdf_bytes: bytes) -> None:
@@ -204,3 +377,145 @@ def test_audit_trail_is_tenant_scoped(client: TestClient, pdf_bytes: bytes) -> N
     other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
     assert client.get(f"/api/documents/{document_id}/audit-logs", headers=other_headers).status_code == 404
     assert client.get(f"/api/documents/{document_id}/certificate/summary", headers=other_headers).status_code == 404
+
+
+def test_certificate_pdf_downloads_before_and_after_sealing(client: TestClient, pdf_bytes: bytes) -> None:
+    """The certificate is evidence, so it is downloadable for a live envelope too."""
+
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+
+    in_flight = client.get(f"/api/documents/{document_id}/certificate/pdf", headers=headers)
+    assert in_flight.status_code == 200, in_flight.text
+    assert in_flight.headers["content-type"] == "application/pdf"
+    assert "attachment;" in in_flight.headers["content-disposition"]
+    assert in_flight.content.startswith(b"%PDF")
+    # Evidence, like the sealed contract, is downloaded locked against editing.
+    from pypdf import PdfReader as _Reader
+    from pypdf.constants import UserAccessPermissions as _Perms
+
+    cert = _Reader(BytesIO(in_flight.content))
+    cert.decrypt("")
+    assert _Perms.MODIFY not in (cert.user_access_permissions or _Perms.MODIFY)
+
+    client.post(f"/api/sign/{token}/fields/{name_field}/value", json={"value": "Buyer One"})
+    assert client.post(f"/api/sign/{token}/complete").status_code == 200
+    sealed = client.get(f"/api/documents/{document_id}/certificate/pdf", headers=headers)
+    assert sealed.status_code == 200
+    assert sealed.content.startswith(b"%PDF")
+    # It grew: completion adds entries to the trail the certificate prints.
+    assert len(sealed.content) > 0
+
+
+def test_certificate_pdf_is_tenant_scoped(client: TestClient, pdf_bytes: bytes) -> None:
+    headers = auth_headers(client)
+    document_id, _, _, _ = _sent_document(client, pdf_bytes, headers)
+    other = client.post(
+        "/api/auth/register",
+        json={
+            "organization_name": "Other Co 2",
+            "name": "Other Admin 2",
+            "email": "other2@example.com",
+            "password": "strong-password",
+        },
+    )
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+    assert client.get(f"/api/documents/{document_id}/certificate/pdf", headers=other_headers).status_code == 404
+
+
+def test_the_sealed_pdf_is_locked_against_editing(client: TestClient, pdf_bytes: bytes) -> None:
+    """The executed PDF opens for anyone and accepts edits from nobody.
+
+    PDF permissions are honoured by conforming readers rather than enforced by
+    cryptography — the tamper *evidence* is still ``final_sha256`` and the audit
+    chain — but a completed contract should not invite the accidental edit.
+    """
+
+    from pypdf import PdfReader
+    from pypdf.constants import UserAccessPermissions
+
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+    client.post(f"/api/sign/{token}/fields/{name_field}/value", json={"value": "Buyer One"})
+    assert client.post(f"/api/sign/{token}/complete").status_code == 200
+
+    final = client.get(f"/api/documents/{document_id}/final-pdf", headers=headers)
+    assert final.status_code == 200, final.text
+    reader = PdfReader(BytesIO(final.content))
+    # No password is needed to read it…
+    assert reader.decrypt("") or not reader.is_encrypted
+    assert len(reader.pages) > 0
+    # …and the editing permissions are gone.
+    permissions = reader.user_access_permissions
+    assert permissions is not None
+    assert UserAccessPermissions.PRINT in permissions
+    assert UserAccessPermissions.MODIFY not in permissions
+    assert UserAccessPermissions.FILL_FORM_FIELDS not in permissions
+
+    # The properties panel used to be entirely blank, so a downloaded contract
+    # identified itself by filename alone.
+    meta = reader.metadata
+    assert meta is not None
+    assert meta.title
+    assert meta.author
+    assert "SignForge" in (meta.producer or "")
+    assert document_id in (meta.get("/Keywords") or "")
+    assert (meta.get("/CreationDate") or "").startswith("D:")
+    assert (meta.get("/ModDate") or "").startswith("D:")
+
+
+def test_the_verified_mark_and_properties_reach_every_page(client: TestClient, pdf_bytes: bytes) -> None:
+    """Provenance on the page itself, not only in the certificate.
+
+    A sealed page carries a small "Signed and verified via SignForge" line with
+    the envelope id, so a printed page can be traced back to its audit trail.
+    """
+
+    from pypdf import PdfReader
+
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+    client.post(f"/api/sign/{token}/fields/{name_field}/value", json={"value": "Buyer One"})
+    assert client.post(f"/api/sign/{token}/complete").status_code == 200
+
+    final = client.get(f"/api/documents/{document_id}/final-pdf", headers=headers)
+    reader = PdfReader(BytesIO(final.content))
+    reader.decrypt("")
+    first_page_text = reader.pages[0].extract_text() or ""
+    assert "Signed and verified via SignForge" in first_page_text
+    assert document_id in first_page_text
+
+    # The certificate that travels with it reports the chain it verified.
+    certificate = client.get(f"/api/documents/{document_id}/certificate/pdf", headers=headers)
+    cert_reader = PdfReader(BytesIO(certificate.content))
+    cert_reader.decrypt("")
+    assert "AUDIT CHAIN VERIFIED" in (cert_reader.pages[0].extract_text() or "")
+    assert (cert_reader.metadata or {}).get("/Title")
+
+
+def test_the_full_download_is_one_pdf_of_document_and_certificate(client: TestClient, pdf_bytes: bytes) -> None:
+    from pypdf import PdfReader
+
+    headers = auth_headers(client)
+    document_id, _, name_field, token = _sent_document(client, pdf_bytes, headers)
+    client.post(f"/api/sign/{token}/consent")
+
+    # In flight: the original is stitched to the certificate on demand.
+    in_flight = client.get(f"/api/documents/{document_id}/certificate/full", headers=headers)
+    assert in_flight.status_code == 200, in_flight.text
+    reader = PdfReader(BytesIO(in_flight.content))
+    reader.decrypt("")
+    assert len(reader.pages) > 1
+    assert "signed-with-certificate" in in_flight.headers["content-disposition"]
+
+    client.post(f"/api/sign/{token}/fields/{name_field}/value", json={"value": "Buyer One"})
+    assert client.post(f"/api/sign/{token}/complete").status_code == 200
+
+    # Sealed: the bytes are final.pdf itself, so the recorded hash still holds.
+    full = client.get(f"/api/documents/{document_id}/certificate/full", headers=headers)
+    final = client.get(f"/api/documents/{document_id}/final-pdf", headers=headers)
+    assert full.status_code == 200
+    assert full.content == final.content

@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.enums import DocumentStatus, FieldType, RecipientStatus, SignatureType, WorkflowType
 from app.schemas.field import FieldResponse
@@ -17,14 +19,44 @@ class PublicRecipient(BaseModel):
     name: str
     email: EmailStr
     role_name: str | None
+    #: Typed role: sign | approve | copy | inperson. A ``copy`` recipient gets
+    #: a read-only copy and is never asked to sign (RTE-3).
+    role: str = "sign"
     status: RecipientStatus
+
+
+class FieldPlacementResponse(BaseModel):
+    """A *redacted* view of a field belonging to somebody else (SIGN-1).
+
+    The signing surface legitimately needs to know that a region of the page is
+    already spoken for, so it can lay the sheet out and grey the box out rather
+    than drawing this signer's inputs on top of it. It does **not** need — and
+    must never receive — the other recipient's label, captured value, options,
+    placeholder, merge tag or recipient id: those are exactly the salary/SSN
+    payloads finding SIGN-1 recorded leaking. Geometry, page and coarse type
+    are all that survive the redaction.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    type: FieldType
+    page_number: int
+    x: Decimal
+    y: Decimal
+    width: Decimal
+    height: Decimal
 
 
 class SigningSessionResponse(BaseModel):
     document: PublicDocument
     recipient: PublicRecipient
     current_recipient_id: str
+    #: Only the fields assigned to *this* recipient, in full.
     fields: list[FieldResponse]
+    #: Redacted geometry for every other recipient's fields — layout context
+    #: only, no labels and no values. See ``FieldPlacementResponse``.
+    other_field_placements: list[FieldPlacementResponse] = Field(default_factory=list)
     read_only: bool
     expires_at: datetime
     pdf_url: str
@@ -77,3 +109,13 @@ class ReassignResponse(BaseModel):
 
 class OtpVerifyRequest(BaseModel):
     code: str = Field(min_length=4, max_length=10)
+
+
+class AttachmentUploadResponse(BaseModel):
+    """Result of a signer uploading a file into an ``attachment`` field."""
+
+    field_id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    sha256: str

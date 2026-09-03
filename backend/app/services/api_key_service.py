@@ -141,6 +141,9 @@ class ApiKeyService:
         from app.models.plan import ENTITLEMENT_MAX_API_CALLS_PER_MONTH
         from app.services.entitlement_service import entitlement_service
 
+        # Issuance-time gating is not enough: an org that downgrades below
+        # ``api_access`` keeps working keys unless every call re-checks.
+        entitlement_service.check_api_access(db, api_key.organization_id)
         entitlement_service.check_entitlement(
             db, api_key.organization_id, ENTITLEMENT_MAX_API_CALLS_PER_MONTH, 1
         )

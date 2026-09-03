@@ -84,17 +84,49 @@ class CheckoutRequest(BaseModel):
     plan_code: str = Field(max_length=50)
     success_url: str | None = None
     cancel_url: str | None = None
+    #: ``embedded`` renders the provider's own iframe inside our modal, so no
+    #: card data ever enters this application's DOM. ``hosted`` redirects.
+    ui_mode: Literal["hosted", "embedded"] = "hosted"
+    return_url: str | None = None
+
+
+class SetupSessionRequest(BaseModel):
+    """Save an instrument without buying anything."""
+
+    return_url: str | None = None
+    ui_mode: Literal["hosted", "embedded"] = "embedded"
 
 
 class CheckoutResponse(BaseModel):
     session_id: str
-    url: str
     provider: str
     plan_code: str
+    #: Hosted mode returns a ``url``; embedded mode returns a
+    #: ``client_secret`` and no url. Exactly one of the two is populated.
+    url: str | None = None
+    client_secret: str | None = None
+    mode: str = "subscription"
+    ui_mode: str = "hosted"
+    #: False for a provider test-mode session. The UI badges it, so a test
+    #: payment is never read as a real one.
+    livemode: bool = False
+
+
+class CheckoutStatusResponse(BaseModel):
+    session_id: str
+    #: ``open`` | ``complete`` | ``expired`` -- the *provider's* word, read
+    #: server-side. A browser arriving at the return url proves nothing.
+    status: str
+    mode: str = "subscription"
+    applied: bool = False
+    payment_method_id: str | None = None
 
 
 class ChangePlanRequest(BaseModel):
     plan_code: str = Field(max_length=50)
+    #: Which stored instrument to charge the proration to. Omitted means "the
+    #: organization's default"; an upgrade with neither is a 402.
+    payment_method_id: str | None = Field(default=None, max_length=64)
 
 
 class CancelRequest(BaseModel):
@@ -215,6 +247,9 @@ class BillingSettingsUpdate(BaseModel):
 
 class SeatChangeRequest(BaseModel):
     delta: int = Field(ge=-1000, le=1000)
+    #: Charged for the prorated cost of added seats. Defaults to the org's
+    #: default instrument; buying seats with neither is a 402.
+    payment_method_id: str | None = Field(default=None, max_length=64)
 
 
 class SeatChangeResponse(BaseModel):

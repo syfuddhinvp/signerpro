@@ -15,7 +15,7 @@ class PaymentMethod(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "payment_methods"
     __table_args__ = (Index("ix_payment_methods_organization_id", "organization_id"),)
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     # card | ach | sepa | invoice
     type: Mapped[str] = mapped_column(String(20), nullable=False, default="card", server_default="card")
     brand: Mapped[str | None] = mapped_column(String(30), nullable=True)

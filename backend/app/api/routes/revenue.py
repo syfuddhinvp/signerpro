@@ -11,11 +11,11 @@ replay action.
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_platform_admin
+from app.api.deps import request_ip, require_platform_admin
 from app.core.database import get_db
 from app.models.charge import Charge
 from app.models.invoice import Invoice, InvoiceStatus
@@ -432,6 +432,7 @@ def billing_events(
 @router.post("/billing-events/{event_id}/replay", response_model=BillingEventResponse)
 def replay_billing_event(
     event_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_platform_admin),
 ) -> BillingEventResponse:
@@ -439,9 +440,20 @@ def replay_billing_event(
     event = db.get(ProcessedWebhookEvent, event_id)
     if event is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing event not found")
-    return BillingEventResponse.model_validate(
-        billing_service.replay_webhook_event(db, event=event)
+    replayed = billing_service.replay_webhook_event(db, event=event)
+    # A replay re-applies a provider event and can move a tenant's subscription.
+    # It used to leave no record that an operator had triggered it.
+    platform_service.record_platform_audit(
+        db,
+        action="billing_event.replayed",
+        actor=admin,
+        organization_id=getattr(replayed, "organization_id", None),
+        detail=f"Replayed provider event {replayed.event_id or replayed.id} ({replayed.event_type})",
+        ip_address=request_ip(request),
+        metadata={"event_id": replayed.id, "provider_event_id": replayed.event_id, "event_type": replayed.event_type},
     )
+    db.commit()
+    return BillingEventResponse.model_validate(replayed)
 
 
 @router.get("/health", response_model=list[HealthComponent])

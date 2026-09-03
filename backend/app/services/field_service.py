@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.storage import storage
 from app.models.document import Document
+from app.models.enums import FieldType
 from app.models.field import Field
 from app.models.user import User
 from app.schemas.field import FieldBulkSaveRequest, FieldCreate, FieldUpdate
@@ -223,6 +224,64 @@ class FieldService:
             return value == str(condition.get("value") or "")
         return True
 
+    #: Field types whose ``options`` describe a closed set of acceptable values.
+    CHOICE_FIELD_TYPES = frozenset({FieldType.dropdown, FieldType.radio})
+
+    def allowed_options(self, field: Field) -> list[str]:
+        """The closed set of values a choice field accepts, as strings.
+
+        ``options`` is authored by the builder and has historically been stored
+        in three shapes, all of which are accepted here:
+
+        * ``["A", "B"]`` — a plain list of labels;
+        * ``[{"value": "a", "label": "A"}, ...]`` — objects (``value`` wins,
+          falling back to ``label``);
+        * ``{"choices": [...]}`` / ``{"options": [...]}`` — a wrapper object.
+
+        An unrecognised or empty shape yields ``[]``, which means "no option
+        set was authored" and disables enforcement rather than locking the
+        signer out of a field nobody constrained.
+        """
+        raw = field.options
+        if isinstance(raw, dict):
+            raw = raw.get("choices", raw.get("options"))
+        if not isinstance(raw, list):
+            return []
+        allowed: list[str] = []
+        for item in raw:
+            if isinstance(item, dict):
+                candidate = item.get("value", item.get("label"))
+            else:
+                candidate = item
+            if candidate is None:
+                continue
+            text = str(candidate).strip()
+            if text:
+                allowed.append(text)
+        return allowed
+
+    #: A field type that *is* a format carries that format whether or not the
+    #: sender picked a validation kind: an `email` field is an email field even
+    #: when it was created through the API, a template or an older builder that
+    #: left `validation` at "none". Without this a signer could type
+    #: "dfghgdfhfdh" into an Email field and have it flattened into the
+    #: executed contract verbatim.
+    #: Deliberately narrow: `currency` ("$1,200") and the date types have too
+    #: many legitimate shapes for the checks below to be the arbiter, so they
+    #: are only enforced when the sender asked for a kind explicitly.
+    TYPE_IMPLIED_VALIDATION: dict[FieldType, str] = {
+        FieldType.email: "email",
+        FieldType.number: "numeric",
+    }
+
+    def effective_validation(self, field: Field) -> str:
+        """The validation kind actually enforced for a field."""
+
+        kind = field.validation or "none"
+        if kind != "none":
+            return kind
+        return self.TYPE_IMPLIED_VALIDATION.get(field.type, "none")
+
     def validate_value(self, document: Document, field: Field, value: str | None) -> None:
         """Enforce authoring intent when a signer submits a value."""
         if field.read_only:
@@ -235,7 +294,17 @@ class FieldService:
         text = (value or "").strip()
         if not text:
             return
-        kind = field.validation or "none"
+        # FLD-4: a dropdown/radio is a closed set. It was previously enforced
+        # only by the builder UI, so any client could post an arbitrary string
+        # and have it flattened verbatim into the executed contract.
+        if field.type in self.CHOICE_FIELD_TYPES:
+            allowed = self.allowed_options(field)
+            if allowed and text not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Field '{field.label}' must be one of: {', '.join(allowed)}",
+                )
+        kind = self.effective_validation(field)
         if kind == "email":
             if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must be an email address")
@@ -248,7 +317,10 @@ class FieldService:
             from datetime import date
 
             ok = False
-            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+            # The last two are what a native `datetime-local` control emits, so
+            # a Date and Time field validated as a date is not rejected for
+            # carrying the time the sender asked for.
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"):
                 try:
                     from datetime import datetime as _dt
 

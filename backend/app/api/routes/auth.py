@@ -10,6 +10,7 @@ from app.core.ratelimit import (
     password_forgot_email_limiter,
     password_forgot_limiter,
     password_reset_limiter,
+    token_refresh_limiter,
 )
 from app.models.user import User
 from app.schemas.auth import (
@@ -23,6 +24,7 @@ from app.schemas.auth import (
     MfaDisableRequest,
     MfaEnrollRequest,
     MfaEnrollResponse,
+    MfaRecoveryCodesRequest,
     MfaRecoveryCodesResponse,
     MfaStatusResponse,
     MfaVerifyRequest,
@@ -56,7 +58,7 @@ def login(
     return auth_service.login(db, payload, request=request)
 
 
-@router.post("/refresh", response_model=TokenResponse, dependencies=[Depends(login_ip_limiter)])
+@router.post("/refresh", response_model=TokenResponse, dependencies=[Depends(token_refresh_limiter)])
 def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     return auth_service.refresh(
         db, refresh_token=payload.refresh_token, remember=payload.remember, request=request
@@ -140,7 +142,7 @@ def mfa_disable(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    auth_service.mfa_disable(db, user=current_user, code=payload.code)
+    auth_service.mfa_disable(db, user=current_user, code=payload.code, password=payload.password)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -150,11 +152,13 @@ def mfa_disable(
     dependencies=[Depends(mfa_verify_limiter)],
 )
 def mfa_recovery_codes(
-    payload: MfaCodeRequest,
+    payload: MfaRecoveryCodesRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MfaRecoveryCodesResponse:
-    return auth_service.mfa_regenerate_recovery_codes(db, user=current_user, code=payload.code)
+    return auth_service.mfa_regenerate_recovery_codes(
+        db, user=current_user, code=payload.code, password=payload.password
+    )
 
 
 # --- passwords ---------------------------------------------------------------

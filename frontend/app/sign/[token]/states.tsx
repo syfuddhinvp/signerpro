@@ -14,7 +14,7 @@ import type { TokenProblem } from './types';
 
 const chip = (bg: string, fg: string, bd: string): CSSProperties => ({
   display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 9px', borderRadius: '99px',
-  background: bg, color: fg, border: '1px solid ' + bd, fontSize: '11.5px', fontWeight: 600,
+  background: bg, color: fg, border: '1px solid ' + bd, fontSize: '.71875rem', fontWeight: 600,
 });
 
 const TONE: Record<string, CSSProperties> = {

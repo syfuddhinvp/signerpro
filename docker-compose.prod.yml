@@ -1,0 +1,362 @@
+# ---------------------------------------------------------------------------
+# PRODUCTION-SHAPED compose file.
+#
+# Differences from docker-compose.yml (the development file):
+#   * no bind mounts -- containers run the code that is baked into the image
+#   * every secret comes from the environment, with NO defaults (a missing
+#     JWT_SECRET must fail the deploy, not silently fall back to a published
+#     constant -- see AUDIT_REPORT.md C5)
+#   * healthchecks on every service, and dependency ordering that waits for them
+#   * the four scheduled jobs that are otherwise dead in production run here:
+#     document expiry, webhook retry, the billing cycle (renewals, invoicing,
+#     dunning) and system_logs retention (AUDIT_REPORT.md finding 25)
+#
+# Usage:
+#   cp .env.prod.example .env.prod && $EDITOR .env.prod
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# This is a single-host reference. On Kubernetes/ECS the equivalents are a
+# migration Job (or the same entrypoint, which is replica-safe) and CronJobs
+# for the four scheduler services.
+# ---------------------------------------------------------------------------
+name: signforge
+
+x-backend-image: &backend-image
+  image: ${BACKEND_IMAGE:-signforge-backend:latest}
+  build:
+    context: ./backend
+    target: runtime
+
+# Every backend container -- API, expiry, webhook retry -- shares this config.
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB}
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a random 32+ byte secret}
+  SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?set SECRET_ENCRYPTION_KEY}
+  JWT_EXPIRES_MINUTES: ${JWT_EXPIRES_MINUTES:-15}
+  APP_BASE_URL: ${APP_BASE_URL:?set APP_BASE_URL}
+  CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+  UPLOAD_DIR: /app/uploads
+  SIGNING_TOKEN_EXPIRE_DAYS: ${SIGNING_TOKEN_EXPIRE_DAYS:-14}
+  ENVIRONMENT: production
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  # Billing. The application refuses to boot in production on the shipped
+  # default BILLING_WEBHOOK_SECRET (billing_service.verify_billing_webhook_
+  # secret_configured): a webhook signed with a published constant lets anyone
+  # self-grant an enterprise plan. Required, therefore, with no default.
+  # Required, and it may NOT be "null": the null provider accepts every plan
+  # change and collects no money, so the startup guard refuses it in
+  # production. "stripe" is currently the only other registered provider.
+  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (must not be "null" in production; currently only "stripe" is registered)}
+  BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:?set BILLING_WEBHOOK_SECRET to a unique 32+ character secret}
+  # Required while stripe is the only production-valid provider. Nothing
+  # constructs the provider at startup, so a missing key would otherwise stay
+  # invisible until the first charge attempt -- i.e. until real money failed to
+  # move. Demote these to `${VAR:-}` when a second provider is registered.
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?set STRIPE_SECRET_KEY (BILLING_PROVIDER=stripe)}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?set STRIPE_WEBHOOK_SECRET, the whsec_... endpoint signing secret}
+
+  # Connection budget: replicas x WEB_CONCURRENCY x (pool + overflow) must stay
+  # under Postgres max_connections (100 by default). Defaults here are 3+2=5
+  # per worker; see app/core/config.py for the arithmetic.
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-3}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-2}
+  DB_POOL_RECYCLE_SECONDS: ${DB_POOL_RECYCLE_SECONDS:-1800}
+  DB_POOL_TIMEOUT_SECONDS: ${DB_POOL_TIMEOUT_SECONDS:-10}
+
+  # "memory" counts per process, so N replicas x M workers multiply every auth
+  # limit by N*M. Set to "redis" (and enable the redis profile below) for any
+  # deployment running more than a single worker.
+  RATE_LIMIT_BACKEND: ${RATE_LIMIT_BACKEND:-memory}
+  REDIS_URL: ${REDIS_URL:-}
+
+  # Retention window for system_logs, pruned by log-retention-scheduler.
+  SYSTEM_LOG_RETENTION_DAYS: ${SYSTEM_LOG_RETENTION_DAYS:-90}
+
+  STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Not published to the host: only the compose network reaches the database.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    <<: *backend-image
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      # The API containers migrate on start; the advisory lock in
+      # docker-entrypoint.sh makes this safe to run from every replica at once.
+      RUN_MIGRATIONS: "1"
+    volumes:
+      # Executed PDFs. NOTE: the default local storage backend is single-node --
+      # scaling `backend` past one replica requires STORAGE_BACKEND=s3
+      # (AUDIT_REPORT.md section 9, "Reliability at scale").
+      - signforge-uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # READINESS here, unlike the image's own HEALTHCHECK (which is liveness, and
+    # drives restarts). This healthcheck is what `depends_on: service_healthy`
+    # below gates on, and what those dependents actually need to know is
+    # "is the database migrated and reachable yet" -- the schedulers run with
+    # RUN_MIGRATIONS=0 and would otherwise start against an unmigrated schema.
+    # /api/health/ready checks database, storage and that alembic_version
+    # matches the head this build ships, returning 503 with a per-check
+    # breakdown.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health/ready >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 30s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-signforge-frontend:latest}
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* is inlined at build time, so it must be a build arg.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL}
+        # Origins allowed to frame /sign/* (the embed flow). MUST be a build
+        # arg: next.config.ts#headers() runs during `next build` and the
+        # resulting CSP is baked into .next/routes-manifest.json, so setting
+        # EMBED_FRAME_ANCESTORS under `environment:` below would be silently
+        # ignored -- the container would keep serving the value baked in at
+        # build time with no error anywhere. Empty means frame-ancestors
+        # 'none'. Changing it requires rebuilding the frontend image.
+        EMBED_FRAME_ANCESTORS: ${EMBED_FRAME_ANCESTORS:-}
+        # Publishable key only; inlined into the bundle, so also build-time.
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    restart: unless-stopped
+    environment:
+      # NOTE: EMBED_FRAME_ANCESTORS is deliberately NOT here. It is a build-time
+      # value only (see the build args above); listing it here would look like
+      # it worked and would not.
+      NODE_ENV: production
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/login >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 20s
+
+  # --- Reverse proxy ---------------------------------------------------------
+  # Deliberately omitted. Terminate TLS and route / -> frontend and /api ->
+  # backend at your ingress (nginx, Traefik, ALB). Neither app container should
+  # be exposed to the internet directly; note also that `secure` session cookies
+  # require the whole deployment to be served over HTTPS.
+
+  # --- Scheduled jobs --------------------------------------------------------
+  # AUDIT_REPORT.md finding 25: none of these was scheduled anywhere, so
+  # document expiry, webhook retries, billing renewals/invoicing/dunning and
+  # log retention were all silently dead in production.
+  #
+  # Every one of them is RUN_MIGRATIONS=0 -- only the API containers migrate,
+  # and these wait on `backend: service_healthy`, which is the *readiness*
+  # probe, so they never touch the database before it is at head.
+
+  expiry-scheduler:
+    <<: *backend-image
+    restart: unless-stopped
+    # The image's HEALTHCHECK curls the HTTP API, which this container does not
+    # run -- inherited unchanged it would sit permanently "unhealthy" and
+    # (under Swarm/Kubernetes-equivalent policies) be restarted forever. A
+    # sleep-loop job's health is "did the process exit", which `restart:
+    # unless-stopped` already covers.
+    healthcheck:
+      disable: true
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "0"
+      EXPIRY_INTERVAL_SECONDS: ${EXPIRY_INTERVAL_SECONDS:-600}
+    volumes:
+      - signforge-uploads:/app/uploads
+    depends_on:
+      backend:
+        condition: service_healthy
+    # run_expiry.py is idempotent and safe to run repeatedly, so a sleep loop is
+    # sufficient here. Replace with a real cron/CronJob when you have one.
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          python /app/scripts/run_expiry.py || echo "expiry sweep failed" >&2
+          sleep "${EXPIRY_INTERVAL_SECONDS:-600}"
+        done
+    stop_grace_period: 15s
+
+  webhook-retry-scheduler:
+    <<: *backend-image
+    restart: unless-stopped
+    # The image's HEALTHCHECK curls the HTTP API, which this container does not
+    # run -- inherited unchanged it would sit permanently "unhealthy" and
+    # (under Swarm/Kubernetes-equivalent policies) be restarted forever. A
+    # sleep-loop job's health is "did the process exit", which `restart:
+    # unless-stopped` already covers.
+    healthcheck:
+      disable: true
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "0"
+      WEBHOOK_RETRY_INTERVAL_SECONDS: ${WEBHOOK_RETRY_INTERVAL_SECONDS:-60}
+    volumes:
+      - signforge-uploads:/app/uploads
+    depends_on:
+      backend:
+        condition: service_healthy
+    # webhook_service.process_due_retries() exists but nothing called it. There
+    # is no scripts/run_webhook_retries.py yet -- when the backend adds one,
+    # replace this inline driver with `python /app/scripts/run_webhook_retries.py`.
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          python - <<'PY' || echo "webhook retry sweep failed" >&2
+        import sys
+        sys.path.insert(0, "/app")
+        from app.core.database import SessionLocal
+        from app.core.logging import configure_logging, get_logger
+        from app.services.webhook_service import webhook_service
+
+        configure_logging()
+        db = SessionLocal()
+        try:
+            processed = webhook_service.process_due_retries(db)
+            get_logger("scripts.webhook_retry").info(
+                "webhook retry sweep complete", extra={"processed": processed}
+            )
+        finally:
+            db.close()
+        PY
+          sleep "${WEBHOOK_RETRY_INTERVAL_SECONDS:-60}"
+        done
+    stop_grace_period: 15s
+
+  billing-cycle-scheduler:
+    <<: *backend-image
+    restart: unless-stopped
+    # The image's HEALTHCHECK curls the HTTP API, which this container does not
+    # run -- inherited unchanged it would sit permanently "unhealthy" and
+    # (under Swarm/Kubernetes-equivalent policies) be restarted forever. A
+    # sleep-loop job's health is "did the process exit", which `restart:
+    # unless-stopped` already covers.
+    healthcheck:
+      disable: true
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "0"
+      BILLING_CYCLE_INTERVAL_SECONDS: ${BILLING_CYCLE_INTERVAL_SECONDS:-3600}
+    volumes:
+      - signforge-uploads:/app/uploads
+    depends_on:
+      backend:
+        condition: service_healthy
+    # run_billing_cycle.py drives renewals (close the period, issue the invoice,
+    # attempt collection) and then dunning (retry every failed charge whose
+    # next_attempt_at has come due). Without it no invoice is ever issued and no
+    # failed payment is ever retried -- AUDIT_REPORT.md C7. Both passes are
+    # idempotent and safe to re-run, so a sleep loop is sufficient; hourly is the
+    # cadence the script's own docstring recommends.
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          python /app/scripts/run_billing_cycle.py || echo "billing cycle failed" >&2
+          sleep "${BILLING_CYCLE_INTERVAL_SECONDS:-3600}"
+        done
+    stop_grace_period: 30s
+
+  log-retention-scheduler:
+    <<: *backend-image
+    restart: unless-stopped
+    # The image's HEALTHCHECK curls the HTTP API, which this container does not
+    # run -- inherited unchanged it would sit permanently "unhealthy" and
+    # (under Swarm/Kubernetes-equivalent policies) be restarted forever. A
+    # sleep-loop job's health is "did the process exit", which `restart:
+    # unless-stopped` already covers.
+    healthcheck:
+      disable: true
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "0"
+      LOG_RETENTION_INTERVAL_SECONDS: ${LOG_RETENTION_INTERVAL_SECONDS:-86400}
+      LOG_RETENTION_BATCH_SIZE: ${LOG_RETENTION_BATCH_SIZE:-5000}
+      LOG_RETENTION_MAX_BATCHES: ${LOG_RETENTION_MAX_BATCHES:-200}
+    volumes:
+      - signforge-uploads:/app/uploads
+    depends_on:
+      backend:
+        condition: service_healthy
+    # system_logs is append-only and was never pruned: a disk problem (a row per
+    # mutating request, forever) and a GDPR one (actor emails and IPs kept
+    # indefinitely is not a lawful retention period). run_log_retention.py
+    # deletes in bounded, separately committed batches, so it can be interrupted
+    # at any point without losing progress and never takes a long-held lock.
+    # Daily is ample; the window itself is SYSTEM_LOG_RETENTION_DAYS.
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          python /app/scripts/run_log_retention.py || echo "log retention sweep failed" >&2
+          sleep "${LOG_RETENTION_INTERVAL_SECONDS:-86400}"
+        done
+    stop_grace_period: 30s
+
+  # --- Shared rate-limit store (optional) ------------------------------------
+  # Only started with `--profile redis`. RATE_LIMIT_BACKEND=memory counts in
+  # process, so N replicas x M workers multiply every login / OTP / password
+  # reset limit by N*M -- an authentication-strength regression the moment you
+  # run more than one worker. Enable with:
+  #
+  #   RATE_LIMIT_BACKEND=redis REDIS_URL=redis://redis:6379/0 \
+  #     docker compose -f docker-compose.prod.yml --profile redis \
+  #     --env-file .env.prod up -d
+  #
+  # No persistence is configured on purpose: these are short-TTL counters, and
+  # losing them on restart costs one window of throttling, not data.
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Backups ---------------------------------------------------------------
+  # AUDIT_REPORT.md finding 30: there is no backup or restore story. The
+  # postgres-data and signforge-uploads volumes below hold, respectively, the
+  # audit trail and the executed documents it refers to. Losing either destroys
+  # the evidentiary record. Attach managed backups / PITR and replicate uploads
+  # to object storage before this deployment is considered complete.
+
+volumes:
+  postgres-data:
+  signforge-uploads:

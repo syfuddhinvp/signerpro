@@ -1,0 +1,232 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A new push to the same branch cancels the previous run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  # ---------------------------------------------------------------- backend
+  backend:
+    name: Backend (pytest, migrations, audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: signforge_ci
+          POSTGRES_USER: signforge
+          POSTGRES_PASSWORD: signforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U signforge -d signforge_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # requirements-dev.txt includes requirements.txt plus the test
+          # toolchain, which is deliberately absent from the runtime image.
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest -q
+
+      # Proves migrations actually apply to an empty database -- the failure
+      # mode AUDIT_REPORT.md C10 describes (nothing ever ran `alembic upgrade`).
+      - name: Apply migrations to an empty database
+        env:
+          DATABASE_URL: postgresql+psycopg://signforge:signforge@localhost:5432/signforge_ci
+          JWT_SECRET: ci-only-not-a-real-secret
+          SECRET_ENCRYPTION_KEY: ci-only-not-a-real-secret
+          ENVIRONMENT: development
+        run: alembic upgrade head
+
+      # A second run must be a no-op: catches non-idempotent revisions.
+      - name: Re-apply migrations (must be a no-op)
+        env:
+          DATABASE_URL: postgresql+psycopg://signforge:signforge@localhost:5432/signforge_ci
+          JWT_SECRET: ci-only-not-a-real-secret
+          SECRET_ENCRYPTION_KEY: ci-only-not-a-real-secret
+          ENVIRONMENT: development
+        run: alembic upgrade head
+
+      # The guard that makes the C10 fix mean something. 0001_initial is now
+      # literal DDL rather than Base.metadata.create_all -- while it was
+      # create_all, a fresh database was *defined* as "whatever the models
+      # say", so no amount of drift between the models and the migrations
+      # could ever be detected. Run against the database the two steps above
+      # just migrated: it diffs the live schema against Base.metadata and
+      # fails with the diff printed if a model change shipped without a
+      # migration.
+      - name: Schema drift (models vs migrations)
+        env:
+          DATABASE_URL: postgresql+psycopg://signforge:signforge@localhost:5432/signforge_ci
+          JWT_SECRET: ci-only-not-a-real-secret
+          SECRET_ENCRYPTION_KEY: ci-only-not-a-real-secret
+          ENVIRONMENT: development
+        run: python -m scripts.check_schema_drift
+
+      - name: Dependency audit (pip-audit)
+        # Audits the RUNTIME requirements only -- test-only packages are not
+        # part of the deployed attack surface.
+        run: pip-audit --requirement requirements.txt --strict
+
+  # ---------------------------------------------------------------- frontend
+  frontend:
+    name: Frontend (typecheck, lint, test, build, audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from package.json's `packageManager` field, so CI, the
+      # Docker image and local development cannot drift apart.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # Guards AUDIT_REPORT.md finding 41: pnpm is the single source of truth.
+      # A reintroduced npm/yarn lockfile means the image and local development
+      # resolve different dependency graphs.
+      - name: Reject competing lockfiles
+        run: |
+          for f in package-lock.json yarn.lock bun.lockb; do
+            if [ -e "$f" ]; then
+              echo "::error file=frontend/$f::$f is present. pnpm is the only supported package manager for this project; delete it."
+              exit 1
+            fi
+          done
+
+      # pnpm 11 reads `overrides` from pnpm-workspace.yaml and ignores
+      # package.json's `pnpm` field entirely -- with a warning, not an error.
+      # Those overrides are the only thing patching Next's vendored postcss,
+      # so losing the file would quietly reintroduce 4 advisories.
+      - name: Require pnpm-workspace.yaml (carries security overrides)
+        run: |
+          test -f pnpm-workspace.yaml || {
+            echo "::error file=frontend/pnpm-workspace.yaml::missing; it carries the postcss/form-data/@babel/core security overrides."
+            exit 1
+          }
+
+      # `--frozen-lockfile` (pnpm's `npm ci`) fails if package.json and the
+      # lockfile disagree.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: |
+          if ls .eslintrc* eslint.config.* >/dev/null 2>&1; then
+            pnpm lint
+          else
+            echo "::warning::No ESLint configuration found in frontend/. Lint was skipped. Add eslint.config.mjs with eslint-config-next to enable it."
+          fi
+
+      # Real tests exist now, so an empty suite is a failure, not a warning:
+      # no --passWithNoTests. `--coverage` enforces the floors in
+      # vitest.config.ts on lib/api/ and lib/sf/adapters.ts -- the two pure
+      # modules every screen's correctness rests on.
+      - name: Unit tests (with coverage floor)
+        run: npx vitest run --coverage
+
+      - name: Production build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: pnpm build
+
+      # Runtime dependencies only. This must stay at zero: next < 15.5.24 has a
+      # critical React-flight RCE and a middleware authorization bypass, and
+      # middleware.ts is this app's route guard (AUDIT_REPORT.md C9 / 38).
+      - name: Dependency audit (production dependencies)
+        run: pnpm audit --prod --audit-level high
+
+  # ---------------------------------------------------------------- images
+  images:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Both compose files must at least parse. The production one uses
+      # `${VAR:?}` throughout, so it is validated against the checked-in
+      # example environment -- which therefore has to stay complete: a new
+      # required variable that nobody added to .env.prod.example fails here
+      # rather than at deploy time.
+      - name: Validate compose files
+        run: |
+          docker compose -f docker-compose.yml config -q
+          sed -E 's/^(POSTGRES_PASSWORD|JWT_SECRET|SECRET_ENCRYPTION_KEY|BILLING_WEBHOOK_SECRET|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET)=.*/\1=ci-placeholder-value-at-least-32-chars/' \
+            .env.prod.example > /tmp/.env.prod.ci
+          docker compose -f docker-compose.prod.yml --env-file /tmp/.env.prod.ci config -q
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          target: runtime
+          push: false
+          load: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          load: false
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:8000
+            EMBED_FRAME_ANCESTORS=
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend

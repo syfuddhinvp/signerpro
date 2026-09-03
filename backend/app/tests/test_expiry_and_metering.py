@@ -14,7 +14,7 @@ from app.models.plan import ENTITLEMENT_MAX_API_CALLS_PER_MONTH, ENTITLEMENT_MAX
 from app.models.signing_token import SigningToken
 from app.models.subscription import Subscription
 from app.models.usage_event import UsageEvent, UsageEventType
-from app.tests.conftest import auth_headers
+from app.tests.conftest import auth_headers, upgrade_plan
 from app.tests.test_document_flow import add_field, add_recipient, create_uploaded_document
 
 
@@ -109,8 +109,10 @@ def test_every_plan_declares_the_metered_ceilings(client: TestClient) -> None:
 
 
 def test_api_key_requests_are_metered_and_capped(client: TestClient) -> None:
+    # API keys are a Business entitlement and that is now enforced, so this
+    # test buys the plan rather than issuing a key from an unentitled org.
     headers = auth_headers(client)
-    client.get("/api/billing/plans")
+    upgrade_plan(client, headers, "business")
     created = client.post(
         "/api/api-keys", headers=headers, json={"label": "CI", "scopes": ["documents:read"], "mode": "test"}
     )
@@ -127,7 +129,7 @@ def test_api_key_requests_are_metered_and_capped(client: TestClient) -> None:
 
     usage = client.get("/api/billing/usage", headers=headers).json()
     api_row = next(row for row in usage["rows"] if row["key"] == ENTITLEMENT_MAX_API_CALLS_PER_MONTH)
-    assert api_row["used"] == 1 and api_row["limit"] == 5_000
+    assert api_row["used"] == 1 and api_row["limit"] == 100_000
 
     # At the ceiling the key is refused with the machine-readable 402 body.
     subscription = db.scalars(select(Subscription)).first()

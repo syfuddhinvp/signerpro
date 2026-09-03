@@ -13,7 +13,7 @@ class WebhookEndpoint(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "webhook_endpoints"
     __table_args__ = (Index("ix_webhook_endpoints_organization_id", "organization_id"),)
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     secret: Mapped[str] = mapped_column(String(128), nullable=False)
     event_types: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -21,7 +21,7 @@ class WebhookEndpoint(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     deliveries: Mapped[list["WebhookDelivery"]] = relationship(
-        back_populates="endpoint", cascade="all, delete-orphan"
+        back_populates="endpoint", cascade="all, delete-orphan", passive_deletes=True
     )
 
     def subscribes_to(self, event_type: str) -> bool:
@@ -40,7 +40,7 @@ class WebhookDelivery(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_webhook_deliveries_next_retry_at", "next_retry_at"),
     )
 
-    endpoint_id: Mapped[str] = mapped_column(ForeignKey("webhook_endpoints.id"), nullable=False)
+    endpoint_id: Mapped[str] = mapped_column(ForeignKey("webhook_endpoints.id", ondelete="CASCADE"), nullable=False)
     event_id: Mapped[str] = mapped_column(String(36), nullable=False)
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     document_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

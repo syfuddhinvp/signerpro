@@ -16,11 +16,11 @@ class Invitation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_invitations_email", "email"),
     )
 
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, default=UserRole.sender)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    invited_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    invited_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
