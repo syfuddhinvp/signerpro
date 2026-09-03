@@ -118,8 +118,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # Version comes from package.json's `packageManager` field, so CI, the
-      # Docker image and local development cannot drift apart.
+      # Docker image and local development cannot drift apart. `package_json_file`
+      # is resolved from the repository root -- `defaults.run.working-directory`
+      # applies to `run` steps only, never to an action's own inputs -- so it has
+      # to be spelled out, or the action reads the (nonexistent) root package.json
+      # and fails with "No pnpm version is specified".
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
 
       - uses: actions/setup-node@v4
         with:
