@@ -107,11 +107,13 @@ resolved are marked **stale** — the docs are behind the code.
 | # | Item | Evidence | Size |
 |---|---|---|---|
 | **W3** | Stand the prod stack up end to end and record the run | `docker-compose.prod.yml` untracked, never exercised as a whole in this environment | 3–5 h |
-| **W4** | Schedule the four jobs (cron/`schedule` container/K8s CronJob) | `scripts/run_billing_cycle.py`, `run_log_retention.py` exist but nothing invokes them | 3 h |
+| ~~W4~~ | ~~Schedule the four jobs~~ | **Already done** — all four are services in `docker-compose.prod.yml` (`expiry-`, `webhook-retry-`, `billing-cycle-`, `log-retention-scheduler`), each `RUN_MIGRATIONS=0` and gated on `backend: service_healthy`. Verifying they are *alive* after a deploy is now a step in `DEPLOYMENT.md` §3 | ✅ |
+| **W4b** | Run `provision_stripe_plans.py` once against the real Stripe account | Products and prices must exist before a plan change can be charged | escalate (money) |
 | **W5** | Coordinate data migration decision for pre-C1 field rows | Stored `y` is now read under a new origin; a deployment with real data needs an explicit call | 2 h (see `DECISIONS.md` D4) |
 | **W6** | `set_default_payment_method` is a no-op on the Stripe adapter | `billing_service.py:954` — ABC signature doesn't carry the customer id | 2–3 h |
 | **W7** | Access-token refresh race | 15-min tokens, 30s skew, backend rotation revokes on first use; concurrent refreshes race | 2 h — add a short backend tolerance window |
-| **W8** | Deployment preconditions are tribal knowledge | `SESSION_JWT_SECRET` must equal backend `JWT_SECRET`; `BILLING_PROVIDER=null` is rejected; `EMBED_FRAME_ANCESTORS` is a **build arg**, not runtime env | 1 h — fold into a `DEPLOYMENT.md` and a preflight script |
+| ~~W8~~ | ~~Deployment preconditions were tribal knowledge~~ | **Done** — `DEPLOYMENT.md` plus `scripts/preflight.sh`, which fails on placeholder secrets, non-https `APP_BASE_URL`, wildcard CORS, `BILLING_PROVIDER=null`, a malformed Stripe key, and a compose file that will not resolve | ✅ |
+| **W8b** | **`SESSION_JWT_SECRET` was never passed to the frontend container** | Found while writing W8: `docker-compose.prod.yml` set no session secret and `.env.prod.example` defined none, so `verify.ts` returned `unverified` and refused every privilege decision — the stack comes up **healthy** with `/platform` unreachable for every admin. Now derived from `JWT_SECRET` in compose, so the two cannot diverge | ✅ |
 
 ### P2 — Product completeness
 

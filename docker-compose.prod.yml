@@ -149,6 +149,13 @@ services:
       # value only (see the build args above); listing it here would look like
       # it worked and would not.
       NODE_ENV: production
+      # The Next server verifies the session cookie's HS256 signature with the
+      # SAME secret the backend signs with (lib/auth/verify.ts). Without it,
+      # verification returns `unverified` and every privilege decision is
+      # refused -- the stack comes up healthy and no platform admin can reach
+      # /platform. Derived from JWT_SECRET rather than exposed as a second
+      # variable precisely because the two must never diverge.
+      SESSION_JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
     depends_on:
       backend:
         condition: service_healthy
