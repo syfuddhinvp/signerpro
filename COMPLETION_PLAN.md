@@ -25,14 +25,49 @@ All 11 ship-blocking findings in the audit's critical register (C1–C11) are cl
 tests. The tree is in materially better shape than `REMEDIATION.md`'s own "known remaining work"
 section describes — see §3.
 
-### The one urgent risk
+### ~~The one urgent risk~~ — closed 4 September 2026
 
-**None of this work is committed.** `git status` shows **191 modified files and 91 untracked
-files** against `8d3316e`. Roughly 14,600 insertions of verified, green, security-critical work
-exists only as uncommitted working-tree state on one machine. A stray `git checkout .`, a
-`git clean -fd`, or a disk failure destroys the entire remediation.
+The remediation was uncommitted: 191 modified + 91 untracked files against `8d3316e`, existing only
+as working-tree state on one machine. It is now committed as `bbeef27`, 295 files,
++27,035/−10,188, with `frontend/tsconfig.tsbuildinfo` untracked (it was ignored but still in the
+index). The working tree is clean.
 
-This is Phase 0 and it is the first thing that happens.
+**Still outstanding:** the branch is not pushed. The commit protects against `git checkout .`; only a
+push protects against losing the machine.
+
+### 1b. CI dry run — every job executed locally, 4 September 2026
+
+CI had never run once; it was validated only by YAML parse. Each job step in
+`.github/workflows/ci.yml` has now been executed on this machine against CI-equivalent inputs.
+
+| CI step | Result |
+|---|---|
+| `pytest -q` | 414 passed |
+| `alembic upgrade head` → **empty postgres:16-alpine** | 15 revisions applied, exit 0 |
+| Re-apply migrations (must be a no-op) | exit 0, no revisions run |
+| `scripts.check_schema_drift` | **`schema drift: none`** |
+| `pip-audit --requirement requirements.txt --strict` | no known vulnerabilities |
+| `packageManager` field (pnpm/action-setup@v4 needs it) | present, `pnpm@11.21.0` |
+| Reject competing lockfiles | none present |
+| `pnpm-workspace.yaml` present (carries security overrides) | present |
+| `pnpm install --frozen-lockfile` | exit 0 — lockfile and package.json agree |
+| `npx tsc --noEmit` | clean |
+| Lint | no ESLint config → step warns and skips (see W19) |
+| `npx vitest run --coverage` | 640 passed, coverage floors met |
+| `pnpm build` | exit 0 |
+| `pnpm audit --prod --audit-level high` | 0 |
+| `docker compose -f docker-compose.yml config -q` | OK |
+| `docker compose -f docker-compose.prod.yml config -q` against `.env.prod.example` | OK — the example env is complete |
+| Build backend image (`--target runtime`) | exit 0, **429 MB** |
+| Build frontend image | exit 0, **325 MB** |
+
+Two things this bought beyond confidence: the C10 fix is now proven against **real PostgreSQL**
+rather than the test suite's SQLite — 15 revisions apply to an empty database, re-apply as a no-op,
+and diff clean against `Base.metadata` — and `.env.prod.example` is confirmed complete, which is the
+check that otherwise fails at deploy time rather than in CI.
+
+**W19 (new, P3):** there is no ESLint configuration, so CI's lint step warns and skips by design.
+Add `eslint.config.mjs` with `eslint-config-next` to turn it on.
 
 ---
 
@@ -63,8 +98,9 @@ resolved are marked **stale** — the docs are behind the code.
 
 | # | Item | Why | Size |
 |---|---|---|---|
-| **W1** | Commit and push the remediation | 14.6k lines of verified work exist in exactly one place | 30 min |
-| **W2** | Open the PR and make CI actually run | CI is validated only by YAML parse + local execution; it has never executed once | 1–3 h incl. fixing what a real runner exposes |
+| ~~W1~~ | ~~Commit the remediation~~ | **Done** — `bbeef27`, tree clean | ✅ |
+| **W1b** | Push to `origin` and `signerpro` | Committed but unpushed; one machine still holds it | 5 min |
+| **W2** | Make CI actually run | Every job now dry-run locally (§1b); the remaining unknown is runner-specific, not repo-specific | 1 h |
 
 ### P1 — Blocks a real deployment
 
@@ -110,7 +146,7 @@ long-superseded `PROJECT_PROGRESS.md` (still describes a 7-test prototype) into 
 ## 4. Sequence
 
 ```
-Phase 0  W1 → W2                  commit, push, green CI          ½ day
+Phase 0  W1 ✅ → W1b → W2           commit, push, green CI          ½ day
 Phase 1  W3, W4, W8 ∥ W5, W6, W7  deployable and billable          3 days
 Phase 2  W9 → W18, W12            honest UI, verifiable audit      1 week
 Phase 3  W11 ∥ W10                compliance and field completeness 1–2 weeks
