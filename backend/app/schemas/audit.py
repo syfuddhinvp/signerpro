@@ -63,3 +63,24 @@ class CertificateSummaryResponse(BaseModel):
     audit_entry_count: int
     chain_valid: bool
     chain_invalid_reason: str | None = None
+
+
+class PublicVerificationResponse(BaseModel):
+    """Answer to an unauthenticated verification check.
+
+    Every identifying field is optional because the negative answer carries
+    none of them -- a failed check must not disclose that a document exists.
+    """
+
+    verified: bool
+    detail: str | None = None
+    document_id: str | None = None
+    sealed_at: datetime | None = None
+    signers_total: int | None = None
+    signers_completed: int | None = None
+    hash_algorithm: str | None = None
+    final_sha256: str | None = None
+    #: Recomputed from the bytes on disk, never trusted from the database.
+    final_pdf_intact: bool | None = None
+    audit_entry_count: int | None = None
+    chain_valid: bool | None = None

@@ -175,7 +175,19 @@ export default function Audit({
               {qrCells.map((c, i) => <span key={i} style={c.style}></span>)}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-              <span style={{ fontSize: '.71875rem', color: '#475569', lineHeight: 1.5 }}>Scan to verify at the public endpoint. Verification compares the live document hash against the sealed value below.</span>
+              <span style={{ fontSize: '.71875rem', color: '#475569', lineHeight: 1.5 }}>
+                {verifyUrl
+                  ? 'Anyone holding this link can verify the document without an account. Verification re-hashes the stored file and re-checks the audit chain.'
+                  : 'A public verification link is issued when the envelope is sealed.'}
+              </span>
+              {verifyUrl && (
+                <a
+                  href={verifyUrl}
+                  style={{ fontSize: '.6875rem', color: A, fontWeight: 600, textDecoration: 'none', wordBreak: 'break-all' }}
+                >
+                  Open public verification →
+                </a>
+              )}
               <span style={{ fontSize: '.65625rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#0f172a', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '8px', padding: '7px 8px', wordBreak: 'break-all' }}>{documentHash}</span>
             </div>
           </div>

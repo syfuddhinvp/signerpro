@@ -15,7 +15,7 @@ import { refreshSession } from '@/lib/auth/refresh';
  * httpOnly cookie and write a new one, so it is where the short-lived access
  * token is exchanged for a fresh one (see `lib/auth/refresh.ts`).
  */
-const PUBLIC_PREFIXES = ['/login', '/register', '/api/auth', '/sign', '/reset-password', '/invite'];
+const PUBLIC_PREFIXES = ['/login', '/register', '/api/auth', '/sign', '/reset-password', '/invite', '/verify'];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

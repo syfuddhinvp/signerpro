@@ -156,7 +156,7 @@ resolved are marked **stale** — the docs are behind the code.
 | **W9** | Silent degradation in server pages | 26 files still use `.ok ? data : FALLBACK`; `ApiUnavailable` is the drop-in but each needs a judgement about whether that call is load-bearing | 4–6 h |
 | **W10** | `formula` fields | Retired honestly in the palette (`data.ts:53` "Formula (retired)"), nothing evaluates them | Build (2–3 d) or keep retired — `DECISIONS.md` D2 |
 | **W11** | GDPR erasure | Designed on the existing keyring (crypto-shredding), not built. Retention tiers are plan copy, not enforcement | 3–4 d |
-| **W12** | Public verification endpoint | Absent; the audit QR block stays removed until it exists | 1–2 d |
+| ~~W12~~ | ~~Public verification endpoint~~ | **Done** — `GET /api/verify/{id}?sha256=…` plus a public `/verify/[id]` page, unauthenticated end to end. **The hash is the credential**: an id alone verifies nothing, and a wrong hash is answered identically to an unknown id so it cannot be used as an oracle for which documents exist. The response is deliberately thin — seal state, signer counts, chain validity; no title, no signer names, no field values. The file is re-hashed from disk rather than read back out of the database. The certificate's QR block now points at this instead of the internal audit path, and carries a real link. 6 tests | ✅ |
 | **W13** | SSO/SAML, WebAuthn passkeys | Not built. Fake buttons already removed — the honest state | Enterprise-gated, defer (D3) |
 | **W14** | PAdES/PKCS#7 sealing | Not built. Constrains what may be claimed (see DoD #5) | Defer (D3) |
 

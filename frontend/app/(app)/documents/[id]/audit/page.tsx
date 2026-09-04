@@ -31,8 +31,8 @@ export const metadata: Metadata = { title: 'Audit trail · SignForge' };
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id: documentId } = await params;
-  const verifyUrl = documentPathFor('audit', documentId);
-  const api = serverCaller(verifyUrl);
+  const auditPath = documentPathFor('audit', documentId);
+  const api = serverCaller(auditPath);
 
   const documentResult = await documentsApi.get(api, documentId);
   if (!documentResult.ok) notFound();
@@ -52,6 +52,13 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   const emailById: Dict<string> = {};
   for (const recipient of recipientList) emailById[recipient.id] = recipient.email;
+
+  // The public verification URL, not the internal audit path this page used
+  // to encode. The hash is the credential, so the link is only meaningful once
+  // the envelope is sealed and a final hash exists.
+  const verifyUrl = summary?.final_sha256
+    ? `/verify/${documentId}?sha256=${summary.final_sha256}`
+    : '';
 
   const statusKey = docStatusBucket(summary?.document_status ?? document.status);
   const statusLabel = STATUS[statusKey]?.label ?? 'Draft';

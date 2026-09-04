@@ -302,6 +302,17 @@ signing_session_limiter = RateLimiter(
     detail="Too many signing link requests. Please try again later.",
 )
 
+#: Public verification is unauthenticated and takes a document id plus the
+#: hash printed on the executed PDF. The hash is what makes it unguessable, so
+#: the limit exists to stop that pairing being brute-forced, not to ration
+#: legitimate use -- a recipient checks a contract once.
+public_verification_limiter = RateLimiter(
+    name="public_verification",
+    limit=30,
+    window_seconds=300,
+    detail="Too many verification attempts. Please try again later.",
+)
+
 password_forgot_limiter = RateLimiter(
     name="password_forgot",
     limit=PASSWORD_FORGOT_LIMIT,
