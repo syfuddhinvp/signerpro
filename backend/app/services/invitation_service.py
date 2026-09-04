@@ -99,7 +99,7 @@ class InvitationService:
         db.delete(invitation)
         db.commit()
 
-    def accept(self, db: Session, payload: InvitationAcceptRequest) -> TokenResponse:
+    def accept(self, db: Session, payload: InvitationAcceptRequest, *, request=None) -> TokenResponse:
         invitation = db.scalar(
             select(Invitation).where(Invitation.token_hash == hash_signing_token(payload.token))
         )
@@ -127,9 +127,25 @@ class InvitationService:
         db.add(user)
         invitation.accepted_at = now_utc()
         db.add(invitation)
+        from app.services.platform_service import record_platform_audit
+
+        record_platform_audit(
+            db,
+            action="invitation.accepted",
+            organization_id=invitation.organization_id,
+            detail=f"Invitation redeemed by {invitation.email} as {invitation.role}",
+        )
         db.commit()
         db.refresh(user)
-        return TokenResponse(access_token=create_access_token(user.id), user=user)
+        # Issue a real session rather than a bare access token. A token minted
+        # without a `sid` has no UserSession row behind it, so it carries no
+        # refresh token and -- more to the point -- cannot be revoked: "sign
+        # out all devices" and an admin force-logout both silently skip it for
+        # the life of the token. Someone who joined by invitation was exactly
+        # as revocable as a ghost.
+        from app.services.auth_service import auth_service
+
+        return auth_service.issue_session_for(db, user, request=request)
 
 
 invitation_service = InvitationService()

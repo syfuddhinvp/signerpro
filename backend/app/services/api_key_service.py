@@ -33,6 +33,15 @@ def _as_aware_utc(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
+def _audit(db, action: str, *, actor=None, organization_id=None, detail=None) -> None:
+    """Semantic audit entry. Imported locally to avoid an import cycle."""
+    from app.services.platform_service import record_platform_audit
+
+    record_platform_audit(
+        db, action=action, actor=actor, organization_id=organization_id, detail=detail
+    )
+
+
 class ApiKeyService:
     def scope_catalogue(self) -> list[dict[str, str]]:
         return [{"scope": scope, "label": scope, "description": description} for scope, description in API_KEY_SCOPES]
@@ -84,18 +93,32 @@ class ApiKeyService:
             created_by_user_id=user.id,
         )
         db.add(api_key)
+        # An API key is a long-lived credential to the whole tenant. Minting or
+        # killing one is exactly the kind of act an incident review needs named,
+        # rather than reconstructed from `POST /api/api-keys -> 201`.
+        _audit(db, "api_key.created", actor=user, organization_id=user.organization_id,
+               detail=f"API key '{label}' created ({mode}, {len(scopes)} scope(s))")
         db.commit()
         db.refresh(api_key)
         return api_key, raw
 
     def roll(self, db: Session, *, api_key: ApiKey) -> tuple[ApiKey, str]:
         """Replace the secret in place. The old secret stops working immediately."""
+        # Rolling a *revoked* key must not bring it back to life. Clearing
+        # revoked_at here meant "roll" was an undocumented second path to
+        # `restore`, so a key deliberately killed after a leak could be
+        # reactivated by anyone who could roll it. Restoring is its own
+        # deliberate action (`restore`), and stays that way.
+        if api_key.revoked_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This key is revoked. Restore it first if you want to keep using it.",
+            )
         raw, prefix, last_four = self._mint_secret(api_key.mode)
         api_key.prefix = prefix
         api_key.last_four = last_four
         api_key.key_hash = hash_api_key(raw)
         api_key.last_used_at = None
-        api_key.revoked_at = None
         db.commit()
         db.refresh(api_key)
         return api_key, raw
@@ -103,6 +126,8 @@ class ApiKeyService:
     def revoke(self, db: Session, *, api_key: ApiKey) -> ApiKey:
         if api_key.revoked_at is None:
             api_key.revoked_at = datetime.now(timezone.utc)
+            _audit(db, "api_key.revoked", organization_id=api_key.organization_id,
+                   detail=f"API key '{api_key.label}' revoked")
             db.commit()
             db.refresh(api_key)
         return api_key

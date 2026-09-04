@@ -77,7 +77,18 @@ defaults; the backend hard-fails at startup in production if they are. Generate 
 unrecoverable** — there is no fallback path. Back it up separately from the database, or a database
 restore will not be a restore.
 
-### 2.5 CORS
+### 2.5 Trusted proxies — `TRUSTED_PROXY_IPS`
+
+`X-Forwarded-For` is honoured **only** when the immediate peer is listed in
+`TRUSTED_PROXY_IPS` (comma-separated IPs or CIDRs). Unset, the header is ignored entirely, because
+any client can send it and every per-IP rate limit — login, forgot-password, OTP, signing links —
+would otherwise be bypassable by rotating one header.
+
+**Behind an ingress this must be set to the ingress's address range.** If it is not, every request
+appears to come from the proxy, so all clients share a single rate-limit bucket and the audit trail
+records the proxy's address instead of the signer's.
+
+### 2.6 CORS
 
 `CORS_ORIGINS` may not contain `*`. The API is credentialed and rejects a wildcard.
 

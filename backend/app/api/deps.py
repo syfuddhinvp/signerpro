@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 
+from functools import lru_cache
+from ipaddress import ip_address, ip_network
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
@@ -222,11 +225,48 @@ def current_session_id(token: str = Depends(oauth2_scheme)) -> str | None:
         return None
 
 
+@lru_cache(maxsize=1)
+def _trusted_proxies() -> tuple[ip_network, ...]:
+    from app.core.config import get_settings
+
+    raw = (get_settings().trusted_proxy_ips or "").strip()
+    if not raw:
+        return ()
+    networks = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            networks.append(ip_network(entry, strict=False))
+        except ValueError:
+            continue
+    return tuple(networks)
+
+
 def request_ip(request: Request) -> str | None:
+    """The client's IP, trusting ``X-Forwarded-For`` only from a known proxy.
+
+    Trusting it unconditionally is what made every per-IP rate limit -- login,
+    forgot-password, OTP, signing-link -- bypassable by rotating a single
+    header, and let anyone write an arbitrary address into the audit trail.
+    The header is only meaningful if something we control put it there.
+    """
+    peer = request.client.host if request.client else None
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip()
-    return request.client.host if request.client else None
+    if not forwarded or not peer:
+        return peer
+
+    trusted = _trusted_proxies()
+    if not trusted:
+        return peer
+    try:
+        peer_address = ip_address(peer)
+    except ValueError:
+        return peer
+    if not any(peer_address in network for network in trusted):
+        return peer
+    return forwarded.split(",", 1)[0].strip() or peer
 
 
 def request_user_agent(request: Request) -> str | None:

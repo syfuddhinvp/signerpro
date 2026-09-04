@@ -159,6 +159,14 @@ class AuthService:
     def current_user_payload(self, db: Session, user: User) -> CurrentUserResponse:
         return CurrentUserResponse(**self.user_payload(db, user).model_dump())
 
+    def issue_session_for(self, db: Session, user: User, *, request=None) -> TokenResponse:
+        """Public wrapper: mint a real, revocable session for ``user``.
+
+        Exists so other services (invitation acceptance) cannot accidentally
+        hand out a bare access token with no session row behind it.
+        """
+        return self._issue_session(db, user, request=request)
+
     def _issue_session(
         self,
         db: Session,
@@ -609,10 +617,36 @@ class AuthService:
         db.flush()
         return self._issue_session(db, user, request=request)
 
-    def change_password(self, db: Session, *, user: User, payload: ChangePasswordRequest) -> None:
+    def change_password(
+        self,
+        db: Session,
+        *,
+        user: User,
+        payload: ChangePasswordRequest,
+        keep_session_id: str | None = None,
+    ) -> None:
         if not verify_password(payload.current_password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Current password is incorrect")
         user.password_hash = hash_password(payload.password)
+        # Changing a password is what someone does when they believe it has
+        # been compromised. Leaving every other session alive means the person
+        # they are locking out stays logged in for the life of their token --
+        # so the one action a user takes to eject an intruder did not eject
+        # them. Every other session dies; the caller's own survives, because
+        # signing yourself out of the tab you just used is not the intent.
+        revoked = self._revoke_all_sessions(db, user, keep_session_id=keep_session_id)
+        # A semantic entry, not just the `PATCH /api/auth/password -> 204` the
+        # request middleware already writes. An auditor reading a security
+        # incident needs "who changed a password, and when", not an HTTP verb.
+        from app.services.platform_service import record_platform_audit
+
+        record_platform_audit(
+            db,
+            action="auth.password_changed",
+            actor=user,
+            organization_id=user.organization_id,
+            detail=f"Password changed; {revoked} other session(s) revoked",
+        )
         db.commit()
 
     def _revoke_all_sessions(self, db: Session, user: User, *, keep_session_id: str | None = None) -> int:

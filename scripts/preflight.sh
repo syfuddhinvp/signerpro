@@ -83,6 +83,16 @@ case "${BILLING_PROVIDER:-}" in
 esac
 
 echo
+echo "== Proxy trust =="
+if [ -n "${TRUSTED_PROXY_IPS:-}" ]; then
+  ok "TRUSTED_PROXY_IPS set (${TRUSTED_PROXY_IPS})"
+else
+  # Not a hard failure: ignoring the header is the SAFE default. It is wrong
+  # for a deployment behind an ingress, which is every real one.
+  warn "TRUSTED_PROXY_IPS is unset. X-Forwarded-For will be ignored, so behind an ingress every client shares one rate-limit bucket and the audit trail records the proxy's IP."
+fi
+
+echo
 echo "== Build-time values (changing these needs an image rebuild, not a restart) =="
 # next.config.ts#headers() runs during `next build`, so the CSP is baked into
 # routes-manifest.json. Setting it at runtime looks like it worked and does not.

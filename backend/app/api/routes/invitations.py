@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Request
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -46,6 +46,8 @@ def revoke_invitation(
 
 
 @router.post("/accept", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def accept_invitation(payload: InvitationAcceptRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def accept_invitation(
+    payload: InvitationAcceptRequest, request: Request, db: Session = Depends(get_db)
+) -> TokenResponse:
     """Public endpoint: redeem an invitation token and create the member account."""
-    return invitation_service.accept(db, payload)
+    return invitation_service.accept(db, payload, request=request)

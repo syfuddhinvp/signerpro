@@ -11,7 +11,7 @@ from app.api.routes import audit, auth, billing, documents, fields, invitations,
 from app.api.routes import account, activity, invoices, revenue, support
 from app.api.routes import contacts, folders, teams, templates
 from app.api.routes import api_keys, embed, public_api, reports
-from app.api.routes import erasure, flags, logs, tenants, verification
+from app.api.routes import erasure, flags, logs, passkeys, tenants, verification
 from app.core.config import expected_migration_head, get_settings, parse_cors_origins
 from app.core.logging import RequestLoggingMiddleware, configure_logging
 from app import models  # noqa: F401
@@ -140,6 +140,7 @@ app.include_router(reports.router)
 app.include_router(audit.certificate_router)
 app.include_router(verification.router)
 app.include_router(erasure.router)
+app.include_router(passkeys.router)
 app.include_router(account.router)
 app.include_router(contacts.router)
 app.include_router(templates.router)

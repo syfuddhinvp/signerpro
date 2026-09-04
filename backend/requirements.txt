@@ -38,3 +38,6 @@ redis>=5.0.0
 # Optional PAdES sealing of the executed PDF. Inert unless
 # PADES_CERTIFICATE_PATH is set -- see app/services/pades_service.py.
 pyhanko==0.37.0
+# WebAuthn passkeys. Only public keys are stored, so this table leaking
+# does not let anyone authenticate -- unlike a TOTP seed.
+webauthn==3.0.0

@@ -186,8 +186,11 @@ def change_password(
     payload: ChangePasswordRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    session_id: str | None = Depends(current_session_id),
 ) -> Response:
-    auth_service.change_password(db, user=current_user, payload=payload)
+    auth_service.change_password(
+        db, user=current_user, payload=payload, keep_session_id=session_id
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -209,11 +209,19 @@ def reset_rate_limits(key: str | None = None) -> None:
 
 
 def client_ip(request: Request) -> str:
-    """Mirrors ``app.api.deps.request_ip`` semantics (respects x-forwarded-for)."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip()
-    return request.client.host if request.client else "unknown"
+    """The rate-limit bucket key: one implementation, shared with the audit trail.
+
+    This used to be a second copy of the ``X-Forwarded-For`` logic that lived
+    beside ``app.api.deps.request_ip``. The copy trusted the header
+    unconditionally, so every per-IP limit here -- login, forgot-password, OTP,
+    signing links -- could be bypassed by rotating one header, no matter what
+    the other implementation did. Divergent copies of a security decision are
+    how a fix in one place leaves the hole open in the other, so there is now
+    exactly one.
+    """
+    from app.api.deps import request_ip
+
+    return request_ip(request) or "unknown"
 
 
 def path_param_key(name: str) -> Callable[[Request], str]:

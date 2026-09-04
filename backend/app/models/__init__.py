@@ -17,6 +17,7 @@ from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mfa_challenge import MfaChallenge
 from app.models.notification import Notification, NotificationPreference
 from app.models.organization import Organization
+from app.models.passkey import Passkey
 from app.models.password_reset import PasswordResetToken
 from app.models.payment_method import PaymentMethod
 from app.models.plan import Plan
@@ -64,6 +65,7 @@ __all__ = [
     "Notification",
     "NotificationPreference",
     "Organization",
+    "Passkey",
     "PasswordResetToken",
     "PaymentMethod",
     "Plan",

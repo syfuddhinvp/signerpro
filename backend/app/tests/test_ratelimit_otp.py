@@ -80,6 +80,18 @@ def test_signing_session_rate_limited_per_ip(client: TestClient, pdf_bytes: byte
     _, _, token = _otp_document(client, pdf_bytes)
     monkeypatch.setattr(ratelimit.signing_session_limiter, "limit", 2)
 
+    # `X-Forwarded-For` is only honoured when the immediate peer is a
+    # configured proxy -- otherwise any client bypasses every per-IP limit by
+    # rotating one header. TestClient's peer is "testclient", so it has to be
+    # trusted explicitly for this test to be able to vary the client address
+    # at all. That requirement is the fix, not an inconvenience.
+    from app.api import deps
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "trusted_proxy_ips", "0.0.0.0/0", raising=False)
+    deps._trusted_proxies.cache_clear()
+    monkeypatch.setattr(deps, "request_ip", _forwarded_ip)
+
     for _ in range(2):
         assert client.get(f"/api/sign/{token}", headers={"x-forwarded-for": "8.8.8.8"}).status_code == 200
 
@@ -87,6 +99,14 @@ def test_signing_session_rate_limited_per_ip(client: TestClient, pdf_bytes: byte
     assert blocked.status_code == 429
     # A different IP is unaffected.
     assert client.get(f"/api/sign/{token}", headers={"x-forwarded-for": "9.9.9.9"}).status_code == 200
+
+
+def _forwarded_ip(request):
+    """Stand-in for a deployment sitting behind a trusted proxy."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.client.host if request.client else None
 
 
 def test_otp_send_rate_limited_per_token(client: TestClient, pdf_bytes: bytes, monkeypatch: pytest.MonkeyPatch) -> None:

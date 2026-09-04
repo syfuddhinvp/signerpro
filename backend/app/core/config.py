@@ -96,6 +96,17 @@ class Settings(BaseSettings):
     #: Days of ``system_logs`` to keep. Both a disk and a GDPR concern.
     system_log_retention_days: int = Field(default=90, alias="SYSTEM_LOG_RETENTION_DAYS")
 
+    # --- Proxy trust ---------------------------------------------------------
+    #: Comma-separated IPs/CIDRs of the reverse proxies in front of this app.
+    #: ``X-Forwarded-For`` is honoured **only** when the immediate peer is one
+    #: of these. Empty -- the default -- means the header is ignored entirely,
+    #: because any client can send it and every per-IP rate limit would
+    #: otherwise be bypassable by rotating one header.
+    #:
+    #: Behind an ingress this MUST be set, or every request appears to come
+    #: from the proxy and shares a single rate-limit bucket.
+    trusted_proxy_ips: str = Field(default="", alias="TRUSTED_PROXY_IPS")
+
     # --- PAdES sealing (optional) --------------------------------------------
     #: Path to a PKCS#12 (.p12/.pfx) bundle holding the signing key and chain.
     #: Unset -- the default -- means the product applies no cryptographic
