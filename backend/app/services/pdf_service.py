@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.hashing import sha256_bytes
+from app.core.pdf_geometry import page_geometry
 from app.core.storage import storage
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
@@ -51,11 +52,13 @@ class PdfService:
         attachments = self._latest_attachments(db, document.id)
 
         for page_index, page in enumerate(reader.pages, start=1):
-            page_width = float(page.mediabox.width)
-            page_height = float(page.mediabox.height)
+            # Visual size, matching the pdf.js viewport the fields were placed
+            # against: CropBox-derived and with /Rotate applied. See
+            # app/core/pdf_geometry.
+            geometry = page_geometry(page)
             overlay = self._build_page_overlay(
-                page_width=page_width,
-                page_height=page_height,
+                page_width=geometry.width,
+                page_height=geometry.height,
                 fields=[field for field in document.fields if field.page_number == page_index],
                 signatures=signatures,
                 attachments=attachments,
@@ -70,7 +73,16 @@ class PdfService:
             attached = writer.add_page(page)
             if overlay:
                 overlay_reader = PdfReader(BytesIO(overlay))
-                attached.merge_page(overlay_reader.pages[0])
+                # The overlay is drawn in the page's *visual* space. On a
+                # rotated page, or one whose visible box does not start at
+                # (0, 0), that is not the content space the page is stamped
+                # in, so it is mapped back before merging.
+                if geometry.is_identity:
+                    attached.merge_page(overlay_reader.pages[0])
+                else:
+                    attached.merge_transformed_page(
+                        overlay_reader.pages[0], geometry.overlay_ctm()
+                    )
 
         audit_pdf = PdfReader(BytesIO(self._build_audit_certificate(db, document)))
         for audit_page in audit_pdf.pages:

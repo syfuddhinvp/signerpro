@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
+from app.core.pdf_geometry import page_geometry
 from app.core.storage import storage
 from app.models.document import Document
 from app.models.enums import FieldType
@@ -452,8 +453,12 @@ class FieldService:
         else:
             reader = PdfReader(BytesIO(storage.read_bytes(document.original_file_path)))
             page = reader.pages[page_number - 1]
-            page_width = Decimal(str(float(page.mediabox.width)))
-            page_height = Decimal(str(float(page.mediabox.height)))
+            # Bounds-check against the page as the builder drew it: CropBox
+            # sized, /Rotate applied. Measuring the MediaBox rejected legal
+            # placements on rotated pages and accepted ones that fell off it.
+            geometry = page_geometry(page)
+            page_width = Decimal(str(geometry.width))
+            page_height = Decimal(str(geometry.height))
             if page_cache is not None:
                 page_cache[page_number] = (page_width, page_height)
         if x + width > page_width or y + height > page_height:
