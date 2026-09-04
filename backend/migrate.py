@@ -12,6 +12,7 @@ so the container fails fast instead of serving against a stale schema.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import re
 import sys
 import time
@@ -59,7 +60,7 @@ def upgrade_under_lock(dsn: str) -> None:
         conn.execute("SELECT pg_advisory_lock(%s)", (LOCK_ID,))
         try:
             log("running alembic upgrade head")
-            config = Config("/app/alembic.ini")
+            config = Config(str(Path(__file__).resolve().parent / "alembic.ini"))
             command.upgrade(config, "head")
             log("migrations up to date")
         finally:

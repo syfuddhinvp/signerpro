@@ -68,6 +68,15 @@ export const auth = {
   mfaEnroll: (c: Caller, method = 'totp') => post<T.MfaEnrollResponse>(c, '/api/auth/mfa/enroll', { method }),
   changePassword: (c: Caller, body: { current_password: string; password: string }) =>
     patch<void>(c, '/api/auth/password', body),
+
+  // WebAuthn. The ceremony is two calls by protocol: the server mints a
+  // challenge, the authenticator signs it, the server verifies.
+  passkeys: (c: Caller) => get<T.PasskeyResponse[]>(c, '/api/auth/passkeys'),
+  passkeyRegisterBegin: (c: Caller) =>
+    post<Record<string, unknown>>(c, '/api/auth/passkeys/register/begin', {}),
+  passkeyRegisterFinish: (c: Caller, credential: Record<string, unknown>, label: string | null) =>
+    post<T.PasskeyResponse>(c, '/api/auth/passkeys/register/finish', { credential, label }),
+  passkeyDelete: (c: Caller, id: string) => del<void>(c, `/api/auth/passkeys/${id}`),
 };
 
 export const organizations = {

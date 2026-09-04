@@ -265,14 +265,20 @@ def _http_transport(url: str, body: bytes, headers: dict[str, str]) -> tuple[int
         parsed = urlparse(url)
         sni = parsed.hostname
         request_url, extra_headers = resolve_and_pin(url)
-    response = httpx.post(
-        request_url,
-        content=body,
-        headers={**headers, **extra_headers},
+    # NB: the module-level httpx.post() helper takes no ``extensions``; only the
+    # Client request API does. Pinning the DNS result means the TLS handshake
+    # needs the original hostname passed through as the SNI name.
+    with httpx.Client(
         timeout=REQUEST_TIMEOUT_SECONDS,
         follow_redirects=False,
-        extensions={"sni_hostname": sni} if extra_headers and sni else {},
-    )
+    ) as client:
+        response = client.request(
+            "POST",
+            request_url,
+            content=body,
+            headers={**headers, **extra_headers},
+            extensions={"sni_hostname": sni} if extra_headers and sni else {},
+        )
     return response.status_code, (response.text or "")[:500]
 
 

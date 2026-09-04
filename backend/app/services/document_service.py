@@ -209,7 +209,31 @@ class DocumentService:
             document.title = payload.title
         if payload.workflow_type is not None:
             document.workflow_type = payload.workflow_type
-        if payload.is_template is not None:
+        if payload.is_template is not None and payload.is_template != document.is_template:
+            # Templates are scaffolding and so are exempt from the envelope
+            # quota at creation. That made this flag a way around the quota
+            # entirely: create as a template (no check, no metering), then
+            # PATCH it back to a real document and send it. An org over its
+            # limit could send unlimited envelopes, and none of them appeared
+            # in the usage report. Becoming a real document is the billable
+            # moment wherever it happens, so it is charged and metered here
+            # exactly as it would have been at creation.
+            if not payload.is_template:
+                from app.models.usage_event import UsageEventType
+                from app.services.entitlement_service import (
+                    ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH,
+                    entitlement_service,
+                )
+
+                entitlement_service.check_entitlement(
+                    db, document.organization_id, ENTITLEMENT_MAX_DOCUMENTS_PER_MONTH, amount=1
+                )
+                entitlement_service.record_usage(
+                    db,
+                    organization_id=document.organization_id,
+                    event_type=UsageEventType.document_created,
+                    document_id=document.id,
+                )
             document.is_template = payload.is_template
         if payload.doc_type is not None:
             document.doc_type = payload.doc_type

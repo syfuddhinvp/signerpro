@@ -13,6 +13,7 @@ import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
+import { credentialToJson, passkeysSupported, toCreationOptions } from '@/lib/sf/webauthn';
 import { useSession } from '@/components/sf/SessionProvider';
 import { useDialogs } from '@/components/sf/DialogProvider';
 import type { AccountSection } from '@/lib/sf/routes';
@@ -22,7 +23,7 @@ import { apiCall } from '@/lib/api/browser';
 import { account as accountApi, auth as authApi, organizations as organizationsApi, teams as teamsApi } from '@/lib/api/resources';
 import type {
   AccountAuditFeed, CloudTargetItem, CurrentUserResponse, IntegrationResponse,
-  MfaEnrollResponse, MfaStatusResponse, NotificationPreferenceResponse,
+  MfaEnrollResponse, MfaStatusResponse, NotificationPreferenceResponse, PasskeyResponse,
   OrganizationResponse, SavedSignatureResponse, SessionResponse,
   TeamResponse,
 } from '@/lib/api/types';
@@ -69,6 +70,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   const [signatures, setSignatures] = useState<SavedSignatureResponse[] | null>(null);
   const [sessions, setSessions] = useState<SessionResponse[] | null>(null);
   const [mfa, setMfa] = useState<MfaStatusResponse | null>(null);
+  const [passkeys, setPasskeys] = useState<PasskeyResponse[] | null>(null);
   const [enrolment, setEnrolment] = useState<MfaEnrollResponse | null>(null);
   const [notifPrefsData, setNotifPrefs] = useState<NotificationPreferenceResponse[] | null>(null);
   const [integrationsData, setIntegrations] = useState<IntegrationResponse[] | null>(null);
@@ -89,6 +91,13 @@ export default function AccountArea({ section }: { section: AccountSection }) {
       setSessions(res.data);
     });
   }, [markFailed]);
+
+  const loadPasskeys = useCallback(() => {
+    void authApi.passkeys(apiCall).then(res => {
+      if (!res.ok) { markFailed('passkeys'); return; }
+      setPasskeys(res.data);
+    });
+  }, [apiCall, markFailed]);
 
   const loadMfa = useCallback(() => {
     void authApi.mfaStatus(apiCall).then(res => {
@@ -129,7 +138,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
         setSignatures(res.data);
       });
     }
-    if (section === 'security') { loadSessions(); loadMfa(); }
+    if (section === 'security') { loadSessions(); loadMfa(); loadPasskeys(); }
     if (section === 'notifications' || section === 'email') loadNotifPrefs();
     if (section === 'integrations') loadIntegrations();
     if (section === 'cloud') loadCloud();
@@ -148,7 +157,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
         setAudit(res.data);
       });
     }
-  }, [section, loadSessions, loadMfa, loadNotifPrefs, loadIntegrations, loadCloud, markFailed]);
+  }, [section, loadSessions, loadMfa, loadPasskeys, loadNotifPrefs, loadIntegrations, loadCloud, markFailed]);
 
   const userName = me?.name || session.name;
   const userRole = me?.role || session.role;
@@ -174,6 +183,51 @@ export default function AccountArea({ section }: { section: AccountSection }) {
       if (!res.ok) { flash('Could not sign that session out · ' + res.error.message); return; }
       flash(sessionLabel(row) + ' signed out');
       loadSessions();
+    });
+  };
+
+  /* The WebAuthn ceremony. Everything that can fail is reported: an
+     authenticator that declines and a browser that cannot do this at all look
+     identical otherwise, and a button that silently does nothing is exactly
+     what the audit found everywhere. */
+  const addPasskey = async () => {
+    if (!passkeysSupported()) {
+      flash('This browser does not support passkeys');
+      return;
+    }
+    const label = await askText({
+      title: 'Add a passkey', label: 'Name this device',
+      message: 'So you can tell your passkeys apart later.', placeholder: 'Work laptop', cta: 'Continue',
+    });
+    const started = await authApi.passkeyRegisterBegin(apiCall);
+    if (!started.ok) { flash('Could not start · ' + started.error.message); return; }
+
+    let credential: PublicKeyCredential | null = null;
+    try {
+      credential = (await navigator.credentials.create({
+        publicKey: toCreationOptions(started.data as never),
+      })) as PublicKeyCredential | null;
+    } catch {
+      // NotAllowedError covers both "user declined" and "timed out", and the
+      // browser deliberately does not say which.
+      flash('Passkey setup was cancelled');
+      return;
+    }
+    if (!credential) { flash('No passkey was created'); return; }
+
+    const finished = await authApi.passkeyRegisterFinish(
+      apiCall, credentialToJson(credential), label || null,
+    );
+    if (!finished.ok) { flash('Passkey rejected · ' + finished.error.message); return; }
+    flash('Passkey added');
+    loadPasskeys();
+  };
+
+  const removePasskey = (row: PasskeyResponse) => {
+    void authApi.passkeyDelete(apiCall, row.id).then(res => {
+      if (!res.ok) { flash('Could not remove that passkey · ' + res.error.message); return; }
+      flash((row.label || 'Passkey') + ' removed');
+      loadPasskeys();
     });
   };
 
@@ -410,6 +464,47 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       </div>
                     </div>
                   ) : null}
+
+                  <div style={{ display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid #f2f4f8', paddingTop:'13px' }}>
+                    <div style={{ display:'flex', alignItems:'flex-start', gap:'12px' }}>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'3px', maxWidth:'460px' }}>
+                        <span style={{ fontSize:'.8125rem', fontWeight:600 }}>Passkeys</span>
+                        <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>
+                          Sign in with your device instead of a password. Unlike a code, a passkey
+                          cannot be phished: it only works on this site, and nothing secret is
+                          stored on our servers.
+                        </span>
+                      </div>
+                      <button type="button" onClick={addPasskey} style={{ ...autoGhostBtn, marginLeft:'auto' }}>
+                        Add passkey
+                      </button>
+                    </div>
+                    {passkeys === null ? (
+                      <span style={{ fontSize:'.71875rem', color:'#64748b' }}>
+                        {failed.passkeys ? 'Passkeys could not be loaded.' : 'Loading passkeys…'}
+                      </span>
+                    ) : passkeys.length === 0 ? (
+                      <span style={{ fontSize:'.71875rem', color:'#64748b' }}>No passkeys yet.</span>
+                    ) : (
+                      passkeys.map(row => (
+                        <div key={row.id} style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                          <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
+                            <span style={{ fontSize:'.78125rem' }}>{row.label || 'Passkey'}</span>
+                            <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
+                              {joinMeta(['added ' + stamp(row.created_at), row.last_used_at ? 'last used ' + stamp(row.last_used_at) : 'never used'])}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removePasskey(row)}
+                            style={{ ...autoGhostBtn, marginLeft:'auto' }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
 
                 <div style={{ ...card, gap:'11px' }}>

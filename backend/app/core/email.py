@@ -18,11 +18,21 @@ class EmailMessage:
 
 
 class EmailService:
-    def send(self, message: EmailMessage, *, organization=None) -> None:
+    def send(self, message: EmailMessage, *, organization=None) -> bool:
+        """Send an email. Returns whether it was actually delivered.
+
+        This used to return ``None`` whatever happened: every provider error
+        was caught, logged at warning level, and followed by the console
+        fallback, so a dead mail provider was indistinguishable from a
+        successful send and no caller had anything to check. A signer who
+        never received their link or OTP looked exactly like one who did.
+
+        ``True`` means a provider accepted the message, or that no provider is
+        configured at all and the console fallback is the intended behaviour in
+        development. ``False`` means a provider *was* configured and every
+        attempt to reach it failed -- the case a caller must not ignore.
         """
-        Sends an email. Uses organization-scoped SMTP credentials if configured,
-        otherwise falls back to system settings, and finally to console print logs.
-        """
+        configured = False
         settings = get_settings()
 
         # Read configurations, prioritizing organization-scoped SMTP settings
@@ -37,6 +47,7 @@ class EmailService:
 
         # 1. Try Resend HTTP API (if enabled globally)
         if resend_api_key and not (organization and organization.smtp_host):
+            configured = True
             try:
                 logger.info(f"[Email Gateway] Sending via Resend API to {message.to_email}...")
                 response = httpx.post(
@@ -55,14 +66,15 @@ class EmailService:
                 )
                 if response.status_code in (200, 201):
                     logger.info(f"[Email Gateway] Resend email sent successfully! Message ID: {response.json().get('id')}")
-                    return
+                    return True
                 else:
-                    logger.warning(f"[Email Gateway Error] Resend responded with status {response.status_code}: {response.text}")
+                    logger.error(f"[Email Gateway Error] Resend responded with status {response.status_code}: {response.text}")
             except Exception as e:
-                logger.warning(f"[Email Gateway Error] Resend API call failed: {e}")
+                logger.error(f"[Email Gateway Error] Resend API call failed: {e}")
 
         # 2. Try SMTP Client (Dynamic tenant or global)
         elif smtp_host:
+            configured = True
             try:
                 source_label = f"Organization settings ({organization.name})" if organization and organization.smtp_host else "Global settings"
                 logger.info(f"[Email Gateway] Sending via SMTP [{source_label}] ({smtp_host}:{smtp_port or 587}) to {message.to_email}...")
@@ -80,9 +92,9 @@ class EmailService:
                         server.login(smtp_username, smtp_password)
                     server.send_message(mime_msg)
                 logger.info(f"[Email Gateway] SMTP email sent successfully to {message.to_email}!")
-                return
+                return True
             except Exception as e:
-                logger.warning(f"[Email Gateway Error] SMTP delivery failed: {e}")
+                logger.error(f"[Email Gateway Error] SMTP delivery failed: {e}")
 
         # 3. Development Fallback Print Console
         print("\n--- SignFlow CRM development email ---")
@@ -90,6 +102,8 @@ class EmailService:
         print(f"Subject: {message.subject}")
         print(message.body)
         print("--- end email ---\n")
+        # Only a truthful "delivered" when there was nothing to deliver through.
+        return not configured
 
 
 email_service = EmailService()

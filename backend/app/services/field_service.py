@@ -383,9 +383,14 @@ class FieldService:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must be an email address")
         elif kind == "numeric":
             try:
-                Decimal(text.replace(",", ""))
+                number = Decimal(text.replace(",", ""))
             except (InvalidOperation, ValueError) as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must be numeric") from exc
+            # Decimal() happily parses "NaN", "Infinity" and "1e999", so
+            # declaring a field numeric was not enough to keep them out of a
+            # formula that references it. "Numeric" here means a real quantity.
+            if not number.is_finite():
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must be numeric")
 
         # A currency field that neither formats nor validates an amount is why
         # this type was withdrawn from the palette. Now it does both.

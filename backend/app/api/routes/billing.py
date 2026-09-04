@@ -190,6 +190,7 @@ def resume_subscription(
 async def provider_webhook(
     request: Request,
     db: Session = Depends(get_db),
+    stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
     signature: str | None = Header(default=None, alias="X-Signature"),
 ) -> dict[str, str]:
     """Payment-provider webhook receiver.
@@ -197,9 +198,19 @@ async def provider_webhook(
     Signature verification and payload parsing are both provider-specific and
     live behind ``PaymentProvider``. Delivery is idempotent: a repeated event id
     returns ``duplicate`` without re-applying state.
+
+    The header name is provider-specific too. Stripe signs into
+    ``Stripe-Signature``; this route only read ``X-Signature``, the header the
+    simulated provider uses, so with ``BILLING_PROVIDER=stripe`` every real
+    event was rejected 401 before it reached the (correct) verifier -- no
+    activations, no ``past_due`` on a failed payment, no cancellations. Both
+    are accepted, Stripe's first, so neither provider depends on the other's
+    naming.
     """
     raw_body = await request.body()
-    return billing_service.handle_webhook(db, raw_body=raw_body, signature=signature)
+    return billing_service.handle_webhook(
+        db, raw_body=raw_body, signature=stripe_signature or signature
+    )
 
 
 # ---------------------------------------------------------------------------

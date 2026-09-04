@@ -178,6 +178,15 @@ export function saveBlob(download: ApiDownload): void {
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = download.filename;
+  // The anchor has to be in the document for the click to count as a
+  // user-initiated navigation in Firefox, and the save is asynchronous — so
+  // the object URL is released on a later tick rather than immediately, which
+  // would race the download and truncate large exports.
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 0);
 }

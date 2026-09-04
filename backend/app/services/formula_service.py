@@ -35,7 +35,7 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
-from decimal import Decimal, DivisionByZero, InvalidOperation
+from decimal import Decimal, DivisionByZero, InvalidOperation, Overflow
 
 #: `{{ merge_tag }}` with optional inner whitespace.
 REFERENCE = re.compile(r"\{\{\s*([A-Za-z0-9_.-]{1,120})\s*\}\}")
@@ -101,11 +101,15 @@ def evaluate(expression: str, values: dict[str, str | None]) -> str | None:
     tree = ast.parse(_substitute(formula.expression, formula.references), mode="eval")
     try:
         result = _eval_node(tree.body, resolved)
-    except (DivisionByZero, InvalidOperation):
+        # _format() has to be inside the guard, not after it: it quantizes, and
+        # quantize() raises InvalidOperation on a value too large for the
+        # context precision. Sitting outside, it turned bad data into a 500 on
+        # the signing endpoint rather than a blank field.
+        return _format(result)
+    except (DivisionByZero, InvalidOperation, Overflow):
         # A division by zero is an authoring mistake meeting particular data,
         # not a crash: leave the field blank rather than 500 the signer.
         return None
-    return _format(result)
 
 
 # -- internals --------------------------------------------------------------
@@ -179,9 +183,17 @@ def _to_decimal(raw: str | None) -> Decimal | None:
     if cleaned.startswith("(") and cleaned.endswith(")"):  # accounting negatives
         cleaned = "-" + cleaned[1:-1]
     try:
-        return Decimal(cleaned)
+        number = Decimal(cleaned)
     except InvalidOperation:
         return None
+    # ``Decimal`` accepts "NaN", "Infinity" and "1e999". None of them are money.
+    # Left in, NaN was the dangerous one: it does not raise, so it flowed
+    # through arithmetic and stamped the literal string "NaN" into an executed
+    # contract as the total. Infinity instead blew up quantize() and 500'd the
+    # signer. A field that is not a finite number is not a number.
+    if not number.is_finite():
+        return None
+    return number
 
 
 def _format(value: Decimal) -> str:

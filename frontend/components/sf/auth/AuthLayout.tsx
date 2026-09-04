@@ -129,7 +129,7 @@ export default function AuthLayout({
           <div style={logoStyle}>SF</div>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
             <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1rem', letterSpacing: '-.2px' }}>SignForge</span>
-            <span style={{ color: '#64748b', fontSize: '.6875rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>ENTERPRISE E-SIGNATURE</span>
+            <span style={{ color: TEXT_MUTED_ON_DARK, fontSize: '.6875rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>ENTERPRISE E-SIGNATURE</span>
           </div>
         </div>
 
@@ -142,7 +142,7 @@ export default function AuthLayout({
                 <span style={{ width: '7px', height: '7px', borderRadius: '99px', background: '#10b981', marginTop: '6px', flex: '0 0 7px' }}></span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <span style={{ color: '#e2e8f0', fontSize: '.78125rem', fontWeight: 600 }}>{p.label}</span>
-                  <span style={{ color: '#64748b', fontSize: '.71875rem', lineHeight: 1.5 }}>{p.meta}</span>
+                  <span style={{ color: TEXT_MUTED_ON_DARK, fontSize: '.71875rem', lineHeight: 1.5 }}>{p.meta}</span>
                 </div>
               </div>
             ))}
@@ -170,7 +170,7 @@ export default function AuthLayout({
           <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <span style={{ fontSize: '1.125rem', fontWeight: 700, letterSpacing: '-.4px' }}>{authTitle}</span>
-              <span style={{ fontSize: '.78125rem', color: '#64748b', lineHeight: 1.5 }}>{authSub}</span>
+              <span style={{ fontSize: '.78125rem', color: TEXT_MUTED, lineHeight: 1.5 }}>{authSub}</span>
             </div>
 
             {children}

@@ -7,12 +7,16 @@ logger = get_logger("signflow.sms")
 
 
 class SmsService:
-    def send_sms(self, *, to_phone: str, body: str, organization=None) -> None:
+    def send_sms(self, *, to_phone: str, body: str, organization=None) -> bool:
+        """Send an SMS. Returns whether it was actually delivered.
+
+        Same contract as ``EmailService.send``, and it had the same defect: a
+        provider that was down was swallowed into a warning and the console
+        fallback, so an undelivered OTP was silent. ``True`` means a provider
+        took it, or none is configured and the console fallback is intended.
+        ``False`` means a configured provider failed.
         """
-        Sends an SMS message.
-        Prioritizes organization-scoped credentials (supporting Twilio & Telnyx),
-        falls back to system env variables, and finally to console logs.
-        """
+        configured = False
         settings = get_settings()
 
         # 1. Resolve Provider and Credentials
@@ -29,6 +33,7 @@ class SmsService:
 
         # 2. Dispatch via Telnyx Provider
         if provider == "telnyx" and telnyx_key and telnyx_from:
+            configured = True
             try:
                 source_label = f"Organization settings ({organization.name})" if organization else "Global settings"
                 logger.info(f"[SMS Gateway] Dispatched via Telnyx [{source_label}] to {to_phone}...")
@@ -48,14 +53,15 @@ class SmsService:
                 
                 if response.status_code in (200, 201, 202):
                     logger.info(f"[SMS Gateway] Telnyx SMS successfully queued! Message ID: {response.json().get('data', {}).get('id')}")
-                    return
+                    return True
                 else:
-                    logger.warning(f"[SMS Gateway Error] Telnyx responded with status {response.status_code}: {response.text}")
+                    logger.error(f"[SMS Gateway Error] Telnyx responded with status {response.status_code}: {response.text}")
             except Exception as e:
-                logger.warning(f"[SMS Gateway Error] Telnyx REST connection failed: {e}")
+                logger.error(f"[SMS Gateway Error] Telnyx REST connection failed: {e}")
 
         # 3. Dispatch via Twilio Provider
         elif twilio_sid and twilio_token and twilio_from:
+            configured = True
             try:
                 source_label = f"Organization settings ({organization.name})" if organization else "Global settings"
                 logger.info(f"[SMS Gateway] Dispatched via Twilio [{source_label}] to {to_phone}...")
@@ -72,17 +78,18 @@ class SmsService:
                 
                 if response.status_code in (200, 201):
                     logger.info(f"[SMS Gateway] Twilio SMS successfully delivered! SID: {response.json().get('sid')}")
-                    return
+                    return True
                 else:
-                    logger.warning(f"[SMS Gateway Error] Twilio responded with status {response.status_code}: {response.text}")
+                    logger.error(f"[SMS Gateway Error] Twilio responded with status {response.status_code}: {response.text}")
             except Exception as e:
-                logger.warning(f"[SMS Gateway Error] Twilio REST connection failed: {e}")
+                logger.error(f"[SMS Gateway Error] Twilio REST connection failed: {e}")
 
         # 4. Development Fallback Logger
         print("\n--- SignFlow CRM development SMS ---")
         print(f"To: {to_phone}")
         print(f"Body: {body}")
         print("--- end SMS ---\n")
+        return not configured
 
 
 sms_service = SmsService()

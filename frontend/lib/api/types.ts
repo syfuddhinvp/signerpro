@@ -1426,3 +1426,12 @@ export type InvitationResponse = {
   expires_at: IsoDateTime;
   created_at: IsoDateTime;
 };
+
+
+/** A registered WebAuthn credential. Only the public key ever leaves the browser. */
+export type PasskeyResponse = {
+  id: string;
+  label: string | null;
+  created_at: string;
+  last_used_at: string | null;
+};

@@ -561,6 +561,20 @@ class SigningService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Completed documents cannot be reassigned")
         if recipient.status == RecipientStatus.completed:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recipient has already completed signing")
+        # Delegation moves the signing turn and clears the OTP lockout, so it
+        # needs the same identity checks as signing itself. Deliberately NOT
+        # _ensure_can_edit: that also demands consent_accepted, and somebody
+        # delegating a document away should not first have to attest to an
+        # ESIGN disclosure they are declining to act on.
+        if not is_signing_role(recipient.role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This recipient receives a copy only and cannot reassign",
+            )
+        if recipient.status not in {RecipientStatus.sent, RecipientStatus.viewed}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Recipient cannot reassign in current status")
+        if recipient.otp_enabled and not recipient.otp_verified:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="OTP verification required")
         new_email = str(payload.email).strip().lower()
         if new_email == recipient.email.strip().lower():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Delegate must be a different signer")
@@ -730,26 +744,49 @@ class SigningService:
         )
         if sms_allowed:
             from app.services.sms_service import sms_service
-            sms_service.send_sms(
+            delivered = sms_service.send_sms(
                 to_phone=recipient.phone_number,
                 body=f"Your SignFlow CRM document verification code is: {otp_code}. Valid for 10 minutes.",
                 organization=org
             )
-            entitlement_service.record_usage(
-                db,
-                organization_id=document.organization_id,
-                event_type=UsageEventType.sms_sent,
-                document_id=document.id,
-            )
+            if delivered:
+                entitlement_service.record_usage(
+                    db,
+                    organization_id=document.organization_id,
+                    event_type=UsageEventType.sms_sent,
+                    document_id=document.id,
+                )
         else:
             from app.core.email import email_service, EmailMessage
-            email_service.send(
+            delivered = email_service.send(
                 EmailMessage(
                     to_email=recipient.email,
                     subject="SignFlow Verification Code",
                     body=f"Hello {recipient.name},\n\nYour secure verification code is: {otp_code}\n\nThis code will expire in 10 minutes."
                 ),
                 organization=org
+            )
+
+        # Of all the mail this system sends, the OTP is the one the signer is
+        # actively waiting on: without it they cannot proceed at all. Returning
+        # 200 on a failed send left them staring at a code entry box for a code
+        # that was never sent, with nothing anywhere saying so. Say it instead,
+        # so the signer knows to retry and the audit trail records the failure
+        # rather than an "OTP sent" that did not happen. Metering follows
+        # delivery too -- a customer should not be billed for an SMS that the
+        # provider refused.
+        if not delivered:
+            audit_service.log(
+                db,
+                document_id=document.id,
+                recipient_id=recipient.id,
+                event_type="signer_otp_send_failed",
+                event_message=f"Verification code to {recipient.email} could not be delivered.",
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not send the verification code. Please try again.",
             )
 
         audit_service.log(
