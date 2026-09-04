@@ -11,7 +11,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
-os.environ["JWT_SECRET"] = "test-secret"
+# 32+ bytes: PyJWT warns below the RFC 7518 minimum for HS256, which fired on
+# essentially every authenticated request in the suite.
+os.environ["JWT_SECRET"] = "test-secret-not-real-but-long-enough-for-hs256"
 os.environ["APP_BASE_URL"] = "http://localhost:3000"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["UPLOAD_DIR"] = "/tmp/signflow-test-uploads"

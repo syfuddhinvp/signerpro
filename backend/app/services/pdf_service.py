@@ -62,10 +62,14 @@ class PdfService:
                 # the ones that happened to hold a field.
                 verified_note=self._verified_note(document),
             )
+            # Attach first, then merge into the *attached* page. pypdf
+            # deprecated merging into a page that belongs to no writer --
+            # it warned on every executed document, and the docs say the old
+            # order is unreliable rather than merely noisy.
+            attached = writer.add_page(page)
             if overlay:
                 overlay_reader = PdfReader(BytesIO(overlay))
-                page.merge_page(overlay_reader.pages[0])
-            writer.add_page(page)
+                attached.merge_page(overlay_reader.pages[0])
 
         audit_pdf = PdfReader(BytesIO(self._build_audit_certificate(db, document)))
         for audit_page in audit_pdf.pages:

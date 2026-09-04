@@ -99,11 +99,11 @@ def test_slug_is_validated_and_unique_across_tenants(client: TestClient) -> None
     for bad in ("Not Lowercase", "-leading", "trailing-", "has spaces", "a" * 81):
         assert (
             client.patch("/api/organizations/me", headers=acme, json={"slug": bad}).status_code
-            == status.HTTP_422_UNPROCESSABLE_ENTITY
+            == status.HTTP_422_UNPROCESSABLE_CONTENT
         ), bad
     assert (
         client.patch("/api/organizations/me", headers=acme, json={"accent_color": "blue"}).status_code
-        == status.HTTP_422_UNPROCESSABLE_ENTITY
+        == status.HTTP_422_UNPROCESSABLE_CONTENT
     )
     # Credentials are write-only: they never come back in the response.
     updated = client.patch(

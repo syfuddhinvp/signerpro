@@ -87,7 +87,7 @@ def test_library_filters_sorting_pagination_and_counts(client: TestClient) -> No
 def test_library_rejects_unknown_sort(client: TestClient) -> None:
     headers = auth_headers(client)
     response = client.get("/api/documents/library", headers=headers, params={"sort": "sideways"})
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_soft_delete_restore_and_purge(client: TestClient) -> None:

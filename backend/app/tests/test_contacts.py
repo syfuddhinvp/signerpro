@@ -80,7 +80,7 @@ def test_contact_validation_errors(client: TestClient) -> None:
     headers = register(client, org="Acme", name="Ada", email="ada@acme.com")
 
     bad_email = client.post("/api/contacts", headers=headers, json={"name": "X", "email": "not-an-email"})
-    assert bad_email.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert bad_email.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     bad_role = client.post(
         "/api/contacts",
