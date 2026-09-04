@@ -14,7 +14,7 @@ import { TYPES } from '@/lib/sf/data';
 import { btn, inputStyle, lbl, railHead, TEXT_MUTED, BORDER_STRONG } from '@/lib/sf/ui';
 import { useBuilderInteractions, useDocumentPersistence } from '@/lib/sf/builderInteractions';
 import { fieldChoices, newBuilderRecipient, toBuilderFields, toBuilderRecipients, type BuilderRouting } from '@/lib/sf/adapters';
-import LazyPdfPages, { type PdfGeometry } from '@/components/sf/pdf/LazyPdfPages';
+import LazyPdfPages from '@/components/sf/pdf/LazyPdfPages';
 import UploadDocument from '@/components/sf/UploadDocument';
 import AddRecipient from '@/components/sf/parts/AddRecipient';
 import { rememberContact } from '@/lib/sf/recipientContacts';
@@ -264,7 +264,6 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn = btn(A, '#fff', A);
-  const chipBtn = btn('#fff', '#475569', '#e3e7ee');
   // Canvas toolbar is icon-only so it survives a narrow viewport; the label
   // lives in title/aria-label instead of beside the glyph.
   const sqBtn = (bg: string, fg: string, bd: string): CSSProperties =>

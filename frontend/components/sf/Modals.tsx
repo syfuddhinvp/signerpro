@@ -8,7 +8,7 @@ import { useOptionalSession } from '@/components/sf/SessionProvider';
 import { useNav } from '@/lib/sf/nav';
 import {
   SIG_TABS, TYPE_FACES, INKS, MODAL_COPY_STATIC, PAY_TITLES,
-  PLAN_PRICES, GROUP_LABELS, TK_PRIO_LABEL
+  TK_PRIO_LABEL
 } from '@/lib/sf/data';
 import { pathFor } from '@/lib/sf/routes';
 import { btn, inputStyle, lbl as lblStyle, TEXT_MUTED } from '@/lib/sf/ui';
@@ -46,7 +46,6 @@ import StripeCheckoutPanel, { stripeIsConfigured } from '@/components/sf/StripeC
    account number in our own DOM. Bank debits are offered by Stripe inside the
    embedded session on the Card tab, where we never see the digits. */
 const PAY_TABS: [string, string][] = [['card', 'Card / bank'], ['invoice', 'Invoice / PO']];
-const CONTACT_PALETTE = ['#10b981', '#6366f1', '#f59e0b', '#0ea5e9', '#8b5cf6', '#14b8a6', '#f43f5e'];
 const CONTACT_ROLES: [string, string][] = [
   ['sign', 'Needs to sign'], ['approve', 'Approver'], ['copy', 'Receives a copy'], ['inperson', 'In-person signer']
 ];
@@ -91,12 +90,11 @@ const iconBtn: CSSProperties = {
 };
 
 export default function Modals() {
-  const { s, set, flash, accent, recips, money, isPlat, signable } = useSF();
+  const { s, set, flash, accent, recips, signable } = useSF();
   const { go, documentId } = useNav();
   const sessionName = useOptionalSession()?.name ?? '';
   const router = useRouter();
   const A = accent();
-  const plat = isPlat();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hasStrokes = useRef(false);

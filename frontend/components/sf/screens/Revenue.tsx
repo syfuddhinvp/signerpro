@@ -32,7 +32,7 @@ export type RevenueProps = {
 };
 
 export default function Revenue({
-  stats, balanceTiles, subsByPlan, churnRows, events, payoutDestination, deliveredPct, availableLabel, liveMode: initialLiveMode,
+  stats, balanceTiles, subsByPlan, churnRows, events, payoutDestination, deliveredPct, liveMode: initialLiveMode,
 }: RevenueProps) {
   const { flash, accent } = useSF();
   const router = useRouter();

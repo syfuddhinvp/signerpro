@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import { workspaceForPath } from './routes';
 /* SignForge state container — ported from the prototype app.js `state` object and helper methods. */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ACCENT_DEFAULT, GROUP_LABELS, RECIPIENTS, RETIRED_TYPES, STATUS, TYPES, type Dict } from './data';
+import { ACCENT_DEFAULT, RECIPIENTS, RETIRED_TYPES, STATUS, TYPES, type Dict } from './data';
 
 export type Recipient = { id: string; name: string; email: string; role: string; color: string; order: number; status: string };
 export type SFField = {

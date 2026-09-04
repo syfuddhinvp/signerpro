@@ -76,7 +76,7 @@ export default function Reports({
   scope, range, inviteTotal, inviteSplit, tiles, recipientRows, recipientTotal,
   docRows, tplRows, customFields, savedReports, scopeNotice,
 }: ReportsProps) {
-  const { s, set, flash, accent } = useSF();
+  const { set, flash, accent } = useSF();
   const router = useRouter();
   const pathname = usePathname() || '/reports';
   const A = accent();

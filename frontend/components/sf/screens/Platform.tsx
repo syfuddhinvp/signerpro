@@ -102,7 +102,7 @@ export default function Platform({
   stats, tenants, tenantTotal, tenantDetail, planCodes, directory, directoryTotal, matrix, flags,
   security, certifications, complianceNote, audit, plans, filters, seatsLabel, tenantCountLabel,
 }: PlatformProps) {
-  const { s, set, flash, accent, initials } = useSF();
+  const { flash, accent, initials } = useSF();
   const A = accent();
   const router = useRouter();
   const pathname = usePathname();

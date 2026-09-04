@@ -7,7 +7,7 @@
  * to the trigger — plus the background being marked inert while it is open.
  */
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { screen, waitFor, render } from '@testing-library/react';

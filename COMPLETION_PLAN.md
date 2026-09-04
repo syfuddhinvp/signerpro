@@ -66,8 +66,17 @@ rather than the test suite's SQLite — 15 revisions apply to an empty database,
 and diff clean against `Base.metadata` — and `.env.prod.example` is confirmed complete, which is the
 check that otherwise fails at deploy time rather than in CI.
 
-**W19 (new, P3):** there is no ESLint configuration, so CI's lint step warns and skips by design.
-Add `eslint.config.mjs` with `eslint-config-next` to turn it on.
+**W19 (new, P3) — done.** `eslint.config.mjs` (flat config, `next/core-web-vitals` +
+`next/typescript`) turns CI's warn-and-skip lint step into a real gate. Turning it on found **13
+genuine dead-code errors** — unused imports, an unused palette constant, dead locals in `Modals`,
+`Builder`, `Platform`, `Reports`, `Revenue` and `state` — all removed. `no-explicit-any` is carried
+as a warning, not an error: there are ~45, almost all at real boundaries (JSON off the wire, the
+adapters that narrow it, generic style helpers), and rewriting them is a refactor with regression
+risk and no correctness benefit. Kept visible so new ones still have to be argued for.
+
+One thing to know if you run this: ESLint flagged `s` in `Reports.tsx` but not `set`, and removing
+both broke the typecheck. `tsc` caught it immediately — but it is a reminder that lint output is
+per-symbol and reading it as per-line will delete live code.
 
 ### 1c. Production stack — full round trip, 4 September 2026
 

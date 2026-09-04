@@ -164,13 +164,12 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # A real gate now (COMPLETION_PLAN.md W19): this step used to warn and
+      # skip because no ESLint configuration existed. `--max-warnings` is
+      # deliberately not zero -- ~45 `no-explicit-any` warnings are carried
+      # knowingly (see eslint.config.mjs); errors are what fail the build.
       - name: Lint
-        run: |
-          if ls .eslintrc* eslint.config.* >/dev/null 2>&1; then
-            pnpm lint
-          else
-            echo "::warning::No ESLint configuration found in frontend/. Lint was skipped. Add eslint.config.mjs with eslint-config-next to enable it."
-          fi
+        run: npx eslint .
 
       # Real tests exist now, so an empty suite is a failure, not a warning:
       # no --passWithNoTests. `--coverage` enforces the floors in
