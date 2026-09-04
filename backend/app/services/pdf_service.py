@@ -24,6 +24,7 @@ from app.models.field import Field
 from app.models.field_attachment import FieldAttachment
 from app.models.recipient import Recipient
 from app.models.signature import Signature
+from app.services import pades_service
 from app.services.audit_service import audit_service
 
 
@@ -85,6 +86,12 @@ class PdfService:
         output = BytesIO()
         writer.write(output)
         final_bytes = output.getvalue()
+        # Optional PAdES signature. Off unless a certificate is configured, so
+        # the default product remains SES and is described as such. The hash is
+        # taken *after* signing, because the signature changes the bytes and
+        # the seal must describe the file that is actually stored.
+        seal_result = pades_service.seal(final_bytes)
+        final_bytes = seal_result.pdf
         final_hash = sha256_bytes(final_bytes)
         final_path = f"documents/{document.id}/final.pdf"
         storage.write_bytes(final_path, final_bytes)

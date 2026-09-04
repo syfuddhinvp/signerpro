@@ -11,6 +11,7 @@ from app.schemas.audit import (
     AuditTrailEntry,
     CertificateSummaryResponse,
 )
+from app.services import pades_service
 from app.services.audit_service import audit_service
 from app.services.document_service import document_service
 from app.services.pdf_service import pdf_service
@@ -76,6 +77,7 @@ def certificate_summary(document_id: str, db: Session = Depends(get_db), user: U
         hash_algorithm="SHA-256",
         time_source=TIME_SOURCE,
         certificate_authority=CERTIFICATE_AUTHORITY,
+        signature_level=pades_service.describe(),
         final_sha256=document.final_sha256,
         original_sha256=document.original_sha256,
         chain_head=verification["chain_head"],

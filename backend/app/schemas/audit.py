@@ -49,6 +49,9 @@ class CertificateSummaryResponse(BaseModel):
     hash_algorithm: str
     time_source: str
     certificate_authority: str
+    #: What the signature on this document is actually worth. Never hardcoded:
+    #: it reflects whether PAdES sealing is configured (DECISIONS.md D1).
+    signature_level: str = "Simple Electronic Signature (ESIGN/UETA)"
     #: The hash recorded when the document was sealed.
     final_sha256: str | None
     original_sha256: str | None
@@ -84,3 +87,4 @@ class PublicVerificationResponse(BaseModel):
     final_pdf_intact: bool | None = None
     audit_entry_count: int | None = None
     chain_valid: bool | None = None
+    signature_level: str | None = None

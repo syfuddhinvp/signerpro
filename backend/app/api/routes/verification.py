@@ -27,6 +27,7 @@ from app.core.ratelimit import public_verification_limiter
 from app.models.document import Document
 from app.models.enums import DocumentStatus, RecipientStatus
 from app.schemas.audit import PublicVerificationResponse
+from app.services import pades_service
 from app.services.audit_service import audit_service
 from app.services.pdf_service import pdf_service
 
@@ -76,5 +77,6 @@ def verify_document(
         final_pdf_intact=files.get("final_pdf_intact"),
         audit_entry_count=verification["entry_count"],
         chain_valid=verification["valid"],
+        signature_level=pades_service.describe(),
         detail=None,
     )

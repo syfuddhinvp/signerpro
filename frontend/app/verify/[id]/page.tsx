@@ -31,6 +31,7 @@ type VerificationResponse = {
   final_pdf_intact: boolean | null;
   audit_entry_count: number | null;
   chain_valid: boolean | null;
+  signature_level: string | null;
 };
 
 const PAGE: React.CSSProperties = {
@@ -147,6 +148,9 @@ export default async function Page({
               </span>
             </div>
             <div style={ROW}>
+              <span style={LABEL}>Signature type</span><span style={VALUE}>{data.signature_level}</span>
+            </div>
+            <div style={ROW}>
               <span style={LABEL}>{data.hash_algorithm}</span>
               <span style={{ ...VALUE, fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontWeight: 500, fontSize: '.6875rem' }}>
                 {data.final_sha256}
@@ -157,8 +161,9 @@ export default async function Page({
 
         <p style={{ fontSize: '.6875rem', color: TEXT_MUTED, marginTop: '20px', lineHeight: 1.6 }}>
           Verification confirms that a sealed document still matches what was recorded at signing.
-          It is an electronic signature record under ESIGN/UETA; it is not a cryptographic
-          document signature (PAdES/QES), and this page does not assert the identity of the signers.
+          The signature type above states exactly what was applied — this page does not assert the
+          identity of the signers, and an advanced signature is only ever as good as the
+          certificate behind it.
         </p>
       </div>
     </main>

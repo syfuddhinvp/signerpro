@@ -23,8 +23,15 @@ cryptographic document sealing that does not exist is the kind of misstatement t
 software bug into liability — and the audit already caught one false PCI claim in the UI.
 **How to apply.** Any new copy, marketing page, or plan description goes through this filter before
 merge. When a customer asks for AdES, the answer is "not today", not a roadmap promise in the UI.
-**Reversed by.** Actually building W14, with a test that verifies the signature against a third-party
-validator — not by a decision to market differently.
+**Amended 4 September 2026 — W14 is built, and the rule is unchanged.** PAdES sealing now exists
+(`pades_service`), but it is **off unless a signing certificate is configured**, so the default
+product is still SES and still described as such. The signature level is no longer a hardcoded
+string anywhere: `describe()` returns what is actually in force, and the certificate summary, the
+public verification API and the verification page all report that. A self-signed certificate
+produces a sealed document that no reader's trust store trusts — real tamper-evidence at the file
+level, and emphatically not QES. Nothing here licenses claiming QES; it licenses claiming exactly
+what the configured certificate supports.
+**Reversed by.** Nothing. The rule was never "don't build it", it was "don't claim it".
 
 ### D2 — `formula` fields stay retired; do not remove the type.
 **Decision.** Keep `formula` in the backend enum and in `adapters.ts`'s round trip, keep it out of

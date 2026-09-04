@@ -35,3 +35,6 @@ pyasn1>=0.6.4
 # every login/OTP/password-reset limit by the worker count. Pure Python, no
 # native build, ~1 MB.
 redis>=5.0.0
+# Optional PAdES sealing of the executed PDF. Inert unless
+# PADES_CERTIFICATE_PATH is set -- see app/services/pades_service.py.
+pyhanko==0.37.0

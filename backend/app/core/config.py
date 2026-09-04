@@ -96,6 +96,16 @@ class Settings(BaseSettings):
     #: Days of ``system_logs`` to keep. Both a disk and a GDPR concern.
     system_log_retention_days: int = Field(default=90, alias="SYSTEM_LOG_RETENTION_DAYS")
 
+    # --- PAdES sealing (optional) --------------------------------------------
+    #: Path to a PKCS#12 (.p12/.pfx) bundle holding the signing key and chain.
+    #: Unset -- the default -- means the product applies no cryptographic
+    #: signature and remains a Simple Electronic Signature platform, which is
+    #: the only thing it may then be marketed as (DECISIONS.md D1).
+    pades_certificate_path: str | None = Field(default=None, alias="PADES_CERTIFICATE_PATH")
+    pades_certificate_passphrase: str | None = Field(
+        default=None, alias="PADES_CERTIFICATE_PASSPHRASE"
+    )
+
 
 #: The only environments that may run with insecure development defaults.
 NON_PRODUCTION_ENVIRONMENTS = {"development", "dev", "local", "test", "testing"}
