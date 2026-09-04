@@ -28,6 +28,7 @@ from app.models.report import CustomReport, ReportExport, ReportSchedule
 from app.models.saved_signature import SavedSignature
 from app.models.signature import Signature
 from app.models.signing_token import SigningToken
+from app.models.sso_connection import SsoConnection
 from app.models.subscription import ProcessedWebhookEvent, Subscription
 from app.models.support import SupportTicket, TicketMessage
 from app.models.system_log import SystemLog
@@ -78,6 +79,7 @@ __all__ = [
     "SecurityPosture",
     "Signature",
     "SigningToken",
+    "SsoConnection",
     "Subscription",
     "SupportTicket",
     "SystemLog",

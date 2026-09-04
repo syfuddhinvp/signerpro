@@ -41,3 +41,6 @@ pyhanko==0.37.0
 # WebAuthn passkeys. Only public keys are stored, so this table leaking
 # does not let anyone authenticate -- unlike a TOTP seed.
 webauthn==3.0.0
+# SAML 2.0 SSO. Pulls xmlsec (native), which is what actually verifies the
+# assertion signature -- see app/services/sso_service.py.
+python3-saml==1.16.0

@@ -50,7 +50,11 @@ is the correct end state for now.
 **Why.** Each is 1–3 weeks and each is only ever bought by enterprise buyers. Building them
 speculatively before v1 ships delays every customer to serve none.
 **How to apply.** In the enterprise plan description, these are absent, not "coming soon".
-**Reversed by.** A signed deal contingent on one.
+**Amended 4 September 2026 — both are built.** WebAuthn passkeys and SAML SSO now exist, so the
+"deferred" half of this decision no longer applies. What survives is the reasoning about *claims*:
+neither is marketed as more than it is, and both refuse rather than degrade when misconfigured. The
+enterprise plan should now list them because they exist, not because they are coming.
+**Reversed by.** Nothing left to reverse.
 
 ### D4 — Pre-C1 field coordinates: purge, do not migrate.
 **Decision.** For any environment that predates the C1 origin fix, delete field rows on unsent

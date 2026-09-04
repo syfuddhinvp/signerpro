@@ -241,6 +241,19 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         if user.status == "deprovisioned":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated")
+        if user.status == "erased":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated")
+        # An organization that enforces SSO has decided its IdP is the only way
+        # in. Leaving the password path open would make "enforce SSO" a
+        # suggestion -- the offboarding an admin does in their IdP would not
+        # actually lock anyone out.
+        from app.services.sso_service import sso_service
+
+        if sso_service.is_enforced(db, user.organization_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This workspace requires single sign-on",
+            )
         if self._mfa_active(user):
             return self._mfa_challenge(db, user, remember=payload.remember)
         return self._issue_session(db, user, request=request, remember=payload.remember)
