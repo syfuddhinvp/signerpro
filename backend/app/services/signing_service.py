@@ -222,6 +222,10 @@ class SigningService:
         # enforced server-side, not just in the builder UI.
         field_service.validate_value(document, field, new_value)
         field.value = new_value
+        # Any formula that references this field is now stale. Recomputed here
+        # rather than at completion so the signer sees the real total as they
+        # fill the form in.
+        field_service.recompute_formulas(db, document)
         audit_service.log(
             db,
             document_id=document.id,
@@ -665,12 +669,16 @@ class SigningService:
 
         A field is skipped when its conditional rule is unmet — the signer is
         forbidden from writing to it, so it cannot be part of what they owe.
+        The same reasoning excludes ``formula`` fields: they are derived by the
+        server and ``validate_value`` refuses a posted value, so requiring one
+        would be the conditional deadlock all over again.
         """
         return [
             field
             for field in document.fields
             if field.recipient_id == recipient.id
             and field.required
+            and field.type != FieldType.formula
             and field_service.condition_is_met(document, field)
         ]
 

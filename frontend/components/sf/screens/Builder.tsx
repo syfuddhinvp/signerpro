@@ -549,6 +549,20 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     if (!one) return;
     P.setFieldExtras(one.id, { defaultValue: value ? value : null });
   };
+  /* A Calculated field is authored as an expression over other fields' merge
+     tags. It is evaluated server-side (formula_service.py) — the number the
+     signer sees is never one the browser computed, because it ends up in an
+     executed contract. */
+  const wantsFormula = one ? one.type === 'formula' : false;
+  const formulaExpression =
+    oneExtras && oneExtras.options && !Array.isArray(oneExtras.options)
+      ? String((oneExtras.options as Record<string, unknown>).expression ?? '')
+      : '';
+  const editFormula = (value: string) => {
+    if (!one) return;
+    P.setFieldExtras(one.id, { options: value.trim() ? { expression: value } : null });
+  };
+  const taggedFields = F.filter(f => one && f.id !== one.id && f.merge);
   const condOptions = F.filter(f => one && f.id !== one.id && f.page === (one ? one.page : 1))
     .map(f => ({ id: f.id, label: f.label + ' (' + meta(f.type).label + ')' }));
   const mergeSuggestions = ['{{client.name}}','{{client.email}}','{{contract.amount}}','{{contract.signedAt}}'].map(tag => ({
@@ -909,6 +923,39 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     {oneChoices.length
                       ? oneChoices.length + (oneChoices.length === 1 ? ' choice' : ' choices') + ' — the recipient picks one'
                       : 'No choices yet — the recipient is shown nothing to pick from until you add some.'}
+                  </div>
+                ) : null}
+
+                {wantsFormula ? (
+                  <label style={lbl}>Expression
+                    <input
+                      type="text"
+                      value={formulaExpression}
+                      onChange={e => editFormula(e.target.value)}
+                      placeholder={'{{subtotal}} * 0.2'}
+                      style={input}
+                    />
+                  </label>
+                ) : null}
+                {wantsFormula ? (
+                  <div style={{ fontSize:'.71875rem', lineHeight:1.5, color: formulaExpression ? '#047857' : '#b45309' }}>
+                    {formulaExpression
+                      ? 'Calculated on the server when the recipient fills the fields it references. Numbers and + − × ÷ only.'
+                      : 'No expression yet — this field stays blank until you give it one. Reference other fields by their merge tag.'}
+                  </div>
+                ) : null}
+                {wantsFormula && taggedFields.length ? (
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:'6px' }}>
+                    {taggedFields.map(f => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => editFormula(formulaExpression + f.merge)}
+                        style={{ padding:'4px 8px', borderRadius:'7px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', cursor:'pointer' }}
+                      >
+                        {f.merge}
+                      </button>
+                    ))}
                   </div>
                 ) : null}
 

@@ -12,11 +12,33 @@ from app.models.enums import FieldType
 from app.models.field import Field
 from app.models.user import User
 from app.schemas.field import FieldBulkSaveRequest, FieldCreate, FieldUpdate
+from app.services import formula_service
 from app.services.audit_service import audit_service
 from app.services.document_service import document_service
 
 
 class FieldService:
+    def _validate_formula(self, field_type, options) -> None:
+        """Reject an unusable expression while the author is still here.
+
+        A formula that only fails at signing time fails in front of the
+        counterparty, on a document that has already been sent.
+        """
+        if field_type != FieldType.formula:
+            return
+        expression = None
+        if isinstance(options, dict):
+            expression = options.get("expression")
+        if not expression or not str(expression).strip():
+            # Placing the field and typing its expression are two separate
+            # actions in the builder, so an empty expression is a legal draft.
+            # ``validate_for_send`` is what refuses to send one.
+            return
+        try:
+            formula_service.parse(str(expression))
+        except formula_service.FormulaError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     def create(self, db: Session, *, document: Document, user: User, payload: FieldCreate) -> Field:
         document_service.ensure_editable(document)
         self._validate_recipient(document, payload.recipient_id)
@@ -26,6 +48,7 @@ class FieldService:
         data["condition"] = condition
         self._validate_condition(document, condition, field_id=None)
         self._validate_validation(data.get("validation"), data.get("validation_pattern"))
+        self._validate_formula(data.get("type"), data.get("options"))
         field = Field(document_id=document.id, **data)
         db.add(field)
         db.flush()
@@ -67,6 +90,10 @@ class FieldService:
             self._validate_validation(
                 updates.get("validation", field.validation),
                 updates.get("validation_pattern", field.validation_pattern),
+            )
+        if "options" in updates or "type" in updates:
+            self._validate_formula(
+                updates.get("type", field.type), updates.get("options", field.options)
             )
         for key, value in updates.items():
             setattr(field, key, value)
@@ -129,6 +156,7 @@ class FieldService:
                 page_cache=page_cache,
             )
             self._validate_validation(data.get("validation"), data.get("validation_pattern"))
+            self._validate_formula(data.get("type"), data.get("options"))
             if field_id and field_id in existing:
                 field = existing[field_id]
                 data.pop("value", None)
@@ -282,8 +310,53 @@ class FieldService:
             return kind
         return self.TYPE_IMPLIED_VALIDATION.get(field.type, "none")
 
+    def formula_expression(self, field: Field) -> str | None:
+        """The expression authored on a formula field, if any."""
+        options = field.options
+        if isinstance(options, dict):
+            expression = options.get("expression")
+            return expression if isinstance(expression, str) and expression.strip() else None
+        return None
+
+    def recompute_formulas(self, db: Session, document: Document) -> None:
+        """Derive every formula field on ``document`` from the others.
+
+        Server-side and authoritative: a computed total ends up in an executed
+        contract, so it is never whatever the browser posted. Called after any
+        value changes.
+        """
+        fields = list(document.fields)
+        values = {
+            item.merge_tag: item.value
+            for item in fields
+            if item.merge_tag and item.type != FieldType.formula
+        }
+        for item in fields:
+            if item.type != FieldType.formula:
+                continue
+            expression = self.formula_expression(item)
+            if not expression:
+                continue
+            try:
+                computed = formula_service.evaluate(expression, values)
+            except formula_service.FormulaError:
+                # An expression that no longer parses (a referenced field was
+                # deleted, say) leaves the field blank rather than stamping a
+                # stale number that no longer means anything.
+                computed = None
+            if item.value != computed:
+                item.value = computed
+                db.add(item)
+
     def validate_value(self, document: Document, field: Field, value: str | None) -> None:
         """Enforce authoring intent when a signer submits a value."""
+        # A formula is derived, never submitted: accepting a posted value would
+        # let a signer choose the total on their own contract.
+        if field.type == FieldType.formula:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Field '{field.label}' is calculated and cannot be filled in directly",
+            )
         if field.read_only:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' is read-only")
         if not self.condition_is_met(document, field):
@@ -313,6 +386,14 @@ class FieldService:
                 Decimal(text.replace(",", ""))
             except (InvalidOperation, ValueError) as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must be numeric") from exc
+
+        # A currency field that neither formats nor validates an amount is why
+        # this type was withdrawn from the palette. Now it does both.
+        if field.type == FieldType.currency and formula_service.format_currency(text) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Field '{field.label}' must be an amount",
+            )
         elif kind == "date":
             from datetime import date
 

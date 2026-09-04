@@ -292,6 +292,15 @@ class DocumentService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Add at least one field before sending")
         for field in document.fields:
             self._validate_field_page_and_coords(document, field)
+            # A calculated field with no expression computes nothing and would
+            # be stamped blank into an executed contract. Fine as a draft,
+            # never fine to send.
+            expression = field.options.get("expression") if isinstance(field.options, dict) else None
+            if field.type == FieldType.formula and not (expression and str(expression).strip()):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Calculated field '{field.label}' needs an expression before this can be sent",
+                )
         for recipient in document.recipients:
             # RTE-3: only a recipient with a signing obligation must own
             # something to do. A `copy` recipient is a CC — requiring them to

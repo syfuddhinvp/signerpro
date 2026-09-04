@@ -11,10 +11,13 @@ export const ACCENT_DEFAULT = '#4f46e5';
  * flattened on save any more (see `adapters.ts:fieldTypeToApi`).
  *
  * `note` is a warning the inspector renders for a type the product does not
- * fully implement yet. Nothing carries one today: `formula` and `currency`,
- * which did, are no longer offered — see the comment where they used to sit.
- * A field already saved as either type still loads, renders and signs; the
- * palette simply cannot mint a new one.
+ * fully implement yet. Nothing carries one today.
+ *
+ * `formula` and `currency` were withdrawn for a while because neither did what
+ * its label promised. Both are back, and both now mean it: a formula is
+ * evaluated server-side from the other fields' merge tags
+ * (`backend/app/services/formula_service.py`), and currency is parsed and
+ * normalised to two decimal places, rejecting anything that is not an amount.
  */
 export const TYPES: { id: string; label: string; icon: string; w: number; h: number; note?: string }[] =[
     { id:'signature', label:'Signature', icon:'S', w:200, h:56 },
@@ -29,11 +32,8 @@ export const TYPES: { id: string; label: string; icon: string; w: number; h: num
     { id:'stamp', label:'Stamp', icon:'✦', w:112, h:112 },
     { id:'attachment', label:'Attachment', icon:'⇪', w:196, h:64 },
     { id:'number', label:'Number', icon:'#', w:140, h:40 },
-    /* Currency and Formula were removed from the palette. Formula computed
-       nothing — it was a plain input wearing an `fx` badge — and Currency was a
-       text box that formatted nothing and validated nothing, so neither could
-       be placed honestly. The API still accepts both types, so a field authored
-       earlier keeps working; there is just no way to add a new one. */
+    { id:'currency', label:'Currency', icon:'$', w:160, h:40 },
+    { id:'formula', label:'Calculated', icon:'fx', w:176, h:40 },
     { id:'datetime', label:'Date and Time', icon:'D+', w:196, h:40 }
   ];
 
@@ -43,15 +43,13 @@ export const TYPES: { id: string; label: string; icon: string; w: number; h: num
  * field keeps its own label and default size instead of silently resolving to
  * `TYPES[0]` and describing itself as a Signature.
  *
- * Withdrawn because neither could be placed honestly: `formula` computed
- * nothing (a plain input wearing an `fx` badge) and `currency` neither
- * formatted nor validated an amount.
+ * Empty today: `formula` and `currency` were the only two, and both have been
+ * implemented and returned to the palette. Kept as a mechanism because it is
+ * the honest way to withdraw a type without stranding fields already authored
+ * as it — `metaOf` resolves from here so a legacy field keeps its own label and
+ * size instead of silently describing itself as a Signature.
  */
 export const RETIRED_TYPES: { id: string; label: string; icon: string; w: number; h: number; note?: string }[] = [
-  { id:'currency', label:'Currency (retired)', icon:'$', w:160, h:40,
-    note:'This type is no longer offered. It never formatted or validated an amount — it is a plain text input. Replace it with a Text or Number field.' },
-  { id:'formula', label:'Formula (retired)', icon:'fx', w:176, h:40,
-    note:'This type is no longer offered, and nothing ever computed it. It is stored and shown to the recipient as a plain input. Do not use it where a calculated total is required.' },
 ];
 
 export const RECIPIENTS: { id: string; name: string; email: string; role: string; color: string; order: number; status: string }[] =[
