@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
 import { useOptionalSession } from '@/components/sf/SessionProvider';
+import { useModalBehaviour } from '@/components/sf/useModalBehaviour';
 import { useNav } from '@/lib/sf/nav';
 import {
   SIG_TABS, TYPE_FACES, INKS, MODAL_COPY_STATIC, PAY_TITLES,
@@ -103,86 +104,10 @@ export default function Modals() {
 
   const closeModal = useCallback(() => set({ modal: null }), [set]);
 
-  /* ── modal behaviour ────────────────────────────────────────────────────
-     The dialog already carried `role="dialog"` and `aria-modal="true"`, but
-     none of the behaviour those attributes promise. A keyboard user opening
-     the signature-adoption dialog tabbed straight out into the page behind it.
-     This adds the four things a modal owes its user:
-
-       · focus moves into the dialog when it opens,
-       · Tab is contained inside it,
-       · Escape closes it,
-       · focus returns to whatever opened it.
-
-     The background is made inert by walking the ancestor chain and hiding
-     every off-path sibling, rather than by portalling the dialog out — the
-     dialog stays exactly where it renders today.
-     ─────────────────────────────────────────────────────────────────────── */
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  const openModal = s.modal;
-
-  useEffect(() => {
-    if (!openModal) return;
-    const root = dialogRef.current;
-    if (!root) return;
-
-    const opener = document.activeElement as HTMLElement | null;
-    const SELECTOR = [
-      'a[href]', 'button:not([disabled])', 'input:not([disabled])',
-      'select:not([disabled])', 'textarea:not([disabled])', 'canvas[tabindex]',
-      '[tabindex]:not([tabindex="-1"])',
-    ].join(',');
-    const focusable = () =>
-      Array.from(root.querySelectorAll<HTMLElement>(SELECTOR))
-        .filter(el => !el.hasAttribute('hidden') && el.getAttribute('aria-hidden') !== 'true');
-
-    // 1 · focus in — the first control, or the dialog itself if it has none.
-    const first = focusable()[0];
-    (first ?? root).focus();
-
-    // 2 · Escape, and 3 · the tab trap.
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        closeModal();
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const items = focusable();
-      if (!items.length) { event.preventDefault(); root.focus(); return; }
-      const head = items[0];
-      const tail = items[items.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-      const outside = !active || !root.contains(active);
-      if (event.shiftKey && (active === head || outside)) { event.preventDefault(); tail.focus(); }
-      else if (!event.shiftKey && (active === tail || outside)) { event.preventDefault(); head.focus(); }
-    };
-    document.addEventListener('keydown', onKeyDown, true);
-
-    // 4 · the background is inert while the dialog is up.
-    const hidden: { el: Element; aria: string | null }[] = [];
-    let node: HTMLElement | null = root;
-    while (node && node.parentElement) {
-      const parent: HTMLElement = node.parentElement;
-      for (const sibling of Array.from(parent.children)) {
-        if (sibling === node) continue;
-        hidden.push({ el: sibling, aria: sibling.getAttribute('aria-hidden') });
-        sibling.setAttribute('aria-hidden', 'true');
-      }
-      node = parent === document.body ? null : parent;
-    }
-
-    return () => {
-      document.removeEventListener('keydown', onKeyDown, true);
-      for (const entry of hidden) {
-        if (entry.aria === null) entry.el.removeAttribute('aria-hidden');
-        else entry.el.setAttribute('aria-hidden', entry.aria);
-      }
-      // 5 · focus goes back to whatever opened the dialog.
-      if (opener && document.contains(opener)) opener.focus();
-    };
-  }, [openModal, closeModal]);
+  /* Modal behaviour (focus-in, tab trap, Escape, inert background, focus
+     return) lives in `useModalBehaviour` so the public signing route shares
+     this exact implementation rather than reimplementing it. */
+  const dialogRef = useModalBehaviour<HTMLDivElement>(Boolean(s.modal), closeModal);
 
   /* The send confirmation is raised from the builder wizard and the header
      button, so the envelope it acts on is the document in the URL. Sending is

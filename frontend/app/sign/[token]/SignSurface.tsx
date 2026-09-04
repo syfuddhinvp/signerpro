@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import Signer from '@/components/sf/screens/Signer';
+import { useModalBehaviour } from '@/components/sf/useModalBehaviour';
 import { useSF, type Recipient, type SFField } from '@/lib/sf/state';
 import type { SignerField } from '@/lib/sf/adapters';
 import { btn, inputStyle } from '@/lib/sf/ui';
@@ -81,6 +82,12 @@ export default function SignSurface(props: SignSurfaceProps) {
   const [pending, startTransition] = useTransition();
 
   const [modal, setModal] = useState<ModalKind>(null);
+  // These four overlays declared role="dialog" aria-modal="true" and had none
+  // of the behaviour that claims: no focus trap, no Escape, no focus return.
+  // This is the unauthenticated, legally operative screen, so it shares the
+  // in-app implementation rather than carrying a weaker copy.
+  const closeModal = useCallback(() => setModal(null), []);
+  const dialogRef = useModalBehaviour<HTMLDivElement>(modal !== null, closeModal);
   const [sigTab, setSigTab] = useState<'draw' | 'type'>('draw');
   const [typedName, setTypedName] = useState(signerName);
   const [typeFace, setTypeFace] = useState(TYPE_FACES[0]);
@@ -225,7 +232,7 @@ export default function SignSurface(props: SignSurfaceProps) {
       />
 
       {modal === 'signature' ? (
-        <div role="dialog" aria-modal="true" aria-label="Adopt your signature" style={overlay}>
+        <div role="dialog" aria-modal="true" aria-label="Adopt your signature" ref={dialogRef} data-sf-modal-open="" tabIndex={-1} style={overlay}>
           <div style={card('680px')}>
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -291,7 +298,7 @@ export default function SignSurface(props: SignSurfaceProps) {
       ) : null}
 
       {modal === 'disclosure' ? (
-        <div role="dialog" aria-modal="true" aria-label="Electronic Record and Signature Disclosure" style={overlay}>
+        <div role="dialog" aria-modal="true" aria-label="Electronic Record and Signature Disclosure" ref={dialogRef} data-sf-modal-open="" tabIndex={-1} style={overlay}>
           <div style={card('520px')}>
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -313,7 +320,7 @@ export default function SignSurface(props: SignSurfaceProps) {
       ) : null}
 
       {modal === 'decline' ? (
-        <div role="dialog" aria-modal="true" aria-label="Decline to sign" style={overlay}>
+        <div role="dialog" aria-modal="true" aria-label="Decline to sign" ref={dialogRef} data-sf-modal-open="" tabIndex={-1} style={overlay}>
           <div style={card('520px')}>
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -344,7 +351,7 @@ export default function SignSurface(props: SignSurfaceProps) {
       ) : null}
 
       {modal === 'reassign' ? (
-        <div role="dialog" aria-modal="true" aria-label="Reassign this envelope" style={overlay}>
+        <div role="dialog" aria-modal="true" aria-label="Reassign this envelope" ref={dialogRef} data-sf-modal-open="" tabIndex={-1} style={overlay}>
           <div style={card('520px')}>
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
