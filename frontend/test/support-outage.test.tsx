@@ -15,10 +15,14 @@ import { render, screen } from '@testing-library/react';
 
 vi.mock('next/navigation', async () => (await import('@/test/navigation')).navigationMock());
 
-const ticketPage = vi.fn();
-const stats = vi.fn();
-const quickReplies = vi.fn();
-const ticket = vi.fn();
+/* `vi.mock` is hoisted above every top-level statement, so the fns the factory
+   closes over have to be created inside `vi.hoisted` to exist by then. */
+const { ticketPage, stats, quickReplies, ticket } = vi.hoisted(() => ({
+  ticketPage: vi.fn(),
+  stats: vi.fn(),
+  quickReplies: vi.fn(),
+  ticket: vi.fn(),
+}));
 
 vi.mock('@/lib/api/client', () => ({ serverCaller: () => vi.fn() }));
 vi.mock('@/lib/api/resources', () => ({
