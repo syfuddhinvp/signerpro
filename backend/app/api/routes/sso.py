@@ -22,7 +22,11 @@ router = APIRouter(prefix="/api/auth/sso", tags=["auth"])
 class SsoConnectionRequest(BaseModel):
     idp_entity_id: str
     idp_sso_url: str
-    idp_x509_cert: str
+    #: Empty means "keep the certificate already stored". The certificate is
+    #: write-only -- it is never returned by the GET -- so a client editing any
+    #: other field has nothing to send back, and blanking it on every save
+    #: would silently break the connection.
+    idp_x509_cert: str = ""
     allowed_email_domains: str
     enabled: bool = True
     enforced: bool = False
@@ -97,7 +101,13 @@ def save_connection(
         db.add(connection)
     connection.idp_entity_id = payload.idp_entity_id
     connection.idp_sso_url = payload.idp_sso_url
-    connection.idp_x509_cert = payload.idp_x509_cert
+    if payload.idp_x509_cert.strip():
+        connection.idp_x509_cert = payload.idp_x509_cert
+    elif not connection.idp_x509_cert:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An IdP signing certificate is required",
+        )
     connection.allowed_email_domains = ",".join(domains)
     connection.enabled = payload.enabled
     connection.enforced = payload.enforced

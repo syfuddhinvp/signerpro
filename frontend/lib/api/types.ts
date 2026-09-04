@@ -1435,3 +1435,17 @@ export type PasskeyResponse = {
   created_at: string;
   last_used_at: string | null;
 };
+
+
+/** A tenant's SAML identity provider. */
+export type SsoConnectionResponse = {
+  enabled: boolean;
+  enforced: boolean;
+  auto_provision: boolean;
+  idp_entity_id: string;
+  idp_sso_url: string;
+  /** Comma-separated. The tenant boundary: see backend sso_service. */
+  allowed_email_domains: string;
+};
+
+export type SsoConnectionRequest = SsoConnectionResponse & { idp_x509_cert: string };

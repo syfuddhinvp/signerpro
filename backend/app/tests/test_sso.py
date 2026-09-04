@@ -163,3 +163,46 @@ def test_saml_settings_demand_signed_assertions(client: TestClient) -> None:
     assert settings["strict"] is True
     assert settings["security"]["wantAssertionsSigned"] is True
     assert settings["security"]["rejectUnsolicitedResponsesWithInResponseTo"] is True
+
+
+def test_saving_without_a_certificate_keeps_the_stored_one(client: TestClient) -> None:
+    """The certificate is write-only, so an edit to any other field sends none.
+
+    Blanking it on every save would silently break the connection -- and
+    breaking signature verification is the worst possible thing to break.
+    """
+    from sqlalchemy import text
+
+    headers = auth_headers(client)
+    _configure(client, headers)
+    db = _db()
+    before = db.execute(text("SELECT idp_x509_cert FROM sso_connections")).scalar()
+
+    updated = client.put(
+        "/api/auth/sso/connection",
+        json={**CONNECTION, "idp_x509_cert": "", "enforced": True},
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["enforced"] is True
+
+    db2 = _db()
+    after = db2.execute(text("SELECT idp_x509_cert FROM sso_connections")).scalar()
+    assert after == before
+
+
+def test_a_first_time_connection_still_requires_a_certificate(client: TestClient) -> None:
+    headers = auth_headers(client)
+    response = client.put(
+        "/api/auth/sso/connection", json={**CONNECTION, "idp_x509_cert": ""}, headers=headers
+    )
+    assert response.status_code == 400
+    assert "certificate" in response.text
+
+
+def test_the_certificate_is_never_returned(client: TestClient) -> None:
+    """A write-only secret that the API echoes back is not write-only."""
+    headers = auth_headers(client)
+    body = _configure(client, headers)
+    assert "idp_x509_cert" not in body
+    assert "idp_x509_cert" not in client.get("/api/auth/sso/connection", headers=headers).json()

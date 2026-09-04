@@ -77,6 +77,10 @@ export const auth = {
   passkeyRegisterFinish: (c: Caller, credential: Record<string, unknown>, label: string | null) =>
     post<T.PasskeyResponse>(c, '/api/auth/passkeys/register/finish', { credential, label }),
   passkeyDelete: (c: Caller, id: string) => del<void>(c, `/api/auth/passkeys/${id}`),
+
+  ssoConnection: (c: Caller) => get<T.SsoConnectionResponse | null>(c, '/api/auth/sso/connection'),
+  saveSsoConnection: (c: Caller, body: T.SsoConnectionRequest) =>
+    put<T.SsoConnectionResponse>(c, '/api/auth/sso/connection', body),
 };
 
 export const organizations = {

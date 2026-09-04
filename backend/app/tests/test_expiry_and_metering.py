@@ -162,10 +162,15 @@ def test_exhausted_sms_allowance_degrades_to_email(client: TestClient, pdf_bytes
     token = token_from_link(sent.json()["signing_links"][0]["signing_link"])
 
     sms_calls: list[str] = []
-    monkeypatch.setattr(
-        "app.services.sms_service.sms_service.send_sms",
-        lambda **kwargs: sms_calls.append(kwargs["to_phone"]),
-    )
+    def fake_send_sms(**kwargs) -> bool:
+        # Returning True matters: send_sms now reports whether delivery
+        # actually happened, and a falsy answer means "the provider refused",
+        # which the OTP path turns into a 502. `list.append` returns None, so
+        # the old one-line stub was claiming a failed send.
+        sms_calls.append(kwargs["to_phone"])
+        return True
+
+    monkeypatch.setattr("app.services.sms_service.sms_service.send_sms", fake_send_sms)
 
     assert client.post(f"/api/sign/{token}/otp/send").status_code in (200, 204)
     assert sms_calls == ["+15550000001"]

@@ -4,6 +4,7 @@ import { serverCaller } from '@/lib/api/client';
 import { support as supportApi } from '@/lib/api/resources';
 import { toQuickReplyPairs, toTenantTicketTiles } from '@/lib/sf/adapters';
 import type { TicketDetailResponse, TicketPage } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Support · SignForge' };
 
@@ -24,15 +25,27 @@ export default async function Page() {
   const detail: TicketDetailResponse | null = detailResult && detailResult.ok ? detailResult.data : null;
 
   return (
-    <Support
-      page={page}
-      detail={detail}
-      /* `GET /api/support/agents` requires platform admin — a tenant caller has
-         no roster, so the assignee select shows only the current holder. */
-      agents={[]}
-      stats={toTenantTicketTiles(statsResult.ok ? statsResult.data : null)}
-      quickReplies={toQuickReplyPairs(repliesResult.ok ? repliesResult.data : [])}
-      scope={undefined}
-    />
+    /* Substituting EMPTY_PAGE on a failed load and rendering nothing else made
+       an outage look like a healthy, empty workspace: the screen states
+       "You have no support tickets yet" -- a confident claim about the
+       account, from a request that never answered. The platform twin already
+       guards this; the tenant route was missed. */
+    <>
+      {!pageResult.ok || !statsResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Your support tickets" detail={(pageResult.ok ? null : pageResult.error.message) ?? (statsResult.ok ? null : statsResult.error.message)} />
+        </div>
+      ) : null}
+      <Support
+        page={page}
+        detail={detail}
+        /* `GET /api/support/agents` requires platform admin — a tenant caller
+           has no roster, so the assignee select shows only the current holder. */
+        agents={[]}
+        stats={toTenantTicketTiles(statsResult.ok ? statsResult.data : null)}
+        quickReplies={toQuickReplyPairs(repliesResult.ok ? repliesResult.data : [])}
+        scope={undefined}
+      />
+    </>
   );
 }

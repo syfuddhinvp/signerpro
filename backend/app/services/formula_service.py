@@ -196,9 +196,20 @@ def _to_decimal(raw: str | None) -> Decimal | None:
     return number
 
 
-def _format(value: Decimal) -> str:
-    """Two decimal places, which is what a contract total is."""
-    quantized = value.quantize(Decimal("0.01"))
+def _format(value: Decimal) -> str | None:
+    """Two decimal places, which is what a contract total is.
+
+    Total, rather than raising, because there is no caller for whom an
+    exception here is the right answer. ``Decimal`` treats "1e999" as a
+    perfectly finite number -- ``is_finite()`` is True -- and only refuses at
+    ``quantize``, so a value that passed every earlier guard could still blow
+    up at the last step and 500 the signing endpoint. Anything that will not
+    quantize is not a contract total; it is a blank.
+    """
+    try:
+        quantized = value.quantize(Decimal("0.01"))
+    except (InvalidOperation, Overflow):
+        return None
     return f"{quantized:,}"
 
 
@@ -209,4 +220,4 @@ def format_currency(raw: str | None) -> str | None:
     rather than stamp an unparseable string into the contract.
     """
     number = _to_decimal(raw)
-    return None if number is None else _format(number)
+    return None if number is None else _format(number)  # _format is total

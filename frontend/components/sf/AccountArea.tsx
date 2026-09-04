@@ -24,6 +24,7 @@ import { account as accountApi, auth as authApi, organizations as organizationsA
 import type {
   AccountAuditFeed, CloudTargetItem, CurrentUserResponse, IntegrationResponse,
   MfaEnrollResponse, MfaStatusResponse, NotificationPreferenceResponse, PasskeyResponse,
+  SsoConnectionResponse,
   OrganizationResponse, SavedSignatureResponse, SessionResponse,
   TeamResponse,
 } from '@/lib/api/types';
@@ -71,6 +72,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   const [sessions, setSessions] = useState<SessionResponse[] | null>(null);
   const [mfa, setMfa] = useState<MfaStatusResponse | null>(null);
   const [passkeys, setPasskeys] = useState<PasskeyResponse[] | null>(null);
+  const [sso, setSso] = useState<SsoConnectionResponse | null>(null);
   const [enrolment, setEnrolment] = useState<MfaEnrollResponse | null>(null);
   const [notifPrefsData, setNotifPrefs] = useState<NotificationPreferenceResponse[] | null>(null);
   const [integrationsData, setIntegrations] = useState<IntegrationResponse[] | null>(null);
@@ -96,6 +98,13 @@ export default function AccountArea({ section }: { section: AccountSection }) {
     void authApi.passkeys(apiCall).then(res => {
       if (!res.ok) { markFailed('passkeys'); return; }
       setPasskeys(res.data);
+    });
+  }, [apiCall, markFailed]);
+
+  const loadSso = useCallback(() => {
+    void authApi.ssoConnection(apiCall).then(res => {
+      if (!res.ok) { markFailed('sso'); return; }
+      setSso(res.data);
     });
   }, [apiCall, markFailed]);
 
@@ -138,7 +147,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
         setSignatures(res.data);
       });
     }
-    if (section === 'security') { loadSessions(); loadMfa(); loadPasskeys(); }
+    if (section === 'security') { loadSessions(); loadMfa(); loadPasskeys(); loadSso(); }
     if (section === 'notifications' || section === 'email') loadNotifPrefs();
     if (section === 'integrations') loadIntegrations();
     if (section === 'cloud') loadCloud();
@@ -157,7 +166,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
         setAudit(res.data);
       });
     }
-  }, [section, loadSessions, loadMfa, loadPasskeys, loadNotifPrefs, loadIntegrations, loadCloud, markFailed]);
+  }, [section, loadSessions, loadMfa, loadPasskeys, loadSso, loadNotifPrefs, loadIntegrations, loadCloud, markFailed]);
 
   const userName = me?.name || session.name;
   const userRole = me?.role || session.role;
@@ -229,6 +238,50 @@ export default function AccountArea({ section }: { section: AccountSection }) {
       flash((row.label || 'Passkey') + ' removed');
       loadPasskeys();
     });
+  };
+
+  /* SSO is org-level configuration, and getting it wrong locks a workspace
+     out or -- worse -- lets another tenant's IdP in, so every field is asked
+     for explicitly and the domain list is never allowed to be empty. */
+  const configureSso = async () => {
+    const entityId = await askText({ title: 'Single sign-on', label: 'IdP entity ID', message: 'From your identity provider\u2019s metadata.', placeholder: 'https://idp.example.com/metadata', cta: 'Next', required: true });
+    if (!entityId) return;
+    const ssoUrl = await askText({ title: 'Single sign-on', label: 'IdP sign-on URL', placeholder: 'https://idp.example.com/sso', cta: 'Next', required: true });
+    if (!ssoUrl) return;
+    const cert = await askText({ title: 'Single sign-on', label: 'IdP signing certificate (X.509)', message: 'Base64 body of the certificate. This is what verifies the assertion signature.', cta: 'Next', required: true });
+    if (!cert) return;
+    const domains = await askText({
+      title: 'Single sign-on', label: 'Allowed email domains',
+      message: 'Comma-separated. Only addresses in these domains may sign in through your IdP \u2014 this is what stops another workspace\u2019s provider asserting your users.',
+      placeholder: 'example.com', cta: 'Save', required: true,
+    });
+    if (!domains) return;
+
+    const res = await authApi.saveSsoConnection(apiCall, {
+      idp_entity_id: entityId, idp_sso_url: ssoUrl, idp_x509_cert: cert,
+      allowed_email_domains: domains,
+      enabled: true, enforced: sso ? sso.enforced : false,
+      auto_provision: sso ? sso.auto_provision : true,
+    });
+    if (!res.ok) { flash('Single sign-on not saved \u00b7 ' + res.error.message); return; }
+    flash('Single sign-on configured');
+    setSso(res.data);
+  };
+
+  const toggleSsoEnforcement = async () => {
+    if (!sso) return;
+    if (!sso.enforced) {
+      const confirmed = await askText({
+        title: 'Require single sign-on', label: 'Type REQUIRE to confirm',
+        message: 'Everyone in this workspace will have to sign in through your identity provider. Password sign-in stops working immediately, including for you.',
+        cta: 'Require SSO', required: true,
+      });
+      if (confirmed !== 'REQUIRE') { flash('Not changed'); return; }
+    }
+    const res = await authApi.saveSsoConnection(apiCall, { ...sso, idp_x509_cert: '', enforced: !sso.enforced });
+    if (!res.ok) { flash('Not changed \u00b7 ' + res.error.message); return; }
+    setSso(res.data);
+    flash(res.data.enforced ? 'Single sign-on is now required' : 'Password sign-in re-enabled');
   };
 
   const beginEnrolment = () => {
@@ -504,6 +557,42 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         </div>
                       ))
                     )}
+                  </div>
+
+                  <div style={{ display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid #f2f4f8', paddingTop:'13px' }}>
+                    <div style={{ display:'flex', alignItems:'flex-start', gap:'12px' }}>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'3px', maxWidth:'460px' }}>
+                        <span style={{ fontSize:'.8125rem', fontWeight:600 }}>Single sign-on (SAML)</span>
+                        <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>
+                          {sso === null
+                            ? (failed.sso ? 'Single sign-on settings could not be loaded.' : 'Not configured. Connect your identity provider to let your team sign in with it.')
+                            : joinMeta([
+                                sso.enabled ? 'connected to ' + sso.idp_entity_id : 'configured but off',
+                                sso.allowed_email_domains,
+                                sso.enforced ? 'required for everyone' : 'password sign-in still allowed',
+                              ])}
+                        </span>
+                      </div>
+                      <button type="button" onClick={configureSso} style={{ ...autoGhostBtn, marginLeft:'auto' }}>
+                        {sso === null ? 'Connect' : 'Reconfigure'}
+                      </button>
+                    </div>
+                    {sso ? (
+                      <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                        <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55, maxWidth:'460px' }}>
+                          Require single sign-on. Password sign-in stops working for everyone in
+                          this workspace, including you.
+                        </span>
+                        <button
+                          type="button" role="switch"
+                          aria-checked={sso.enforced}
+                          aria-label="Require single sign-on"
+                          onClick={toggleSsoEnforcement}
+                          style={{ marginLeft:'auto', width:'38px', height:'21px', borderRadius:'99px', background: sso.enforced ? '#10b981' : BORDER_STRONG, border:'none', position:'relative', cursor:'pointer', flex:'0 0 38px' }}>
+                          <span style={{ position:'absolute', top:'3px', left: sso.enforced ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff' }}></span>
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
