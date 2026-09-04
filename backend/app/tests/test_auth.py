@@ -428,8 +428,11 @@ def test_refresh_rotates_the_session_and_logout_revokes_it(client: TestClient) -
     refreshed = client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]})
     assert refreshed.status_code == 200, refreshed.text
     assert refreshed.json()["refresh_token"] != body["refresh_token"]
-    # The consumed refresh token cannot be replayed.
-    assert client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]}).status_code == 401
+    # Replaying the consumed token *immediately* is answered, deliberately:
+    # that is the concurrent-refresh race, not an attack. See
+    # REFRESH_ROTATION_GRACE_SECONDS and the reuse tests below for the bound
+    # on this and for what happens outside it.
+    assert client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]}).status_code == 200
 
     assert client.post("/api/auth/logout", headers=_headers(refreshed.json())).status_code == 204
     # The access token of a logged-out session is dead immediately: before the
@@ -695,3 +698,71 @@ def test_production_rejects_a_default_or_weak_jwt_secret(monkeypatch) -> None:
     check("k" * 48, "production")
     check("change-me-in-production", "development")
     check("change-me-in-production", "test")
+
+
+# --- refresh rotation race and reuse detection (W7) ---------------------------
+
+
+def _session_rows(user_email: str):
+    from app.models.user import User
+    from app.models.user_session import UserSession
+
+    db = _db_session()
+    user = db.query(User).filter(User.email == user_email).one()
+    return db, db.query(UserSession).filter(UserSession.user_id == user.id).all()
+
+
+def test_two_tabs_refreshing_at_once_both_succeed(client: TestClient) -> None:
+    """The race this exists to fix.
+
+    A 15-minute access token refreshed on a 30s skew means two tabs can present
+    the same refresh token milliseconds apart. Rotation revokes on first use,
+    so the loser used to get a 401 and the user was signed out at random.
+    """
+    body = _register(client)
+    first = client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]})
+    second = client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]})
+    assert first.status_code == 200 and second.status_code == 200
+    # Each gets a usable session of its own -- the winner's refresh token
+    # cannot be re-handed to the loser, because only its hash is stored.
+    assert first.json()["refresh_token"] != second.json()["refresh_token"]
+    assert client.get("/api/auth/me", headers=_headers(first.json())).status_code == 200
+    assert client.get("/api/auth/me", headers=_headers(second.json())).status_code == 200
+
+
+def test_a_spent_refresh_token_replayed_late_kills_the_whole_chain(client: TestClient) -> None:
+    """Replay outside the grace window is treated as a stolen token.
+
+    This is the compensating control for the window, and it is detection the
+    code did not have before: previously a spent token was simply refused,
+    forever, with no signal that anything had leaked.
+    """
+    from datetime import timedelta
+
+    from app.models.user_session import UserSession
+    from app.services.auth_service import _now
+
+    body = _register(client)
+    stolen = body["refresh_token"]
+    rotated = client.post("/api/auth/refresh", json={"refresh_token": stolen})
+    assert rotated.status_code == 200
+
+    # Age the rotation past the grace window.
+    db, rows = _session_rows("casey@example.com")
+    for row in rows:
+        if row.rotated_at is not None:
+            row.rotated_at = _now() - timedelta(minutes=5)
+            row.revoked_at = row.rotated_at
+    db.commit()
+
+    assert client.post("/api/auth/refresh", json={"refresh_token": stolen}).status_code == 401
+    # And the session minted from the leaked token is dead too -- it is no more
+    # trustworthy than the token it came from.
+    assert client.get("/api/auth/me", headers=_headers(rotated.json())).status_code == 401
+
+
+def test_a_logged_out_refresh_token_is_final(client: TestClient) -> None:
+    """Logout sets revoked_at without rotated_at, so no grace applies."""
+    body = _register(client)
+    assert client.post("/api/auth/logout", headers=_headers(body)).status_code == 204
+    assert client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]}).status_code == 401

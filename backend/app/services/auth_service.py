@@ -66,6 +66,21 @@ MFA_TOKEN_PURPOSE = "mfa"
 PASSWORD_RESET_TTL_MINUTES = 60
 SESSION_TTL_HOURS = 12
 SESSION_REMEMBER_TTL_DAYS = 30
+#: How long after a rotation the spent refresh token is still answered.
+#:
+#: The frontend refreshes on a 30s skew against a 15-minute access token, so
+#: two tabs can present the same refresh token within milliseconds of each
+#: other. Rotation revokes on first use, so without this the loser got a 401
+#: and the user was signed out at random.
+#:
+#: This is a deliberate, bounded security tradeoff and it is worth naming: a
+#: stolen refresh token replayed inside the window is honoured. The window is
+#: therefore small, and the compensating control is real -- see
+#: ``_reuse_detected``: a spent token presented *outside* the window revokes
+#: the entire refresh chain, which is detection this code did not have at all
+#: before. The old behaviour silently tolerated replay forever and simply
+#: logged the legitimate user out.
+REFRESH_ROTATION_GRACE_SECONDS = 10
 
 
 def _now() -> datetime:
@@ -233,15 +248,82 @@ class AuthService:
         session_row = db.scalar(
             select(UserSession).where(UserSession.refresh_token_hash == hash_opaque_token(refresh_token))
         )
-        expires_at = _aware(session_row.expires_at) if session_row else None
-        if not session_row or session_row.revoked_at or (expires_at and expires_at <= _now()):
+        if not session_row:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+
+        expires_at = _aware(session_row.expires_at)
+        if expires_at and expires_at <= _now():
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+
+        if session_row.revoked_at:
+            # A revoked row is only ever answered when it was retired by a
+            # rotation and the rotation was moments ago. Logout and admin
+            # revoke set revoked_at without rotated_at and are final.
+            rotated_at = _aware(session_row.rotated_at)
+            if rotated_at is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token"
+                )
+            if (_now() - rotated_at).total_seconds() > REFRESH_ROTATION_GRACE_SECONDS:
+                # A spent token replayed long after it was rotated is a stolen
+                # token, not a racing tab. Kill the chain it belongs to.
+                self._revoke_refresh_chain(db, session_row)
+                db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token"
+                )
+            user = db.get(User, session_row.user_id)
+            if not user:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+            # The loser of a concurrent refresh. It cannot be handed the
+            # winner's refresh token -- only the hash is stored -- so it gets a
+            # session of its own, linked into the same chain.
+            issued = self._issue_session(db, user, request=request, remember=remember)
+            self._link_successor(db, session_row)
+            db.commit()
+            return issued
+
         user = db.get(User, session_row.user_id)
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         # Rotate: the presented token dies with the row it belongs to.
         session_row.revoked_at = _now()
-        return self._issue_session(db, user, request=request, remember=remember)
+        session_row.rotated_at = session_row.revoked_at
+        issued = self._issue_session(db, user, request=request, remember=remember)
+        self._link_successor(db, session_row)
+        db.commit()
+        return issued
+
+    def _link_successor(self, db: Session, predecessor: UserSession) -> None:
+        """Point ``predecessor`` at the newest live session for that user."""
+        successor = db.scalar(
+            select(UserSession)
+            .where(
+                UserSession.user_id == predecessor.user_id,
+                UserSession.revoked_at.is_(None),
+                UserSession.id != predecessor.id,
+            )
+            .order_by(UserSession.created_at.desc())
+        )
+        if successor is not None:
+            predecessor.replaced_by_id = successor.id
+            db.add(predecessor)
+
+    def _revoke_refresh_chain(self, db: Session, start: UserSession) -> None:
+        """Revoke every session reachable from ``start`` by rotation.
+
+        Replay of a spent token means the token leaked; the sessions minted
+        from it are no more trustworthy than the one presented.
+        """
+        seen: set[str] = set()
+        current: UserSession | None = start
+        while current is not None and current.id not in seen:
+            seen.add(current.id)
+            if current.revoked_at is None:
+                current.revoked_at = _now()
+                db.add(current)
+            next_id = current.replaced_by_id
+            current = db.get(UserSession, next_id) if next_id else None
 
     def logout(self, db: Session, *, user: User, session_id: str | None) -> None:
         if session_id:

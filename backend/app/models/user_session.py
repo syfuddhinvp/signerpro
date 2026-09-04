@@ -27,4 +27,13 @@ class UserSession(Base, UUIDPrimaryKeyMixin):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Set only when this row was retired by a *refresh rotation*, never by a
+    #: logout or an admin revoke. The distinction is the whole point: a spent
+    #: rotated token presented again is either the loser of a concurrent
+    #: refresh (benign, and only within a few seconds) or a replayed stolen
+    #: token (not benign, ever). A logged-out token is neither.
+    rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: The session this one rotated into, so a refresh chain can be walked and
+    #: revoked as a unit when a spent token is replayed.
+    replaced_by_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
