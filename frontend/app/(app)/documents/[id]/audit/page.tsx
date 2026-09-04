@@ -26,6 +26,7 @@ import type {
   AuditChainVerification, AuditTrailEntry, CertificateSummaryResponse,
   RecipientResponse,
 } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Audit trail · SignForge' };
 
@@ -64,17 +65,24 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const statusLabel = STATUS[statusKey]?.label ?? 'Draft';
 
   return (
-    <Audit
-      documentId={documentId}
-      entries={toAuditRows(entries, emailById)}
-      certificate={summary ? toCertificateCard(summary, statusKey, statusLabel) : null}
-      chain={verification
-        ? { valid: verification.valid, entryCount: verification.entry_count, hashAlgorithm: verification.hash_algorithm }
-        : null}
-      attestations={toAttestations(recipientList, entries)}
-      documentTitle={document.title}
-      sealed={isSealedStatus(summary?.document_status ?? document.status)}
-      verifyUrl={verifyUrl}
-    />
+    <>
+      {!trailResult.ok || !verifyResult.ok || !certResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="The audit trail and certificate" detail={(trailResult.ok ? null : trailResult.error.message) ?? (verifyResult.ok ? null : verifyResult.error.message) ?? (certResult.ok ? null : certResult.error.message)} />
+        </div>
+      ) : null}
+      <Audit
+        documentId={documentId}
+        entries={toAuditRows(entries, emailById)}
+        certificate={summary ? toCertificateCard(summary, statusKey, statusLabel) : null}
+        chain={verification
+          ? { valid: verification.valid, entryCount: verification.entry_count, hashAlgorithm: verification.hash_algorithm }
+          : null}
+        attestations={toAttestations(recipientList, entries)}
+        documentTitle={document.title}
+        sealed={isSealedStatus(summary?.document_status ?? document.status)}
+        verifyUrl={verifyUrl}
+      />
+    </>
   );
 }

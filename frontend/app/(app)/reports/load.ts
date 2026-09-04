@@ -42,7 +42,7 @@ export async function loadReportsProps(
   next: string,
   scope: 'tenant' | 'platform',
   searchParams: ReportsSearchParams,
-): Promise<ReportsProps> {
+): Promise<ReportsProps & { apiUnavailable: string | null }> {
   const range = normalizeReportRange(searchParams.range);
   const api = serverCaller(next);
 
@@ -66,7 +66,13 @@ export async function loadReportsProps(
   const catalogue = fieldsRes.ok ? fieldsRes.data : { fields: [], reports: [], ranges: [] };
   const saved = customRes.ok ? customRes.data : [];
 
+  // A failed aggregate must not render as a workspace where nothing happened:
+  // every tile would read zero, which is a measurement, not an outage.
+  const loadFailure = [overviewRes, invitesRes, docsRes, recipRes, sendersRes]
+    .find(result => !result.ok);
+
   return {
+    apiUnavailable: loadFailure && !loadFailure.ok ? loadFailure.error.message : null,
     scope,
     range,
     inviteTotal: invites.total,

@@ -25,6 +25,7 @@ import {
   toTemplateRows,
 } from '@/lib/sf/adapters';
 import type { DocumentCounts, FolderTreeResponse } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Documents · SignForge' };
 
@@ -74,14 +75,21 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
   const tree: FolderTreeResponse | null = treeResult.ok ? treeResult.data : null;
 
   return (
-    <Library
-      rows={toLibraryRows(library.items)}
-      total={library.total}
-      templates={toTemplateRows(templateList.items)}
-      templateTotal={isTemplateFolder ? templateList.total : counts.templates}
-      folderOptions={toFolderOptions(tree)}
-      counts={counts}
-      initialFilters={filters}
-    />
+    <>
+      {!countsResult.ok || !treeResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Your document library" detail={(countsResult.ok ? null : countsResult.error.message) ?? (treeResult.ok ? null : treeResult.error.message)} />
+        </div>
+      ) : null}
+      <Library
+        rows={toLibraryRows(library.items)}
+        total={library.total}
+        templates={toTemplateRows(templateList.items)}
+        templateTotal={isTemplateFolder ? templateList.total : counts.templates}
+        folderOptions={toFolderOptions(tree)}
+        counts={counts}
+        initialFilters={filters}
+      />
+    </>
   );
 }

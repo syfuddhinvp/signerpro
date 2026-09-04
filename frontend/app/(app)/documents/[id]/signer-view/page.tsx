@@ -22,6 +22,7 @@ import { toSignerFields, toSignerRecipients, toSignValues } from '@/lib/sf/adapt
 import { documentPathFor } from '@/lib/sf/routes';
 import { isSealedStatus } from '@/lib/sf/sealed';
 import type { FieldResponse, RecipientResponse } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Signer view · SignForge' };
 
@@ -79,21 +80,28 @@ export default async function Page({
   }));
 
   return (
-    <SignerPreview
-      documentId={document.id}
-      recipients={previewRecipients}
-      selectedId={previewed ? previewed.id : null}
-    >
-      <Signer
-        fields={assigned}
-        recipients={recipientList}
-        pageCount={document.page_count || 1}
-        title={document.title}
-        initialValues={toSignValues(assigned)}
-        pdfUrl={pdfUrl}
-        otherPlacements={others}
-        viewOnly={previewed ? previewed.role === 'copy' : false}
-      />
-    </SignerPreview>
+    <>
+      {!fieldsResult.ok || !recipientsResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="This document's fields and recipients" detail={(fieldsResult.ok ? null : fieldsResult.error.message) ?? (recipientsResult.ok ? null : recipientsResult.error.message)} />
+        </div>
+      ) : null}
+      <SignerPreview
+        documentId={document.id}
+        recipients={previewRecipients}
+        selectedId={previewed ? previewed.id : null}
+      >
+        <Signer
+          fields={assigned}
+          recipients={recipientList}
+          pageCount={document.page_count || 1}
+          title={document.title}
+          initialValues={toSignValues(assigned)}
+          pdfUrl={pdfUrl}
+          otherPlacements={others}
+          viewOnly={previewed ? previewed.role === 'copy' : false}
+        />
+      </SignerPreview>    </>
+  
   );
 }

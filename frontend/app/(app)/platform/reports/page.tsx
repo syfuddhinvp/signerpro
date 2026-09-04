@@ -11,11 +11,21 @@
 
 import type { Metadata } from 'next';
 import Reports from '@/components/sf/screens/Reports';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 import { loadReportsProps, type ReportsSearchParams } from '../../reports/load';
 
 export const metadata: Metadata = { title: 'Reports · SignForge Platform' };
 
 export default async function Page({ searchParams }: { searchParams: Promise<ReportsSearchParams> }) {
-  const props = await loadReportsProps('/platform/reports', 'platform', await searchParams);
-  return <Reports {...props} />;
+  const { apiUnavailable, ...props } = await loadReportsProps('/platform/reports', 'platform', await searchParams);
+  return (
+    <>
+      {apiUnavailable ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Platform reports" detail={apiUnavailable} />
+        </div>
+      ) : null}
+      <Reports {...props} />
+    </>
+  );
 }

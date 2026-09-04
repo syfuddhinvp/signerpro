@@ -3,6 +3,7 @@ import Invoices from '@/components/sf/screens/Invoices';
 import { serverCaller } from '@/lib/api/client';
 import { toInvoiceRows } from '@/lib/sf/adapters';
 import type { PlatformInvoiceResponse } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Invoices · SignForge Platform' };
 
@@ -23,11 +24,18 @@ export default async function Page(
   });
 
   return (
-    <Invoices
-      rows={toInvoiceRows(listResult.ok ? listResult.data : [])}
-      filter={filter}
-      platform
-      scopeName="All tenants"
-    />
+    <>
+      {!listResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Platform invoices" detail={(listResult.ok ? null : listResult.error.message)} />
+        </div>
+      ) : null}
+      <Invoices
+        rows={toInvoiceRows(listResult.ok ? listResult.data : [])}
+        filter={filter}
+        platform
+        scopeName="All tenants"
+      />
+    </>
   );
 }

@@ -9,6 +9,7 @@ import type {
   SubscriptionResponse,
   UpcomingInvoiceResponse,
 } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Billing & plan · Account · SignForge' };
 
@@ -78,12 +79,19 @@ export default async function Page() {
   const charges: ChargeResponse[] = chargesResult.ok ? chargesResult.data : [];
 
   return (
-    <Billing
-      subscription={subResult.ok ? subResult.data : FALLBACK_SUB}
-      settings={settingsResult.ok ? settingsResult.data : FALLBACK_SETTINGS}
-      paymentMethods={paymentMethods}
-      upcoming={upcomingResult.ok ? upcomingResult.data : FALLBACK_UPCOMING}
-      charges={charges}
-    />
+    <>
+      {!subResult.ok || !settingsResult.ok || !upcomingResult.ok || !pmResult.ok || !chargesResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Your billing account" detail={(subResult.ok ? null : subResult.error.message) ?? (settingsResult.ok ? null : settingsResult.error.message) ?? (upcomingResult.ok ? null : upcomingResult.error.message) ?? (pmResult.ok ? null : pmResult.error.message) ?? (chargesResult.ok ? null : chargesResult.error.message)} />
+        </div>
+      ) : null}
+      <Billing
+        subscription={subResult.ok ? subResult.data : FALLBACK_SUB}
+        settings={settingsResult.ok ? settingsResult.data : FALLBACK_SETTINGS}
+        paymentMethods={paymentMethods}
+        upcoming={upcomingResult.ok ? upcomingResult.data : FALLBACK_UPCOMING}
+        charges={charges}
+      />
+    </>
   );
 }

@@ -12,6 +12,7 @@ import { toBuilderRouting } from '@/lib/sf/adapters';
 import { documentPathFor } from '@/lib/sf/routes';
 import { isSealedStatus } from '@/lib/sf/sealed';
 import type { RecipientResponse, RoutingResponse } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Signing workflow · SignForge' };
 
@@ -37,11 +38,18 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const routing: RoutingResponse | null = routingResult.ok ? routingResult.data : null;
 
   return (
-    <Routing
-      documentId={documentResult.data.id}
-      title={documentResult.data.title}
-      recipients={recipients}
-      routing={routing ? toBuilderRouting(routing) : null}
-    />
+    <>
+      {!recipientsResult.ok || !routingResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="The routing for this document" detail={(recipientsResult.ok ? null : recipientsResult.error.message) ?? (routingResult.ok ? null : routingResult.error.message)} />
+        </div>
+      ) : null}
+      <Routing
+        documentId={documentResult.data.id}
+        title={documentResult.data.title}
+        recipients={recipients}
+        routing={routing ? toBuilderRouting(routing) : null}
+      />
+    </>
   );
 }

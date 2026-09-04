@@ -37,6 +37,7 @@ import {
   toTenantTableRows,
 } from '@/lib/sf/adapters';
 import type { ComplianceResponse, PlatformOverview } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Tenants · SignForge Platform' };
 
@@ -128,24 +129,31 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
   const detail = detailResult && detailResult.ok ? detailResult.data : null;
 
   return (
-    <Platform
-      stats={toPlatformStats(overview)}
-      tenants={toTenantTableRows(tenantPage.items)}
-      tenantTotal={tenantPage.total}
-      tenantDetail={detail}
-      planCodes={plans.map(p => ({ code: p.code, name: p.name }))}
-      directory={toDirectoryRows(directoryPage.items)}
-      directoryTotal={directoryPage.total}
-      matrix={toPermissionMatrix(matrix)}
-      flags={toFlagRows(flagList)}
-      security={toSecurityRows(posture)}
-      certifications={toCertificationLabels(compliance)}
-      complianceNote={toComplianceNote(compliance)}
-      audit={toPlatformAuditStream(audit)}
-      plans={toPlatformPlanCards(plans, summary)}
-      filters={filters}
-      seatsLabel={overview.seats.provisioned.toLocaleString()}
-      tenantCountLabel={String(overview.tenants.total)}
-    />
+    <>
+      {!overviewResult.ok || !tenantsResult.ok || !directoryResult.ok || !complianceResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="The tenant directory and posture" detail={(overviewResult.ok ? null : overviewResult.error.message) ?? (tenantsResult.ok ? null : tenantsResult.error.message) ?? (directoryResult.ok ? null : directoryResult.error.message) ?? (complianceResult.ok ? null : complianceResult.error.message)} />
+        </div>
+      ) : null}
+      <Platform
+        stats={toPlatformStats(overview)}
+        tenants={toTenantTableRows(tenantPage.items)}
+        tenantTotal={tenantPage.total}
+        tenantDetail={detail}
+        planCodes={plans.map(p => ({ code: p.code, name: p.name }))}
+        directory={toDirectoryRows(directoryPage.items)}
+        directoryTotal={directoryPage.total}
+        matrix={toPermissionMatrix(matrix)}
+        flags={toFlagRows(flagList)}
+        security={toSecurityRows(posture)}
+        certifications={toCertificationLabels(compliance)}
+        complianceNote={toComplianceNote(compliance)}
+        audit={toPlatformAuditStream(audit)}
+        plans={toPlatformPlanCards(plans, summary)}
+        filters={filters}
+        seatsLabel={overview.seats.provisioned.toLocaleString()}
+        tenantCountLabel={String(overview.tenants.total)}
+      />
+    </>
   );
 }

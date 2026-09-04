@@ -4,6 +4,7 @@ import { serverCaller } from '@/lib/api/client';
 import { support as supportApi } from '@/lib/api/resources';
 import { toQuickReplyPairs, toQueueTicketTiles } from '@/lib/sf/adapters';
 import type { TicketDetailResponse, TicketPage } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Support · SignForge Platform' };
 
@@ -26,13 +27,20 @@ export default async function Page() {
   const detail: TicketDetailResponse | null = detailResult && detailResult.ok ? detailResult.data : null;
 
   return (
-    <Support
-      page={page}
-      detail={detail}
-      agents={agentsResult.ok ? agentsResult.data : []}
-      stats={toQueueTicketTiles(statsResult.ok ? statsResult.data : null)}
-      quickReplies={toQuickReplyPairs(repliesResult.ok ? repliesResult.data : [])}
-      scope="all"
-    />
+    <>
+      {!pageResult.ok || !statsResult.ok || !agentsResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="The support queue" detail={(pageResult.ok ? null : pageResult.error.message) ?? (statsResult.ok ? null : statsResult.error.message) ?? (agentsResult.ok ? null : agentsResult.error.message)} />
+        </div>
+      ) : null}
+      <Support
+        page={page}
+        detail={detail}
+        agents={agentsResult.ok ? agentsResult.data : []}
+        stats={toQueueTicketTiles(statsResult.ok ? statsResult.data : null)}
+        quickReplies={toQuickReplyPairs(repliesResult.ok ? repliesResult.data : [])}
+        scope="all"
+      />
+    </>
   );
 }

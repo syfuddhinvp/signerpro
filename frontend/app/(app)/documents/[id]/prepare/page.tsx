@@ -22,6 +22,7 @@ import { toBuilderRouting } from '@/lib/sf/adapters';
 import { documentPathFor } from '@/lib/sf/routes';
 import { isSealedStatus } from '@/lib/sf/sealed';
 import type { FieldResponse, RecipientResponse, RoutingResponse } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Prepare document · SignForge' };
 
@@ -51,14 +52,21 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const routing: RoutingResponse | null = routingResult.ok ? routingResult.data : null;
 
   return (
-    <Builder
-      documentId={document.id}
-      hasFile={Boolean(document.original_file_path)}
-      title={document.title}
-      pageCount={Math.max(1, document.page_count || 1)}
-      fields={fields}
-      recipients={recipients}
-      routing={routing ? toBuilderRouting(routing) : null}
-    />
+    <>
+      {!fieldsResult.ok || !recipientsResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="The fields and recipients on this document" detail={(fieldsResult.ok ? null : fieldsResult.error.message) ?? (recipientsResult.ok ? null : recipientsResult.error.message)} />
+        </div>
+      ) : null}
+      <Builder
+        documentId={document.id}
+        hasFile={Boolean(document.original_file_path)}
+        title={document.title}
+        pageCount={Math.max(1, document.page_count || 1)}
+        fields={fields}
+        recipients={recipients}
+        routing={routing ? toBuilderRouting(routing) : null}
+      />
+    </>
   );
 }

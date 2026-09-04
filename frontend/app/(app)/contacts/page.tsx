@@ -13,6 +13,7 @@ import { serverCaller } from '@/lib/api/client';
 import { contacts as contactsApi, documents as documentsApi } from '@/lib/api/resources';
 import { toContactCounts, toContacts, toGroupLabels } from '@/lib/sf/adapters';
 import type { ContactGroupResponse, ContactListResponse, DocumentLibraryPage } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Contacts · SignForge' };
 
@@ -36,11 +37,18 @@ export default async function Page() {
   const counts = toContactCounts(list.counts ?? {}, list.total, Object.keys(groupLabels));
 
   return (
-    <Contacts
-      contacts={toContacts(list.items)}
-      groupLabels={groupLabels}
-      counts={counts}
-      draftDocumentId={drafts?.items[0]?.id ?? null}
-    />
+    <>
+      {!listResult.ok || !groupsResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Your contacts" detail={(listResult.ok ? null : listResult.error.message) ?? (groupsResult.ok ? null : groupsResult.error.message)} />
+        </div>
+      ) : null}
+      <Contacts
+        contacts={toContacts(list.items)}
+        groupLabels={groupLabels}
+        counts={counts}
+        draftDocumentId={drafts?.items[0]?.id ?? null}
+      />
+    </>
   );
 }

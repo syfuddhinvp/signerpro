@@ -4,6 +4,7 @@ import { serverCaller } from '@/lib/api/client';
 import { organizations as organizationsApi } from '@/lib/api/resources';
 import { toInvoiceRows } from '@/lib/sf/adapters';
 import type { InvoiceResponse } from '@/lib/api/types';
+import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Invoices · Account · SignForge' };
 
@@ -27,11 +28,18 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ s
   const rows = toInvoiceRows(listResult.ok ? listResult.data : []);
 
   return (
-    <Invoices
-      rows={rows}
-      filter={filter}
-      platform={false}
-      scopeName={orgResult.ok ? orgResult.data.name : 'Your workspace'}
-    />
+    <>
+      {!listResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Your invoices" detail={(listResult.ok ? null : listResult.error.message)} />
+        </div>
+      ) : null}
+      <Invoices
+        rows={rows}
+        filter={filter}
+        platform={false}
+        scopeName={orgResult.ok ? orgResult.data.name : 'Your workspace'}
+      />
+    </>
   );
 }
