@@ -13,8 +13,9 @@ Every row below was re-run against the working tree on this machine, not copied 
 
 | Gate | Result | Command |
 |---|---|---|
-| Backend tests | **414 passed, 0 failed** (2m18s) | `backend/.venv/bin/python -m pytest -q` |
-| Frontend tests | **640 passed** across 24 files (22s) | `pnpm vitest run` |
+| Backend tests | **432 passed, 0 failed** | `cd backend && pytest -q` |
+| Frontend tests | **640 passed** across 24 files | `pnpm vitest run` |
+| Lint | **0 errors** (45 carried `no-explicit-any` warnings) | `npx eslint .` |
 | Typecheck | **clean** | `npx tsc --noEmit` |
 | Production build | **exit 0**, 102 kB shared First Load JS, middleware 36 kB | `pnpm build` |
 | Python advisories | **0** | `pip_audit -r requirements.txt` |
@@ -191,12 +192,18 @@ long-superseded `PROJECT_PROGRESS.md` (still describes a 7-test prototype) into 
 ## 4. Sequence
 
 ```
-Phase 0  W1 ✅ → W1b → W2           commit, push, green CI          ½ day
-Phase 1  W3, W4, W8 ∥ W5, W6, W7  deployable and billable          3 days
-Phase 2  W9 → W18, W12            honest UI, verifiable audit      1 week
-Phase 3  W11 ∥ W10                compliance and field completeness 1–2 weeks
-Deferred W13, W14, W15, W16, W17  gated on demand, disclosed not hidden
+Phase 0  ✅ W1 commit · W1b push origin · W2 CI green (4 consecutive runs)
+Phase 1  ✅ W3 prod stack · W4 schedulers · W5 purge script · W6 Stripe
+            W7 refresh race · W8 deployment docs · W8b session secret
+Phase 2  ✅ W9 silent degradation · W12 public verification · W18 docs · W19 lint
+Phase 3  ✅ W11 GDPR erasure ·  W10 formula stays retired per D2
+Deferred    W13 SSO/WebAuthn · W14 PAdES  — per D3/D1, disclosed not hidden
+Carried     W15 Tailwind base · W16 test warnings · W17 12 FK indexes
+            + ~45 `no-explicit-any` lint warnings
 ```
+
+**All four phases are complete.** What remains is deferred by decision, not left undone by
+accident — each item names the decision that keeps it open.
 
 Phase 1's two columns are independent and can run in parallel. Nothing in Phase 2 may start before
 Phase 0 completes — every hour of Phase 2 work on an uncommitted tree compounds W1's risk.
