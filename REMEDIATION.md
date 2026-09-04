@@ -46,22 +46,38 @@ Tenant suspension (was cosmetic) · forged-cookie platform-admin bypass · MFA r
 
 ## Known remaining work
 
-**Product gaps (never claimed fixed)**
-- `formula` fields persist but nothing evaluates them. Relabelled "Formula (not evaluated)" with an in-app warning rather than removed, because removal would strand persisted fields and silently render them as Signature.
-- `stamp` renders as a text input on the signing surface and gets no type-aware rendering in the final PDF.
-- No PAdES/PKCS#7 signature on the output PDF — this is Simple Electronic Signature only, and must not be marketed as AdES/QES.
-- No certificate-of-completion PDF export (the content exists inside the final PDF).
-- No SSO/SAML, no WebAuthn passkeys. The fake buttons are gone; the features are not built.
-- No public verification endpoint, so the audit QR block remains removed rather than functional.
+> **Superseded.** This section was written when the branch was first prepared and
+> went stale as the work continued. `COMPLETION_PLAN.md` is now the authority on
+> status, and `DECISIONS.md` on the standing decisions behind it. Corrected below
+> so nobody re-does finished work or trusts a gap list that omits a real gap.
 
-**Carried debt**
-- `recipsOf()` fallback in `state.tsx:262` is a live path that can still surface a prototype name. Unpicking it touches the builder's recipient state model.
-- The `.ok ? data : FALLBACK` silent-degradation pattern remains in ~25 server pages; `ApiUnavailable` is the drop-in, each needs a judgement about which call is load-bearing.
-- No data migration for field rows authored before the C1 fix — their stored `y` is now read under the new origin. Every prior placement was wrong anyway, but a deployment with real data needs a decision here.
-- Tailwind is wired but `@tailwind base` is deliberately omitted; ~1,100 inline-styled sites remain. Four-step migration path documented.
-- `set_default_payment_method` is a no-op on the Stripe adapter — the ABC signature doesn't carry the customer id.
-- GDPR erasure is designed (crypto-shredding on the existing keyring) but not built. Retention tiers remain plan copy, not enforcement.
-- GitHub Actions has never actually run — CI is validated by YAML parse plus running its commands locally.
+**Closed since this section was written**
+- `stamp` **is** type-aware in the final PDF (`pdf_service.py`), not a plain text input.
+- A certificate of completion **is** exportable (`GET /api/documents/{id}/certificate/full`).
+- A **public verification endpoint exists** (`GET /api/verify/{id}?sha256=…`) with a public
+  `/verify/[id]` page, and the certificate's QR block points at it and carries a real link.
+- The `recipsOf()` fallback is gone; `state.tsx` no longer contains it.
+- `set_default_payment_method` is implemented on the Stripe adapter.
+- The refresh-token race is fixed, with reuse detection added alongside it.
+- GDPR erasure is built (`POST /api/platform/erasure`), including a report of what is retained
+  and why. Retention tiers remain plan copy rather than enforcement.
+- The `.ok ? data : FALLBACK` pattern is resolved on every page where the call is load-bearing.
+- CI exists **and has actually run** — it had never executed once when this was written.
+
+**Still open, deliberately**
+- `formula` fields persist but nothing evaluates them. Retired from the palette rather than
+  removed, because removal would strand persisted rows and render them as Signature
+  (`DECISIONS.md` D2).
+- No PAdES/PKCS#7 signature on the output PDF — this is Simple Electronic Signature only and
+  must not be marketed as AdES/QES (D1).
+- No SSO/SAML, no WebAuthn passkeys. The fake buttons are gone; the features are not built and
+  are deferred until an enterprise account requires one (D3).
+- Tailwind is wired but `@tailwind base` is deliberately omitted; ~1,100 inline-styled sites
+  remain, with a four-step migration path documented in `globals.css` itself.
+- `no-explicit-any` is carried as ~45 lint warnings rather than errors.
+- No data migration for field rows authored before the C1 fix. There is now a script for it
+  (`scripts/purge_pre_flip_fields.py`, drafts only) but running it against real data is an
+  operator decision (D4).
 
 ## Notes for deploying this
 
