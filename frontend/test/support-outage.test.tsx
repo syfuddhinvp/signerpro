@@ -62,7 +62,7 @@ describe('/support during a backend outage', () => {
     await renderPage();
 
     const alert = screen.getByRole('alert');
-    expect(alert).toHaveTextContent(/can.?t reach the signforge api/i);
+    expect(alert).toHaveTextContent(/can.?t reach the signerpro api/i);
     expect(alert).toHaveTextContent(/not a measurement/i);
   });
 

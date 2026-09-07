@@ -15,6 +15,12 @@ from reportlab.pdfgen import canvas
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.annotations import (
+    normalize_drawing_options,
+    normalize_textbox_options,
+    pdf_font_name,
+    rgb,
+)
 from app.core.hashing import sha256_bytes
 from app.core.pdf_geometry import page_geometry
 from app.core.storage import storage
@@ -281,6 +287,14 @@ class PdfService:
                 drew_anything = True
                 pdf.drawImage(image, x, y, width=width, height=height, mask="auto", preserveAspectRatio=True, anchor="c")
                 continue
+            if field.type == FieldType.drawing:
+                if self._draw_ink(pdf, field, x, y, width, height):
+                    drew_anything = True
+                continue
+            if field.type == FieldType.textbox:
+                if self._draw_textbox(pdf, field, x, y, width, height):
+                    drew_anything = True
+                continue
             if field.type == FieldType.checkbox:
                 if str(value).lower() == "true":
                     drew_anything = True
@@ -294,6 +308,87 @@ class PdfService:
             pdf.drawString(x + 3, y + max(height * 0.35, 4), str(value)[:160])
         pdf.save()
         return packet.getvalue() if drew_anything else None
+
+    def _draw_ink(
+        self, pdf: canvas.Canvas, field: Field, x: float, y: float, width: float, height: float
+    ) -> bool:
+        """A pen annotation: the sender's strokes, drawn inside the field box.
+
+        Points are stored normalised to the box with a top-left origin (see
+        `app/core/annotations.py`), so they are scaled by the box here and
+        flipped once onto the PDF's bottom-left origin -- which is what lets the
+        same drawing survive a resize or a different page size.
+        """
+        options = normalize_drawing_options(field.options)
+        strokes = options["strokes"]
+        if not strokes:
+            return False
+        pdf.saveState()
+        pdf.setStrokeColorRGB(*rgb(options["color"]))
+        pdf.setFillColorRGB(*rgb(options["color"]))
+        pdf.setLineWidth(options["stroke"])
+        pdf.setLineCap(1)   # round: a hand-drawn line has no square ends
+        pdf.setLineJoin(1)
+        for stroke in strokes:
+            points = [(x + px * width, y + (1 - py) * height) for px, py in stroke]
+            if len(points) == 1:
+                # A tap is a dot, not a zero-length line (which draws nothing).
+                cx, cy = points[0]
+                pdf.circle(cx, cy, options["stroke"] / 2, stroke=0, fill=1)
+                continue
+            path = pdf.beginPath()
+            path.moveTo(*points[0])
+            for point in points[1:]:
+                path.lineTo(*point)
+            pdf.drawPath(path, stroke=1, fill=0)
+        pdf.restoreState()
+        return True
+
+    def _draw_textbox(
+        self, pdf: canvas.Canvas, field: Field, x: float, y: float, width: float, height: float
+    ) -> bool:
+        """A text annotation, in the face and size the sender chose.
+
+        The text is wrapped to the box's width by measuring the chosen font --
+        `textwrap` counts characters, which in a proportional face is not width
+        -- and lines that overflow the box are dropped rather than drawn over
+        whatever the page already says there.
+        """
+        text = (field.default_value or field.value or "").strip()
+        if not text:
+            return False
+        options = normalize_textbox_options(field.options)
+        font = pdf_font_name(options["font"], bold=options["bold"], italic=options["italic"])
+        size = float(options["size"])
+        leading = size * 1.2
+        inner = max(1.0, width - 6)
+        lines: list[str] = []
+        for paragraph in text.splitlines():
+            if not paragraph.strip():
+                lines.append("")
+                continue
+            line = ""
+            for word in paragraph.split():
+                candidate = f"{line} {word}".strip()
+                if line and pdf.stringWidth(candidate, font, size) > inner:
+                    lines.append(line)
+                    line = word
+                else:
+                    line = candidate
+            lines.append(line)
+        pdf.saveState()
+        pdf.setFont(font, size)
+        pdf.setFillColorRGB(*rgb(options["color"]))
+        # First baseline sits one line height below the top of the box.
+        baseline = y + height - leading + (leading - size) / 2
+        for line in lines:
+            if baseline < y - size * 0.25:
+                break
+            if line:
+                pdf.drawString(x + 3, baseline, line)
+            baseline -= leading
+        pdf.restoreState()
+        return True
 
     def _draw_signature(self, pdf: canvas.Canvas, signature: Signature, x: float, y: float, width: float, height: float) -> None:
         if signature.signature_type == SignatureType.drawn and signature.signature_image_path:
@@ -317,7 +412,7 @@ class PdfService:
         return self._lock(self._build_audit_certificate(db, document), db=db, document=document)
 
     #: Shown as the PDF's producing application in every reader.
-    PRODUCER = "SignForge"
+    PRODUCER = "SignerPro"
 
     def _apply_metadata(self, db: Session, writer: PdfWriter, document: Document, *, certificate: bool = False) -> None:
         """Fill in the properties panel: who, what, when, and which envelope."""
@@ -327,7 +422,7 @@ class PdfService:
 
         sender = db.get(User, document.sender_id)
         organization = db.get(Organization, document.organization_id)
-        author = organization.name if organization else (sender.email if sender else "SignForge")
+        author = organization.name if organization else (sender.email if sender else "SignerPro")
         sealed = document.completed_at or datetime.now(timezone.utc)
         title = f"{document.title} — certificate of completion" if certificate else document.title
         keywords = [f"envelope:{document.id}"]
@@ -340,7 +435,7 @@ class PdfService:
                 "/Subject": (
                     "Certificate of completion and audit trail"
                     if certificate
-                    else f"Electronically signed via SignForge · envelope {document.id}"
+                    else f"Electronically signed via SignerPro · envelope {document.id}"
                 ),
                 "/Keywords": " ".join(keywords),
                 "/Creator": self.PRODUCER,
@@ -364,7 +459,7 @@ class PdfService:
         if not document.original_sha256:
             return None
         sealed = (document.completed_at or datetime.now(timezone.utc)).strftime("%d %b %Y %H:%M UTC")
-        return f"Signed and verified via SignForge  ·  Envelope {document.id}  ·  Sealed {sealed}"
+        return f"Signed and verified via SignerPro  ·  Envelope {document.id}  ·  Sealed {sealed}"
 
     def _draw_verified_badge(self, pdf: canvas.Canvas, page_width: float, note: str) -> None:
         """A small green check and one line of provenance, in the bottom margin.

@@ -21,7 +21,7 @@ vi.mock('next/navigation', async () => (await import('@/test/navigation')).navig
 const field = (id: string): FieldResponse => ({
   id, document_id: 'doc-7', recipient_id: 'r-gone', page: 1, type: 'signature',
   x: 100, y: 120, width: 180, height: 44, required: true, read_only: false,
-  label: 'Signature', placeholder: '', validation_regex: null, merge_tag: null,
+  label: 'Signature', placeholder: '', validation_regex: null,
   conditional_field_id: null, conditional_operator: null, conditional_value: null,
   value: null, options: null, font_size: null, sort_order: 0,
   created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
@@ -55,6 +55,6 @@ describe('Builder with no recipients', () => {
         <Builder documentId="doc-7" hasFile={false} title="No PDF" pageCount={1} fields={[]} recipients={[]} routing={null} />
       </DialogProvider></SFProvider>,
     );
-    expect(screen.getByLabelText('Choose a PDF to upload')).toBeTruthy();
+    expect(screen.getByLabelText('Choose a file to upload')).toBeTruthy();
   });
 });

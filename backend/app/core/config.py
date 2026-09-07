@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     s3_prefix: str = Field(default="", alias="S3_PREFIX")
     s3_region: str | None = Field(default=None, alias="S3_REGION")
     s3_endpoint_url: str | None = Field(default=None, alias="S3_ENDPOINT_URL")
+    # The endpoint a *browser* can reach. With MinIO in compose the API talks to
+    # http://minio:9000, a name that does not resolve outside the network, so a
+    # URL presigned against it is unopenable. Presigning uses this when set.
+    s3_public_endpoint_url: str | None = Field(default=None, alias="S3_PUBLIC_ENDPOINT_URL")
+    # Explicit keys for MinIO and other static-credential endpoints. Left unset
+    # on AWS, where boto3 should pick up the instance/IRSA role instead.
+    s3_access_key_id: str | None = Field(default=None, alias="S3_ACCESS_KEY_ID")
+    s3_secret_access_key: str | None = Field(default=None, alias="S3_SECRET_ACCESS_KEY")
+    # AES256 is right on AWS. MinIO rejects it unless it is configured with a
+    # KMS, so the compose stack sets this to empty.
     s3_server_side_encryption: str | None = Field(default="AES256", alias="S3_SERVER_SIDE_ENCRYPTION")
     s3_sse_kms_key_id: str | None = Field(default=None, alias="S3_SSE_KMS_KEY_ID")
     s3_presign_expires_seconds: int = Field(default=900, alias="S3_PRESIGN_EXPIRES_SECONDS")

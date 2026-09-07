@@ -8,24 +8,42 @@ import {
   areaItems, folderHref, pruneRedundantGroups, sidebarAreas, sidebarGroups,
   type NavContext, type SidebarGroup,
 } from './navigation';
-import { SCREEN_SECTIONS, areaForScreen, sectionFor, sectionPath, type ScreenKey, type Workspace } from './routes';
+import { SCREEN_SECTIONS, accountSectionForPath, areaForScreen, sectionFor, sectionPath, type ScreenKey, type Workspace } from './routes';
 
 const ctxOf = (patch: Partial<NavContext> = {}): NavContext => ({
-  workspace: 'tenant', area: 'home', screen: 'tenantHome', section: '', folder: 'documents',
+  workspace: 'tenant', area: 'home', screen: 'tenantHome', role: 'admin', section: '', folder: 'documents',
   documentId: null, accountSection: 'profile',
-  counts: { quick: null, folders: null, invoices: null, logs: null, tickets: null },
+  counts: { quick: null, folders: null, invoices: null, logs: null, tickets: null, notifications: null },
   folders: [],
   ...patch,
 });
 
 const allRows = (ctx: NavContext) => sidebarGroups(ctx).flatMap(g => g.rows);
 
+describe('a sender', () => {
+  const sender = (patch: Partial<NavContext> = {}) => ctxOf({ role: 'sender', ...patch });
+
+  it('is offered only the areas they can use', () => {
+    expect(areaItems(sender()).map(r => r.key)).toEqual(['home', 'documents', 'contacts', 'account']);
+  });
+
+  it('keeps the organization out of their account sections', () => {
+    const rows = allRows(sender({ area: 'account', screen: 'account' })).map(r => r.key);
+    expect(rows).toEqual([
+      /* The notifications page is personal, so a sender keeps it — what they
+         lose are the organization-level sections. */
+      'account:feed',
+      'account:profile', 'account:security', 'account:notifications',
+    ]);
+  });
+});
+
 describe('the areas', () => {
   it('gives each workspace its own areas', () => {
     expect(areaItems(ctxOf()).map(r => r.key))
       .toEqual(['home', 'documents', 'contacts', 'reports', 'developer', 'support', 'account']);
     expect(areaItems(ctxOf({ workspace: 'platform' })).map(r => r.key))
-      .toEqual(['home', 'platform', 'platformRevenue', 'reports', 'developer', 'support', 'account']);
+      .toEqual(['home', 'platform', 'platformRevenue', 'developer', 'support', 'account']);
   });
 
   it('badges Support, the one area with no children to hold a count', () => {
@@ -231,7 +249,8 @@ describe('redundant sub-navigation', () => {
   it('keeps the rows of that group', () => {
     const rows = groupsFor('account', 'account').flatMap(g => g.rows);
     expect(rows.map(r => r.label)).toContain('Billing & plan');
-    expect(rows.map(r => r.label)).toContain('Invoices');
+    /* Invoices are the list on Billing & plan, not a row of their own. */
+    expect(rows.map(r => r.label)).not.toContain('Invoices');
   });
 
   it('keeps headings that tell two groups apart', () => {
@@ -271,13 +290,35 @@ describe('the account area', () => {
   it('lists every section as a row', () => {
     const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'account' }))
       .find(a => a.active)!.groups.flatMap(g => g.rows);
-    expect(rows.length).toBe(11);
-    expect(rows.map(r => r.href)).toContain('/account/teams');
+    // Seven account sections, plus the notifications page above them.
+    expect(rows.length).toBe(8);
+    expect(rows.map(r => r.href)).toContain('/account/organization');
+    expect(rows.map(r => r.href)).toContain('/notifications');
   });
 
   it('highlights the section in the path', () => {
-    const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'account', accountSection: 'teams' }))
+    const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'account', accountSection: 'organization' }))
       .find(a => a.active)!.groups.flatMap(g => g.rows);
-    expect(rows.filter(r => r.active).map(r => r.label)).toEqual(['My teams']);
+    expect(rows.filter(r => r.active).map(r => r.label)).toEqual(['Organization & teams']);
+  });
+
+  it('leaves every account section unhighlighted outside the account area', () => {
+    /* `/notifications` is its own screen inside the account area. Defaulting
+       an unmatched path to `profile` lit User profile there too, so the
+       sidebar claimed the user was in two places at once. */
+    expect(accountSectionForPath('/notifications')).toBe('');
+    expect(accountSectionForPath('/account')).toBe('profile');
+    const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'notifications', accountSection: accountSectionForPath('/notifications') }))
+      .find(a => a.active)!.groups.flatMap(g => g.rows);
+    expect(rows.filter(r => r.active).map(r => r.label)).toEqual(['Notifications']);
+  });
+
+  it('resolves the retired Cloud storage URL onto Integrations', () => {
+    /* Connecting a provider and choosing where it exports to are one section
+       now; the bookmarked URL must not 404. */
+    expect(accountSectionForPath('/account/cloud')).toBe('integrations');
+    const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'account' }))
+      .find(a => a.active)!.groups.flatMap(g => g.rows);
+    expect(rows.map(r => r.href)).not.toContain('/account/cloud');
   });
 });

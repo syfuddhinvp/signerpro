@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from io import BytesIO
 from typing import Iterable
 
@@ -35,6 +35,7 @@ from app.schemas.document import (
     RoutingUpdate,
     SendDocumentResponse,
 )
+from app.services import conversion_service
 from app.services.audit_service import audit_service
 from app.services.crm_service import crm_integration_service
 from app.services.email_service import signflow_email_service
@@ -264,12 +265,20 @@ class DocumentService:
         if document.original_file_path:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Original PDF cannot be overwritten")
         filename = upload.filename or "document.pdf"
-        if not filename.lower().endswith(".pdf"):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
+        if not conversion_service.is_supported(filename):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported file type. Upload a PDF, an image, or a document such as .docx.",
+            )
         settings = get_settings()
         content = await upload.read(settings.max_upload_bytes + 1)
         if len(content) > settings.max_upload_bytes:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="PDF exceeds size limit")
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds size limit")
+        # Everything downstream — field placement, sealing, the certificate —
+        # assumes a PDF, so a non-PDF upload is converted here and only the PDF
+        # is stored and hashed.
+        converted_from = conversion_service.extension_of(filename).lstrip(".") if not filename.lower().endswith(".pdf") else None
+        content = conversion_service.convert_to_pdf(filename=filename, content=content)
         if not content.startswith(b"%PDF"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is not a valid PDF")
         try:
@@ -300,8 +309,12 @@ class DocumentService:
             document_id=document.id,
             user_id=user.id,
             event_type="document_uploaded",
-            event_message=f"Original PDF uploaded with {page_count} page(s).",
-            metadata={"sha256": original_hash, "filename": filename},
+            event_message=(
+                f"Original PDF uploaded with {page_count} page(s)."
+                if converted_from is None
+                else f"{filename} converted from {converted_from.upper()} to PDF with {page_count} page(s)."
+            ),
+            metadata={"sha256": original_hash, "filename": filename, "converted_from": converted_from},
         )
         db.commit()
         db.refresh(document)
@@ -316,15 +329,6 @@ class DocumentService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Add at least one field before sending")
         for field in document.fields:
             self._validate_field_page_and_coords(document, field)
-            # A calculated field with no expression computes nothing and would
-            # be stamped blank into an executed contract. Fine as a draft,
-            # never fine to send.
-            expression = field.options.get("expression") if isinstance(field.options, dict) else None
-            if field.type == FieldType.formula and not (expression and str(expression).strip()):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Calculated field '{field.label}' needs an expression before this can be sent",
-                )
         for recipient in document.recipients:
             # RTE-3: only a recipient with a signing obligation must own
             # something to do. A `copy` recipient is a CC — requiring them to
@@ -556,6 +560,8 @@ class DocumentService:
         folder_id: str | None = None,
         owner: str | None = None,
         since_days: int | None = None,
+        updated_from: date | None = None,
+        updated_to: date | None = None,
         q: str | None = None,
         sort: str = "recent",
         limit: int = 25,
@@ -620,6 +626,18 @@ class DocumentService:
             query = query.where(or_(Document.owner_user_id == owner, Document.sender_id == owner))
         if since_days:
             query = query.where(Document.updated_at >= datetime.now(timezone.utc) - timedelta(days=since_days))
+        # An explicit range is inclusive of both days the user picked, so the
+        # upper bound is the start of the *next* day rather than midnight of
+        # `updated_to` — which would have excluded everything on that date.
+        if updated_from:
+            query = query.where(
+                Document.updated_at >= datetime.combine(updated_from, time.min, tzinfo=timezone.utc)
+            )
+        if updated_to:
+            query = query.where(
+                Document.updated_at
+                < datetime.combine(updated_to + timedelta(days=1), time.min, tzinfo=timezone.utc)
+            )
         if q:
             needle = f"%{q.strip().lower()}%"
             recipient_match = (
@@ -736,7 +754,6 @@ class DocumentService:
                     validation=field.validation,
                     validation_pattern=field.validation_pattern,
                     condition=field.condition,
-                    merge_tag=field.merge_tag,
                     read_only=field.read_only,
                 )
             )

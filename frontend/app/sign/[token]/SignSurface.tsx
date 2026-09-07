@@ -16,11 +16,12 @@ import { useModalBehaviour } from '@/components/sf/useModalBehaviour';
 import { useSF, type Recipient, type SFField } from '@/lib/sf/state';
 import type { SignerField } from '@/lib/sf/adapters';
 import { btn, inputStyle } from '@/lib/sf/ui';
-import type { OtherPlacement } from '@/components/sf/screens/Signer';
+import type { OtherPlacement, PageAnnotation } from '@/components/sf/screens/Signer';
 import {
   completeSigning, declineSigning, markViewed, reassignSigning, saveFieldValue, saveSignature,
   uploadAttachment, type ActionResult,
 } from './actions';
+import { typeFaceStack } from '@/lib/sf/fonts';
 
 export type SignSurfaceProps = {
   token: string;
@@ -39,6 +40,8 @@ export type SignSurfaceProps = {
   consentVersion: string;
   /** Other recipients' placements, redacted to geometry by the API. */
   otherPlacements: OtherPlacement[];
+  /** The sender's page annotations, drawn for every recipient (ANN-1). */
+  annotations?: PageAnnotation[];
 };
 
 type ModalKind = 'signature' | 'disclosure' | 'decline' | 'reassign' | null;
@@ -75,7 +78,7 @@ const tab = (on: boolean): CSSProperties => ({
 export default function SignSurface(props: SignSurfaceProps) {
   const {
     token, fields, recipients, initialValues, pageCount, readOnly,
-    canDecline, canReassign, signerName, documentTitle, pdfHref, consentVersion, otherPlacements,
+    canDecline, canReassign, signerName, documentTitle, pdfHref, consentVersion, otherPlacements, annotations,
   } = props;
   const { s, set, flash } = useSF();
   const router = useRouter();
@@ -227,6 +230,7 @@ export default function SignSurface(props: SignSurfaceProps) {
         onDownload={() => window.open(pdfHref, '_blank', 'noopener')}
         pdfUrl={pdfHref}
         otherPlacements={otherPlacements}
+        annotations={annotations}
         onUploadAttachment={onUploadAttachment}
         stampEndpoint={(fieldId) => `/sign/${encodeURIComponent(token)}/fields/${encodeURIComponent(fieldId)}/attachment`}
       />
@@ -277,7 +281,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                         type="button"
                         onClick={() => setTypeFace(face)}
                         aria-pressed={typeFace === face}
-                        style={{ flex: '1 1 160px', minHeight: '58px', border: '1px solid ' + (typeFace === face ? '#4f46e5' : '#e3e7ee'), borderRadius: '12px', background: '#fff', cursor: 'pointer', fontFamily: `'${face}', cursive`, fontSize: '1.5rem', color: '#0f172a' }}
+                        style={{ flex: '1 1 160px', minHeight: '58px', border: '1px solid ' + (typeFace === face ? '#4f46e5' : '#e3e7ee'), borderRadius: '12px', background: '#fff', cursor: 'pointer', fontFamily: typeFaceStack(face), fontSize: '1.5rem', color: '#0f172a' }}
                       >
                         {typedName || signerName}
                       </button>

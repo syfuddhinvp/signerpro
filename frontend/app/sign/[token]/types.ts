@@ -8,6 +8,7 @@
  */
 
 import type { FieldResponse, RecipientStatus } from '@/lib/api/types';
+import type { PageAnnotation } from '@/components/sf/screens/Signer';
 
 export type PublicDocument = {
   title: string;
@@ -48,6 +49,13 @@ export type SigningSessionResponse = {
    * the page is spoken for without learning whose it is or what it says.
    */
   other_field_placements: FieldPlacement[];
+  /**
+   * The sender's own marks on the page (`AnnotationResponse`) — a pen drawing
+   * or a text box. Content rather than an obligation, so every recipient is
+   * shown them whoever they were assigned to, and they carry the payload that
+   * draws them rather than redacted geometry.
+   */
+  annotations?: PageAnnotation[];
   read_only: boolean;
   expires_at: string;
   pdf_url: string;

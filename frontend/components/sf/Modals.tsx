@@ -8,9 +8,10 @@ import { useOptionalSession } from '@/components/sf/SessionProvider';
 import { useModalBehaviour } from '@/components/sf/useModalBehaviour';
 import { useNav } from '@/lib/sf/nav';
 import {
-  SIG_TABS, TYPE_FACES, INKS, MODAL_COPY_STATIC, PAY_TITLES,
+  MODAL_COPY_STATIC, PAY_TITLES,
   TK_PRIO_LABEL
 } from '@/lib/sf/data';
+import SignatureComposer, { type ComposedSignature } from '@/components/sf/parts/SignatureComposer';
 import { pathFor } from '@/lib/sf/routes';
 import { btn, inputStyle, lbl as lblStyle, TEXT_MUTED } from '@/lib/sf/ui';
 import { useDocumentPersistence } from '@/lib/sf/builderInteractions';
@@ -83,7 +84,7 @@ const textareaStyle: CSSProperties = {
   resize: 'vertical', outline: 'none', width: '100%', color: '#0f172a'
 };
 const monoInput: CSSProperties = Object.assign({}, inputStyle, {
-  fontFamily: "'Inter', 'Google Sans Flex', sans-serif", fontSize: '.71875rem'
+  fontFamily: 'var(--font-sans)', fontSize: '.71875rem'
 });
 const iconBtn: CSSProperties = {
   width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
@@ -97,8 +98,6 @@ export default function Modals() {
   const router = useRouter();
   const A = accent();
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const hasStrokes = useRef(false);
   const stateRef = useRef(s);
   stateRef.current = s;
 
@@ -183,127 +182,19 @@ export default function Modals() {
   const isCheckoutModal = s.modal === 'seats' || s.modal === 'plan' || s.modal === 'pay';
 
   /* ── signature ── */
-  const sigTabs = SIG_TABS.map(([id, label]) => {
-    const on = s.sigTab === id;
-    return {
-      id, label, selected: on,
-      onClick: () => set({ sigTab: id }),
-      style: {
-        flex: '1', height: '30px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '.78125rem',
-        fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
-        boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none'
-      } as CSSProperties
-    };
-  });
-  const typeFaces = TYPE_FACES.map(name => {
-    const on = s.typeFace === name;
-    return {
-      name, selected: on,
-      onClick: () => set({ typeFace: name }),
-      style: {
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', padding: '12px 8px',
-        borderRadius: '11px', cursor: 'pointer', border: '1px solid ' + (on ? A : '#e3e7ee'),
-        background: on ? '#eef2ff' : '#fbfcfd'
-      } as CSSProperties,
-      preview: {
-        fontFamily: "'" + name + "', cursive", fontSize: '1.625rem', color: '#0f172a', lineHeight: 1.1,
-        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%'
-      } as CSSProperties
-    };
-  });
-  /* `GET /api/me/signatures` — the prototype offered two "saved signatures"
-     that had never been adopted by anybody. */
-  const savedSigs = (savedSignatures ?? []).map(x => ({
-    key: x.id,
-    name: x.signature_text || s.typedName,
-    label: 'Adopted ' + new Date(x.adopted_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }),
-    meta: [x.signature_type, x.is_passkey_bound ? 'passkey-bound' : null].filter(Boolean).join(' · '),
-    onClick: () => set({ typeFace: x.type_face || x.face || 'Caveat', sigTab: 'saved' }),
-    style: {
-      display: 'flex', alignItems: 'center', gap: '14px', padding: '11px 13px', borderRadius: '12px',
-      border: '1px solid #e3e7ee', background: '#fbfcfd', cursor: 'pointer', width: '100%'
-    } as CSSProperties,
-    preview: { fontFamily: "'" + x.face + "', cursive", fontSize: '1.625rem', color: '#0f172a' } as CSSProperties
-  }));
-  const inks = INKS.map(([c, aria]) => ({
-    c, aria,
-    onClick: () => set({ sigInk: c }),
-    style: {
-      width: '22px', height: '22px', borderRadius: '99px', background: c, cursor: 'pointer',
-      border: s.sigInk === c ? '2px solid ' + A : '2px solid #e3e7ee',
-      boxShadow: s.sigInk === c ? '0 0 0 2px #fff inset' : 'none'
-    } as CSSProperties
-  }));
+  /* The composer itself lives in `parts/SignatureComposer` — the account page
+     adopts signatures with the same panel. It fills `composeRef` with a reader
+     for whatever the active tab holds. */
+  const composeRef = useRef<(() => ComposedSignature | null) | null>(null);
 
-  const initCanvas = (el: HTMLCanvasElement) => {
-    canvasRef.current = el;
-    hasStrokes.current = false;
-    const ctx = el.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, el.width, el.height);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    let drawing = false;
-    let pts: { x: number; y: number }[] = [];
-    const pos = (e: PointerEvent) => {
-      const r = el.getBoundingClientRect();
-      return { x: (e.clientX - r.left) * (el.width / r.width), y: (e.clientY - r.top) * (el.height / r.height) };
-    };
-    el.onpointerdown = (e) => {
-      e.preventDefault();
-      el.setPointerCapture(e.pointerId);
-      drawing = true;
-      pts = [pos(e)];
-      hasStrokes.current = true;
-    };
-    el.onpointermove = (e) => {
-      if (!drawing) return;
-      pts.push(pos(e));
-      ctx.strokeStyle = stateRef.current.sigInk;
-      ctx.lineWidth = stateRef.current.sigStroke * 2.2;
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length - 1; i++) {
-        const mx = (pts[i].x + pts[i + 1].x) / 2;
-        const my = (pts[i].y + pts[i + 1].y) / 2;
-        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-      }
-      ctx.stroke();
-    };
-    el.onpointerup = () => { drawing = false; pts = []; };
-  };
-  const onCanvasRef = (el: HTMLCanvasElement | null) => {
-    if (el && el !== canvasRef.current) initCanvas(el);
-  };
-  const clearCanvas = () => {
-    const el = canvasRef.current;
-    if (!el) return;
-    const ctx = el.getContext('2d');
-    if (ctx) ctx.clearRect(0, 0, el.width, el.height);
-    hasStrokes.current = false;
-  };
-  const onUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => set({ uploadSrc: reader.result as string });
-    reader.readAsDataURL(file);
-  };
   const adopt = () => {
     const st = stateRef.current;
     const id = st.activeSignField || ((signable().filter(f => f.type === 'signature')[0] || ({} as any)).id);
-    let val: string | null = null;
-    if (st.sigTab === 'draw') {
-      val = canvasRef.current && hasStrokes.current ? canvasRef.current.toDataURL('image/png') : null;
-      if (!val) { flash('Draw your signature first'); return; }
-    } else if (st.sigTab === 'type') {
-      val = 'typed:' + st.typeFace + ':' + st.typedName;
-    } else if (st.sigTab === 'upload') {
-      if (!st.uploadSrc) { flash('Upload an image first'); return; }
-      val = st.uploadSrc;
-    } else {
-      val = 'typed:' + st.typeFace + ':' + st.typedName;
-    }
+    const composed = composeRef.current ? composeRef.current() : null;
+    if (!composed) return;  // the composer has already said what is missing
+    const val = composed.signature_type === 'typed'
+      ? 'typed:' + composed.type_face + ':' + composed.signature_text
+      : composed.signature_image_base64;
     set(prev => ({ signValues: Object.assign({}, prev.signValues, { [id]: val }), modal: null }));
     flash('Signature applied · sealed with SHA-256 and logged');
   };
@@ -561,14 +452,14 @@ export default function Modals() {
   const checkoutLines = checkoutPairs.map(([k, v], i, arr) => ({
     k, v,
     style: {
-      fontFamily: "'Inter', 'Google Sans Flex', sans-serif",
+      fontFamily: 'var(--font-sans)',
       fontWeight: i === arr.length - 1 ? 700 : 500,
       color: '#0f172a'
     } as CSSProperties
   }));
   const payMethodChip: CSSProperties = {
     padding: '5px 10px', borderRadius: '8px', border: '1px solid #e3e7ee', background: '#fbfcfd',
-    fontSize: '.71875rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#475569'
+    fontSize: '.71875rem', fontFamily: 'var(--font-sans)', color: '#475569'
   };
   const payMethodLabel = defaultPaymentMethodLabel(billingPms);
   const checkoutCta = s.modal === 'pay'
@@ -680,101 +571,12 @@ export default function Modals() {
 
         {isSigModal ? (
           <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div role="tablist" aria-label="Signature method" style={{ display: 'flex', gap: '4px', background: '#f5f6f8', padding: '4px', borderRadius: '11px' }}>
-              {sigTabs.map(t => (
-                <button key={t.id} type="button" role="tab" aria-selected={t.selected} onClick={t.onClick} style={t.style}>{t.label}</button>
-              ))}
-            </div>
-
-            {s.sigTab === 'draw' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
-                <canvas
-                  ref={onCanvasRef}
-                  width={1120}
-                  height={360}
-                  aria-label="Draw your signature"
-                  style={{ width: '100%', height: '180px', background: '#fbfcfd', border: '1px dashed #8492a6', borderRadius: '12px', touchAction: 'none', cursor: 'crosshair' }}
-                />
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Ink</span>
-                    {inks.map(i => (
-                      <button key={i.c} type="button" aria-label={i.aria} onClick={i.onClick} style={i.style} />
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Stroke</span>
-                    <input
-                      type="range" min="1" max="9" step="1"
-                      value={String(s.sigStroke)}
-                      onChange={(e) => set({ sigStroke: parseInt(e.target.value, 10) })}
-                      aria-label="Stroke thickness"
-                      style={{ width: '120px', accentColor: '#4f46e5' }}
-                    />
-                    <span style={{ fontSize: '.71875rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#334155' }}>{String(s.sigStroke)}px</span>
-                  </div>
-                  <button type="button" onClick={clearCanvas} style={ghostBtn}>Clear</button>
-                  <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, marginLeft: 'auto' }}>Bézier smoothing · stylus &amp; touch supported</span>
-                </div>
-              </div>
-            ) : null}
-
-            {s.sigTab === 'type' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
-                <input
-                  type="text"
-                  value={s.typedName}
-                  onChange={(e) => set({ typedName: e.target.value })}
-                  aria-label="Typed signature text"
-                  style={inputStyle}
-                />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '9px' }}>
-                  {typeFaces.map(f => (
-                    <button key={f.name} type="button" onClick={f.onClick} aria-pressed={f.selected} style={f.style}>
-                      <span style={f.preview}>{s.typedName}</span>
-                      <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{f.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {s.sigTab === 'upload' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
-                <label style={{ border: '1px dashed #8492a6', borderRadius: '12px', padding: '24px', textAlign: 'center', background: '#fbfcfd', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>Drop a PNG or JPG of your signature</span>
-                  <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Background is filtered to transparency automatically</span>
-                  <input type="file" accept="image/*" onChange={onUpload} style={{ margin: '9px auto 0', fontSize: '.75rem' }} />
-                </label>
-                {s.uploadSrc ? (
-                  <div style={{ border: '1px solid #eef1f6', borderRadius: '12px', padding: '12px', display: 'flex', alignItems: 'center', gap: '12px', background: '#fff' }}>
-                    <span style={{ display: 'flex' }}>
-                      <img src={s.uploadSrc} alt="Uploaded signature preview" style={{ height: '64px', objectFit: 'contain' }} />
-                    </span>
-                    <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Transparency filter applied · 1 layer</span>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {s.sigTab === 'saved' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
-                {savedSignatures === null ? (
-                  <span style={{ fontSize: '.71875rem', color: TEXT_MUTED }}>Loading your adopted signatures…</span>
-                ) : savedSigs.length === 0 ? (
-                  <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, lineHeight: 1.6 }}>You have not adopted a signature yet. Draw, type or upload one on the other tabs.</span>
-                ) : null}
-                {savedSigs.map(sig => (
-                  <button key={sig.key} type="button" onClick={sig.onClick} style={sig.style}>
-                    <span style={sig.preview}>{sig.name}</span>
-                    <span style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '2px', marginLeft: 'auto' }}>
-                      <span style={{ fontSize: '.71875rem', color: '#475569', fontWeight: 600 }}>{sig.label}</span>
-                      <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{sig.meta}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <SignatureComposer
+              accent={A}
+              composeRef={composeRef}
+              savedSignatures={savedSignatures}
+              onPickSaved={(row) => set({ typeFace: row.type_face || row.face || 'Caveat', typedName: row.signature_text || stateRef.current.typedName, sigTab: 'saved' })}
+            />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid #eef1f6', paddingTop: '13px' }}>
               <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, lineHeight: 1.5, maxWidth: '420px' }}>
@@ -890,9 +692,9 @@ export default function Modals() {
               </div>
             ) : null}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
-              <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
+              <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
                 {s.payTab === 'card'
-                  ? 'Card details are entered in Stripe\u2019s frame \u00b7 they never reach SignForge'
+                  ? 'Card details are entered in Stripe\u2019s frame \u00b7 they never reach SignerPro'
                   : 'No card details are collected on this tab'}
               </span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
@@ -930,7 +732,7 @@ export default function Modals() {
                 {planChoices.map(p => (
                   <button key={p.name} type="button" onClick={p.onClick} aria-pressed={p.selected} style={p.style}>
                     <span style={{ fontSize: '.8125rem', fontWeight: 700 }}>{p.name}</span>
-                    <span style={{ fontSize: '.71875rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{p.price}</span>
+                    <span style={{ fontSize: '.71875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{p.price}</span>
                   </button>
                 ))}
               </div>
@@ -948,7 +750,7 @@ export default function Modals() {
                 </label>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.78125rem' }}>
                   <span style={{ color: '#64748b' }}>{String(s.addSeats)} seats added</span>
-                  <span style={{ fontFamily: "'Inter', 'Google Sans Flex', sans-serif", fontWeight: 600 }}>{formatCents(seatCostCents)}</span>
+                  <span style={{ fontFamily: 'var(--font-sans)', fontWeight: 600 }}>{formatCents(seatCostCents)}</span>
                 </div>
               </div>
             ) : null}

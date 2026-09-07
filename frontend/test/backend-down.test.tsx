@@ -41,7 +41,7 @@ describe('the transport reports an outage as one', () => {
   it('the message names the API rather than blaming the user', async () => {
     const result = await apiCall('/api/organizations/me/overview');
     if (result.ok) throw new Error('unreachable');
-    expect(result.error.message).toMatch(/signforge api|failed to fetch|fetch failed/i);
+    expect(result.error.message).toMatch(/signerpro api|failed to fetch|fetch failed/i);
   });
 
   it('a 500 is told apart from an outage — one is retryable, the other is not', async () => {

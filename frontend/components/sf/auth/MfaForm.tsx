@@ -49,10 +49,10 @@ export default function MfaForm() {
     : `We sent a 6-digit code to ${target}.`;
   const mfaNoteStyle: CSSProperties = { fontSize: '.71875rem', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55 };
   const mfaInput: CSSProperties = Object.assign({}, authInput, {
-    fontFamily: "'Inter', 'Google Sans Flex', sans-serif", fontSize: '1.1875rem', letterSpacing: '.34em', textAlign: 'center' as const, height: '46px',
+    fontFamily: 'var(--font-sans)', fontSize: '1.1875rem', letterSpacing: '.34em', textAlign: 'center' as const, height: '46px',
   });
   const recoveryInput: CSSProperties = Object.assign({}, authInput, {
-    fontFamily: "'Inter', 'Google Sans Flex', sans-serif", letterSpacing: '.12em', textAlign: 'center' as const,
+    fontFamily: 'var(--font-sans)', letterSpacing: '.12em', textAlign: 'center' as const,
   });
 
   const verify = async (event: FormEvent<HTMLFormElement>) => {

@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { workspaceForPath } from './routes';
-/* SignForge state container — ported from the prototype app.js `state` object and helper methods. */
+/* SignerPro state container — ported from the prototype app.js `state` object and helper methods. */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ACCENT_DEFAULT, RECIPIENTS, RETIRED_TYPES, STATUS, TYPES, type Dict } from './data';
 
@@ -10,7 +10,7 @@ export type Recipient = { id: string; name: string; email: string; role: string;
 export type SFField = {
   id: string; page: number; type: string; x: number; y: number; w: number; h: number; to: string;
   required: boolean; readOnly: boolean; label: string; placeholder: string; validation: string;
-  cond: { field: string; op: string; value: string } | null; merge: string;
+  cond: { field: string; op: string; value: string } | null;
 };
 export type Contact = {
   id: string; name: string; email: string; company: string; title: string; phone: string; role: string;
@@ -104,6 +104,14 @@ export type SFState = {
   guides: { axis: string; at: number }[];
   dragTool: string | null;
   ghost: { x: number; y: number } | null;
+  /* ANN-1 — pen mode. While it is on, dragging across a page draws a stroke
+     instead of lassoing a selection, and `penInk` / `penWidth` are the nib the
+     next stroke is made with. Ephemeral UI: never persisted with the document. */
+  penMode: boolean;
+  penInk: string;
+  penWidth: number;
+  /** The gesture in flight, in page points, so the canvas can draw it live. */
+  penStroke: { page: number; points: [number, number][] } | null;
   recipients: Recipient[] | null;
   routing: string;
   cadence: string;
@@ -150,6 +158,9 @@ export const INITIAL_STATE: SFState =
     wizardStep: 1,
     paletteTab: 'all',
     paletteQuery: '',
+    // Seed only. The account's real set arrives from
+    // `GET /api/me/field-favorites` (see lib/sf/fieldFavorites.ts); this is what
+    // the palette shows for the moment before it does.
     favTypes: ['signature','date','name','checkbox'],
     pageMenu: null,
     helpOpen: false,
@@ -202,6 +213,10 @@ export const INITIAL_STATE: SFState =
     guides: [],
     dragTool: null,
     ghost: null,
+    penMode: false,
+    penInk: '#0f172a',
+    penWidth: 2,
+    penStroke: null,
     recipients: null,
     routing: 'sequential',
     cadence: '48h',
@@ -230,15 +245,15 @@ export const INITIAL_STATE: SFState =
     },
     security: { sso:true, scim:true, ipAllow:false, residency:true, keyRotation:true, dlp:false },
     fields: [
-      { id:'f1', page:1, type:'signature', x:96, y:600, w:200, h:56, to:'r1', required:true, readOnly:false, label:'Client signature', placeholder:'', validation:'none', cond:null, merge:'' },
-      { id:'f2', page:1, type:'date', x:328, y:600, w:152, h:40, to:'r1', required:true, readOnly:false, label:'Date signed', placeholder:'MM/DD/YYYY', validation:'date', cond:null, merge:'{{contract.signedAt}}' },
-      { id:'f3', page:1, type:'name', x:96, y:672, w:196, h:40, to:'r1', required:true, readOnly:false, label:'Printed name', placeholder:'Full legal name', validation:'none', cond:null, merge:'{{client.name}}' },
-      { id:'f4', page:1, type:'email', x:328, y:672, w:216, h:40, to:'r1', required:false, readOnly:false, label:'Billing email', placeholder:'name@company.com', validation:'email', cond:null, merge:'{{client.email}}' },
-      { id:'f5', page:1, type:'checkbox', x:96, y:744, w:32, h:32, to:'r1', required:true, readOnly:false, label:'Accept terms', placeholder:'', validation:'none', cond:null, merge:'' },
-      { id:'f6', page:1, type:'dropdown', x:328, y:744, w:196, h:40, to:'r2', required:false, readOnly:false, label:'Payment terms', placeholder:'', validation:'none', cond:{ field:'f5', op:'checked', value:'' }, merge:'{{contract.terms}}' },
-      { id:'f7', page:1, type:'initials', x:592, y:600, w:88, h:48, to:'r2', required:true, readOnly:false, label:'Counsel initials', placeholder:'', validation:'none', cond:null, merge:'' },
-      { id:'f8', page:2, type:'signature', x:120, y:520, w:200, h:56, to:'r2', required:true, readOnly:false, label:'Approver signature', placeholder:'', validation:'none', cond:null, merge:'' },
-      { id:'f9', page:2, type:'stamp', x:400, y:496, w:112, h:112, to:'r3', required:false, readOnly:true, label:'Corporate seal', placeholder:'', validation:'none', cond:null, merge:'' }
+      { id:'f1', page:1, type:'signature', x:96, y:600, w:200, h:56, to:'r1', required:true, readOnly:false, label:'Client signature', placeholder:'', validation:'none', cond:null },
+      { id:'f2', page:1, type:'date', x:328, y:600, w:152, h:40, to:'r1', required:true, readOnly:false, label:'Date signed', placeholder:'MM/DD/YYYY', validation:'date', cond:null },
+      { id:'f3', page:1, type:'name', x:96, y:672, w:196, h:40, to:'r1', required:true, readOnly:false, label:'Printed name', placeholder:'Full legal name', validation:'none', cond:null },
+      { id:'f4', page:1, type:'email', x:328, y:672, w:216, h:40, to:'r1', required:false, readOnly:false, label:'Billing email', placeholder:'name@company.com', validation:'email', cond:null },
+      { id:'f5', page:1, type:'checkbox', x:96, y:744, w:32, h:32, to:'r1', required:true, readOnly:false, label:'Accept terms', placeholder:'', validation:'none', cond:null },
+      { id:'f6', page:1, type:'dropdown', x:328, y:744, w:196, h:40, to:'r2', required:false, readOnly:false, label:'Payment terms', placeholder:'', validation:'none', cond:{ field:'f5', op:'checked', value:'' } },
+      { id:'f7', page:1, type:'initials', x:592, y:600, w:88, h:48, to:'r2', required:true, readOnly:false, label:'Counsel initials', placeholder:'', validation:'none', cond:null },
+      { id:'f8', page:2, type:'signature', x:120, y:520, w:200, h:56, to:'r2', required:true, readOnly:false, label:'Approver signature', placeholder:'', validation:'none', cond:null },
+      { id:'f9', page:2, type:'stamp', x:400, y:496, w:112, h:112, to:'r3', required:false, readOnly:true, label:'Corporate seal', placeholder:'', validation:'none', cond:null }
     ]
 };
 

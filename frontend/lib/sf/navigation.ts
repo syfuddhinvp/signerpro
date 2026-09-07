@@ -19,12 +19,15 @@ import {
   SCREEN_SECTIONS, pathFor, sectionPath, documentPathFor,
 } from './routes';
 import { ACCOUNT_NAV } from './data';
+import { accountSectionAllowed, areaAllowed } from '@/lib/auth/access';
 import { BORDER_STRONG } from './ui';
+import type { IconName } from '@/components/sf/Icon';
 
 export type AreaItem = {
   key: AreaKey;
   label: string;
-  icon: string;
+  /** Key into the shell's SVG icon set. */
+  icon: IconName;
   /** The screen the area lands on when it is entered. */
   screen: ScreenKey;
   /** Trailing figure — an unread-style count, blank when there is none. */
@@ -52,10 +55,10 @@ export type SidebarGroup = {
 };
 
 /* ── the areas ────────────────────────────────────────────────────────────
-   Seven tenant areas and six platform ones, each owning a disjoint set of
+   Seven tenant areas and five platform ones, each owning a disjoint set of
    screens. Overview is its own area rather than the first row under
-   Documents, and in the platform workspace Revenue, Support, Developer and
-   Reports are reachable from exactly one place each.
+   Documents, and in the platform workspace Revenue, Support and Developer are
+   reachable from exactly one place each.
 
    These used to be a separate dark icon rail beside the sidebar. Two levels
    of chrome for one navigation tree meant the second level's heading only
@@ -63,23 +66,22 @@ export type SidebarGroup = {
    a single sidebar now, with the current area's own rows nested under it. */
 
 const TENANT_AREAS: AreaItem[] = [
-  { key: 'home', label: 'Home', icon: '⌂', screen: 'tenantHome' },
-  { key: 'documents', label: 'Documents', icon: '▤', screen: 'dashboard' },
-  { key: 'contacts', label: 'Contacts', icon: '◍', screen: 'contacts' },
-  { key: 'reports', label: 'Reports', icon: '▥', screen: 'reports' },
-  { key: 'developer', label: 'Developer', icon: '‹›', screen: 'api' },
-  { key: 'support', label: 'Support', icon: '☎', screen: 'support' },
-  { key: 'account', label: 'My account', icon: '⚙', screen: 'account' },
+  { key: 'home', label: 'Home', icon: 'home', screen: 'tenantHome' },
+  { key: 'documents', label: 'Documents', icon: 'documents', screen: 'dashboard' },
+  { key: 'contacts', label: 'Contacts', icon: 'contacts', screen: 'contacts' },
+  { key: 'reports', label: 'Reports', icon: 'reports', screen: 'reports' },
+  { key: 'developer', label: 'Developer', icon: 'developer', screen: 'api' },
+  { key: 'support', label: 'Support', icon: 'support', screen: 'support' },
+  { key: 'account', label: 'My account', icon: 'account', screen: 'account' },
 ];
 
 const PLATFORM_AREAS: AreaItem[] = [
-  { key: 'home', label: 'Overview', icon: '⌂', screen: 'platformHome' },
-  { key: 'platform', label: 'Tenants', icon: '⌘', screen: 'platform' },
-  { key: 'platformRevenue', label: 'Revenue', icon: '◈', screen: 'revenue' },
-  { key: 'reports', label: 'Reports', icon: '▥', screen: 'reports' },
-  { key: 'developer', label: 'Developer', icon: '‹›', screen: 'api' },
-  { key: 'support', label: 'Support', icon: '☎', screen: 'support' },
-  { key: 'account', label: 'My account', icon: '⚙', screen: 'account' },
+  { key: 'home', label: 'Overview', icon: 'home', screen: 'platformHome' },
+  { key: 'platform', label: 'Tenants', icon: 'tenants', screen: 'platform' },
+  { key: 'platformRevenue', label: 'Revenue', icon: 'revenue', screen: 'revenue' },
+  { key: 'developer', label: 'Developer', icon: 'developer', screen: 'api' },
+  { key: 'support', label: 'Support', icon: 'support', screen: 'support' },
+  { key: 'account', label: 'My account', icon: 'account', screen: 'account' },
 ];
 
 /** Everything the sidebar needs to know about where the user is and what the
@@ -88,6 +90,10 @@ export type NavContext = {
   workspace: Workspace;
   area: AreaKey;
   screen: ScreenKey;
+  /** The caller's tenant role (`admin` | `sender`). A sender's tree is
+   *  pruned to the areas and account sections they may actually use — see
+   *  `lib/auth/access.ts`, which the middleware enforces on the same rules. */
+  role: string;
   /** Current `?section=`, already narrowed by `sectionFor`. */
   section: string;
   /** Current `?folder=` on the library. */
@@ -105,6 +111,8 @@ export type NavContext = {
     invoices: number | null;
     logs: number | null;
     tickets: number | null;
+    /** Unread notifications — the same figure the header bell badges. */
+    notifications: number | null;
   };
   /** The caller's real folders (`GET /api/folders/tree`), flattened. Personal
    *  ones join the Folders group; team-scoped ones make up Team folders. */
@@ -120,8 +128,9 @@ export function areaItems(ctx: NavContext): AreaItem[] {
   const base = ctx.workspace === 'platform' ? PLATFORM_AREAS : TENANT_AREAS;
   /* Support carries the only area-level badge: it is the one area with no
      rows of its own, so its count has nowhere else to live. */
-  return base.map(item =>
-    item.key === 'support' ? { ...item, count: badge(ctx.counts.tickets) } : item);
+  return base
+    .filter(item => areaAllowed(item.key, ctx.role))
+    .map(item => (item.key === 'support' ? { ...item, count: badge(ctx.counts.tickets) } : item));
 }
 
 /* ── document views ───────────────────────────────────────────────────────
@@ -250,13 +259,25 @@ export function sidebarGroups(ctx: NavContext): SidebarGroup[] {
        same tree. They are rows here like any other. */
     return [{
       key: 'account', title: 'Account',
-      rows: ACCOUNT_NAV.map(([id, label]) => ({
+      rows: [
+        /* The notifications *page* is not an account section — it is its own
+           screen, and the account area's `notifications` row below is the
+           preference switches for it. Both belong here: this is where a user
+           looks for anything addressed to them personally. */
+        {
+          key: 'account:feed', label: 'Notifications', href: pathFor('notifications'),
+          active: ctx.screen === 'notifications',
+          count: badge(counts.notifications),
+        },
+        ...ACCOUNT_NAV.filter(([id]) => accountSectionAllowed(id, ctx.role)).map(([id, label]) => ({
         key: 'account:' + id, label, href: accountHref(id),
-        /* Keyed off the section alone, not the screen: billing and invoices
-           are account sections served by screens of their own. */
+        /* Keyed off the section alone, not the screen: billing is an account
+           section served by a screen of its own. */
         active: ctx.accountSection === id,
-        count: id === 'invoices' ? badge(counts.invoices) : undefined,
-      })),
+        /* The invoice count rides on billing, which is where the invoices are. */
+        count: id === 'billing' ? badge(counts.invoices) : undefined,
+        })),
+      ],
     }];
   }
 

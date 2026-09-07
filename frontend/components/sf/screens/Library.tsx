@@ -1,6 +1,6 @@
 'use client';
 
-/* SignForge — DOCUMENT LIBRARY screen (isDash). Ported verbatim from the prototype.
+/* SignerPro — DOCUMENT LIBRARY screen (isDash). Ported verbatim from the prototype.
  *
  * Data comes from `app/(app)/documents/page.tsx` (props); the filters, the
  * search box, the selection and the open row menu stay in `lib/sf/state.tsx`.
@@ -91,6 +91,11 @@ export default function Library(props: LibraryProps) {
   /* Typing is the one thing that cannot go straight to the URL — that would be
      one navigation per keystroke — so the box is local and debounced into it. */
   const [queryDraft, setQueryDraft] = useState(initialFilters.q);
+  /* Open the drawer when a shared link arrives with filters already set —
+     otherwise the list looks short for no visible reason. */
+  const activeFilterCount = (['status', 'type', 'time', 'owner'] as const)
+    .filter(k => initialFilters[k] !== 'all').length;
+  const [showFilters, setShowFilters] = useState(activeFilterCount > 0);
   useEffect(() => { setQueryDraft(initialFilters.q); }, [initialFilters.q]);
   useEffect(() => {
     if (queryDraft === filters.q) return;
@@ -125,6 +130,11 @@ export default function Library(props: LibraryProps) {
   const libCountLabel =
     (isTemplateFolder ? templateTotal : total) +
     (isTemplateFolder ? ' templates' : ' documents');
+
+  const dateFieldLabel: CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: '6px',
+    fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)',
+  };
 
   const filterSelectStyle: CSSProperties = {
     height: '30px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 9px',
@@ -309,6 +319,13 @@ export default function Library(props: LibraryProps) {
         borderTop: i ? '1px solid #f2f4f8' : 'none',
         background: checked ? '#f8faff' : 'transparent', flexWrap: 'wrap',
       } as CSSProperties,
+      /* Same children, stacked: the tile is a column so the title and the
+         action sit under the thumbnail rather than beside it. */
+      cardStyle: {
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '10px',
+        padding: '12px', border: '1px solid ' + (checked ? '#c7d2fe' : '#eef1f6'), borderRadius: '12px',
+        background: checked ? '#f8faff' : '#fff', minWidth: 0,
+      } as CSSProperties,
       onCheck: () => set(st2 => ({
         libSelected: checked ? st2.libSelected.filter(x => x !== uid) : st2.libSelected.concat([uid]),
       })),
@@ -403,7 +420,7 @@ export default function Library(props: LibraryProps) {
   });
   const chipCount: CSSProperties = {
     fontSize: '.65625rem', color: TEXT_MUTED,
-    fontFamily: "'Inter', 'Google Sans Flex', sans-serif",
+    fontFamily: 'var(--font-sans)',
   };
   const countOf = (key: string): number | null => {
     const map: Record<string, number | undefined> = {
@@ -425,8 +442,7 @@ export default function Library(props: LibraryProps) {
     items: { id: string; label: string; tone?: string }[],
     countFor: (id: string) => string,
   ) => (
-    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
-      <span style={{ ...chipCount, letterSpacing: '.04em', textTransform: 'uppercase', flex: '0 0 auto', minWidth: '52px' }}>{title}</span>
+    <div key={key} aria-label={title} style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
       {items.map(item => {
         const active = filters.folder === item.id;
         const count = countFor(item.id);
@@ -521,6 +537,11 @@ export default function Library(props: LibraryProps) {
     style: btn('#fff', label === 'Delete' ? '#b91c1c' : '#475569', label === 'Delete' ? '#fecaca' : '#e3e7ee'),
   }));
 
+  /* `libView` used to tint these two buttons and nothing else — Grid was a
+     dead toggle. The card below is the same row's data in a tile: thumb,
+     title, meta, status, and the one primary action plus its menu. */
+  const isGrid = s.libView === 'grid';
+
   const libListBtn = btn(
     s.libView === 'list' ? '#eef2ff' : '#fff',
     s.libView === 'list' ? '#3730a3' : '#475569',
@@ -536,7 +557,7 @@ export default function Library(props: LibraryProps) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', minWidth: 0 }}>
             <h2 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700, letterSpacing: '-.3px' }}>{libFolderLabel}</h2>
-            <span style={{ fontSize: '.75rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{libCountLabel}</span>
+            <span style={{ fontSize: '.75rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{libCountLabel}</span>
           </div>
           <div style={{ display: 'flex', gap: '7px', flex: '0 0 auto' }}>
             <button type="button" onClick={createFolder} style={ghostBtn}>New folder</button>
@@ -546,46 +567,93 @@ export default function Library(props: LibraryProps) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {/* Folders and views are the same kind of control — one destination
+            each — so they share one row. Two labelled rows spent a third of
+            the viewport restating that. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
           {chipRow('folders', 'Folders', folderChips, id => {
             const known = countOf(id);
             if (known !== null) return badge(known);
             const real = folderOptions.find(f => f.id === id);
             return badge(real ? real.documentCount : null);
           })}
+          <span aria-hidden="true" style={{ width: '1px', alignSelf: 'stretch', minHeight: '18px', background: '#e3e7ee', margin: '0 2px' }} />
           {chipRow('views', 'Views', viewChips, id => badge(countOf(id)))}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          {libFilters.map(f => (
-            <select key={f.key} value={f.value} onChange={f.onChange} style={f.style} aria-label="Filter">
-              {f.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-          ))}
+          {/* Four always-open selects reading "All …" told the user nothing.
+              They fold away until asked for, and the button carries how many
+              are actually narrowing the list. */}
           <button
             type="button"
-            onClick={() => { setQueryDraft(''); pushFilters({ status: 'all', type: 'all', time: 'all', owner: 'all', q: '' }); }}
-            style={linkBtn(A)}
-          >Reset filters</button>
+            aria-expanded={showFilters}
+            onClick={() => setShowFilters(v => !v)}
+            style={btn(
+              activeFilterCount ? '#eef2ff' : '#fff',
+              activeFilterCount ? '#3730a3' : '#475569',
+              activeFilterCount ? '#c7d2fe' : '#e3e7ee')}
+          >{activeFilterCount ? 'Filters · ' + activeFilterCount : 'Filters'}</button>
           <input
             type="search"
             value={queryDraft}
             onChange={e => setQueryDraft(e.target.value)}
             placeholder="Search documents and forms"
             aria-label="Search documents"
-            style={{ height: '30px', flex: 1, minWidth: '180px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 10px', fontSize: '.78125rem', outline: 'none', background: '#fff' }}
+            style={{ height: '30px', flex: '1 1 200px', maxWidth: '320px', minWidth: '160px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 10px', fontSize: '.78125rem', outline: 'none', background: '#fff' }}
           />
           <select
             value={filters.sort}
             onChange={e => pushFilters({ sort: e.target.value })}
             aria-label="Sort"
-            style={{ height: '30px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 9px', fontSize: '.75rem', background: '#fff', color: '#334155', outline: 'none' }}
+            style={{ height: '30px', marginLeft: 'auto', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 9px', fontSize: '.75rem', background: '#fff', color: '#334155', outline: 'none' }}
           >
             {libSortOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
           <button type="button" onClick={() => set({ libView: 'list' })} style={libListBtn}>List</button>
           <button type="button" onClick={() => set({ libView: 'grid' })} style={libGridBtn}>Grid</button>
         </div>
+
+        {showFilters ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {libFilters.map(f => (
+              <select key={f.key} value={f.value} onChange={f.onChange} style={f.style} aria-label="Filter">
+                {f.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            ))}
+            {filters.time === 'custom' ? (
+              <>
+                <label style={dateFieldLabel}>
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={filters.from}
+                    max={filters.to || undefined}
+                    onChange={e => pushFilters({ from: e.target.value })}
+                    style={filterSelectStyle}
+                  />
+                </label>
+                <label style={dateFieldLabel}>
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={filters.to}
+                    min={filters.from || undefined}
+                    onChange={e => pushFilters({ to: e.target.value })}
+                    style={filterSelectStyle}
+                  />
+                </label>
+              </>
+            ) : null}
+            {activeFilterCount || queryDraft ? (
+              <button
+                type="button"
+                onClick={() => { setQueryDraft(''); pushFilters({ status: 'all', type: 'all', time: 'all', from: '', to: '', owner: 'all', q: '' }); }}
+                style={linkBtn(A)}
+              >Reset filters</button>
+            ) : null}
+          </div>
+        ) : null}
 
         {hasLibSelection ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', border: '1px solid #c7d2fe', background: '#eef2ff', borderRadius: '11px', flexWrap: 'wrap' }}>
@@ -608,12 +676,12 @@ export default function Library(props: LibraryProps) {
               <span style={{ fontSize: '.84375rem', fontWeight: 600, color: '#0f172a' }}>
                 {isTemplateFolder ? 'No templates yet' : 'Nothing in ' + libFolderLabel}
               </span>
-              <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
+              <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
                 {isTemplateFolder ? 'Save a prepared document as a template to reuse it.' : 'Upload a document or clear the filters above.'}
               </span>
               {isTemplateFolder ? null : (
                 <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-                  <UploadDocument label="Upload a PDF" />
+                  <UploadDocument label="Upload a file" />
                 </div>
               )}
             </div>
@@ -628,40 +696,51 @@ export default function Library(props: LibraryProps) {
                 onClick={toggleSelectAll}
                 style={checkboxStyle(allSelected, someSelected)}
               >{allSelected ? '\u2713' : someSelected ? '\u2013' : ''}</button>
-              <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
+              <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
                 {allSelected ? 'All ' + libRowIds.length + ' on this page selected' : 'Select all on this page'}
               </span>
             </div>
           ) : null}
+          <div style={isGrid ? {
+            display: 'grid', gap: '12px', padding: '12px 14px',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+          } : undefined}>
           {libRows.map(d => (
-            <div key={d.id} style={d.rowStyle}>
-              <button
-                type="button"
-                role="checkbox"
-                aria-checked={d.checked === 'true'}
-                aria-label="Select"
-                onClick={d.onCheck}
-                style={checkboxStyle(d.checked === 'true')}
-              >{d.checked === 'true' ? '✓' : ''}</button>
-              <span style={d.thumb}>
-                <span style={d.line1} /><span style={d.line2} /><span style={d.line3} /><span style={d.line4} />
-              </span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', flex: '1 1 240px', minWidth: '200px' }}>
+            <div key={d.id} style={isGrid ? d.cardStyle : d.rowStyle}>
+              <div style={isGrid
+                ? { display: 'flex', alignItems: 'center', gap: '10px', alignSelf: 'stretch' }
+                : { display: 'contents' }}>
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={d.checked === 'true'}
+                  aria-label="Select"
+                  onClick={d.onCheck}
+                  style={checkboxStyle(d.checked === 'true')}
+                >{d.checked === 'true' ? '✓' : ''}</button>
+                <span style={d.thumb}>
+                  <span style={d.line1} /><span style={d.line2} /><span style={d.line3} /><span style={d.line4} />
+                </span>
+              </div>
+              <div style={isGrid
+                ? { display: 'flex', flexDirection: 'column', gap: '5px', alignSelf: 'stretch', minWidth: 0 }
+                : { display: 'flex', flexDirection: 'column', gap: '5px', flex: '1 1 240px', minWidth: '200px' }}>
                 <button
                   type="button"
                   onClick={d.onOpen}
                   onDoubleClick={d.onFavorite}
                   style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: '.84375rem', fontWeight: 600, color: '#0f172a', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 >{d.title}</button>
-                <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.meta}</span>
+                <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.meta}</span>
                 <span style={{ display: 'flex', gap: '7px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={d.pillStyle}>{d.statusLabel}</span>
                   <span style={{ fontSize: '.6875rem', color: '#64748b' }}>{d.signers}</span>
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 auto' }}>
-                <button type="button" onClick={d.onPrimary} style={primaryBtn}>{d.primaryLabel}</button>
-                <button type="button" onClick={d.onTemplate} style={ghostBtn}>Make template</button>
+              <div style={isGrid
+                ? { display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'stretch', marginTop: 'auto' }
+                : { display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 auto' }}>
+                <button type="button" onClick={d.onPrimary} style={isGrid ? { ...primaryBtn, flex: 1 } : primaryBtn}>{d.primaryLabel}</button>
                 <div style={{ position: 'relative' }}>
                   <button
                     type="button"
@@ -685,6 +764,7 @@ export default function Library(props: LibraryProps) {
               </div>
             </div>
           ))}
+          </div>
         </div>
       </div>
     </section>

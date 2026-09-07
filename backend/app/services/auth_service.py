@@ -147,7 +147,7 @@ class AuthService:
             email=user.email,
             role=user.role,
             is_platform_admin=bool(user.is_platform_admin),
-            avatar_url=user.avatar_url,
+            avatar_url=self.avatar_url_for(user),
             locale=user.locale,
             timezone=user.timezone,
             status=user.status or "active",
@@ -155,6 +155,20 @@ class AuthService:
             mfa_enrolled=bool(user.mfa_enrolled_at and user.mfa_secret),
             last_active_at=user.last_active_at,
         )
+
+    @staticmethod
+    def avatar_url_for(user: User) -> str | None:
+        """The photo the frontend should show for `user`.
+
+        A photo uploaded here beats whatever URL an identity provider set: the
+        upload is the more deliberate choice of the two. It is served through
+        our own route, and carries the row's update time so a replaced photo
+        is not answered from a stale cache.
+        """
+        if user.avatar_path:
+            stamp = int(user.updated_at.timestamp()) if user.updated_at else 0
+            return f"/api/me/avatar?v={stamp}"
+        return user.avatar_url
 
     def current_user_payload(self, db: Session, user: User) -> CurrentUserResponse:
         return CurrentUserResponse(**self.user_payload(db, user).model_dump())
@@ -511,7 +525,7 @@ class AuthService:
             method=method,
             secret=secret,
             otpauth_url=totp.provisioning_uri(
-                secret, account_name=user.email, issuer=getattr(settings, "app_name", None) or "SignForge"
+                secret, account_name=user.email, issuer=getattr(settings, "app_name", None) or "SignerPro"
             ),
             recovery_codes=codes,
         )
@@ -587,10 +601,10 @@ class AuthService:
         email_service.send(
             EmailMessage(
                 to_email=user.email,
-                subject="Reset your SignForge password",
+                subject="Reset your SignerPro password",
                 body=(
                     f"Hello {user.name},\n\n"
-                    "We received a request to reset your SignForge password.\n"
+                    "We received a request to reset your SignerPro password.\n"
                     f"Set a new password here: {link}\n\n"
                     f"This link can be used once and expires in {PASSWORD_RESET_TTL_MINUTES} minutes.\n"
                     "If you did not request this, you can safely ignore this email."

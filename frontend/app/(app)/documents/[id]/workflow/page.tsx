@@ -14,7 +14,7 @@ import { isSealedStatus } from '@/lib/sf/sealed';
 import type { RecipientResponse, RoutingResponse } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Signing workflow · SignForge' };
+export const metadata: Metadata = { title: 'Signing workflow · SignerPro' };
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id: documentId } = await params;

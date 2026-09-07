@@ -1,5 +1,5 @@
 'use client';
-/* SignForge — PREPARE / BUILDER screen (isBuilder), ported verbatim from the prototype.
+/* SignerPro — PREPARE / BUILDER screen (isBuilder), ported verbatim from the prototype.
 
    The markup is unchanged; the data behind it is the real document. Field
    authoring stays entirely local while the pointer is down — `useBuilderInteractions`
@@ -12,13 +12,24 @@ import { reorderRecips, useDocumentTitle, useSF, UNASSIGNED_RECIPIENT, type Reci
 import { useNav } from '@/lib/sf/nav';
 import { TYPES } from '@/lib/sf/data';
 import { btn, inputStyle, lbl, railHead, TEXT_MUTED, BORDER_STRONG } from '@/lib/sf/ui';
-import { useBuilderInteractions, useDocumentPersistence } from '@/lib/sf/builderInteractions';
+import { useBuilderInteractions, useDocumentPersistence, type AnnotationExtras } from '@/lib/sf/builderInteractions';
+import {
+  drawingOptions, INK_COLORS, isAnnotationType, MAX_PEN_WIDTH, MIN_PEN_WIDTH, strokePath,
+  TEXTBOX_FONTS, TEXTBOX_SIZES, textboxFontStack, textboxOptions,
+} from '@/lib/sf/annotations';
+import { useFieldFavorites } from '@/lib/sf/fieldFavorites';
 import { fieldChoices, newBuilderRecipient, toBuilderFields, toBuilderRecipients, type BuilderRouting } from '@/lib/sf/adapters';
 import LazyPdfPages from '@/components/sf/pdf/LazyPdfPages';
+import { effectiveValidation } from '@/lib/sf/fieldValidation';
 import UploadDocument from '@/components/sf/UploadDocument';
+import PdfBadge from '@/components/sf/parts/PdfBadge';
 import AddRecipient from '@/components/sf/parts/AddRecipient';
+import ResizableRail from '@/components/sf/parts/ResizableRail';
 import { rememberContact } from '@/lib/sf/recipientContacts';
 import { useDialogs } from '@/components/sf/DialogProvider';
+import { useRouter } from 'next/navigation';
+import { apiCall, errorMessage } from '@/lib/api/browser';
+import { documents as documentsApi } from '@/lib/api/resources';
 import { useElementWidth } from '@/components/sf/pdf/useElementWidth';
 import type { FieldResponse, RecipientResponse, RecipientRole } from '@/lib/api/types';
 
@@ -30,15 +41,21 @@ const REGEX_MAP: { [k: string]: string } = {
   numeric:'^-?\\d+(\\.\\d+)?$',
   custom:'^[A-Z]{3}-\\d{4}$'
 };
+const VALIDATION_LABEL: { [k: string]: string } = { email:'Email', date:'Date', numeric:'Numeric', custom:'Custom regex' };
 const COND_OP_LABEL: { [k: string]: string } = { checked:'is checked', equals:'equals', notEmpty:'is not empty' };
 
 /** Field types whose whole point is a list of choices to pick from. Without
  *  one the signing surface can only tell the recipient to ask the sender. */
+/* Canvas-column width (CSS px) at which the toolbar has room to spell its
+   buttons out rather than leaving the label to title/aria-label alone. Below
+   it the toolbar stays icon-only and still fits without scrolling. */
+const WIDE_TOOLBAR = 1040;
+
 const CHOICE_TYPES = new Set(['dropdown', 'radio']);
 /** Types where pre-filling a value is meaningful. A signature, initials, a
  *  stamp or an attachment is the recipient's own act — it has no default. */
 const DEFAULTABLE_TYPES = new Set([
-  'text', 'name', 'email', 'number', 'currency', 'date', 'datetime', 'formula', 'dropdown', 'radio', 'checkbox',
+  'text', 'name', 'email', 'number', 'currency', 'date', 'datetime', 'dropdown', 'radio', 'checkbox',
 ]);
 
 export type BuilderProps = {
@@ -58,8 +75,45 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   const { s, set, flash, accent, recips, meta, initials, sel, setField } = useSF();
   const { go } = useNav();
   const { askConfirm } = useDialogs();
+  const { isFavorite, toggleFavorite, favoritesReady } = useFieldFavorites();
+  const router = useRouter();
   const A = accent();
-  useDocumentTitle(title);
+
+  /* ── document name ──────────────────────────────────────────────────────
+     The header name is editable in place: clicking it swaps the label for an
+     input, Enter (or blur) commits through `POST /api/documents/{id}/rename`
+     and Escape abandons the edit. `title` is a server prop, so the committed
+     name is held locally until `router.refresh()` brings the new prop down —
+     otherwise the header would flash back to the old name in between. */
+  const [docTitle, setDocTitle] = React.useState(title);
+  const [renaming, setRenaming] = React.useState(false);
+  const [titleDraft, setTitleDraft] = React.useState(title);
+  React.useEffect(() => { setDocTitle(title); }, [title]);
+  useDocumentTitle(docTitle);
+
+  const startRename = () => {
+    if (!documentId) { flash('Upload a document first'); return; }
+    setTitleDraft(docTitle);
+    setRenaming(true);
+  };
+  const cancelRename = () => setRenaming(false);
+  const commitRename = () => {
+    if (!renaming) return;                   // blur after Escape already closed it
+    setRenaming(false);
+    const next = titleDraft.trim();
+    if (!documentId || !next || next === docTitle) return;
+    const previous = docTitle;
+    setDocTitle(next);                       // optimistic: the header is the edit surface
+    void documentsApi.rename(apiCall, documentId, next).then(res => {
+      if (!res.ok) {
+        setDocTitle(previous);
+        flash(errorMessage(res) || 'Rename failed');
+        return;
+      }
+      flash('Renamed to ' + next);
+      router.refresh();
+    });
+  };
 
   /* ── the real document ──────────────────────────────────────────────────
      The canvas below used to be a hardcoded 816 × 1056 sheet painted with
@@ -87,7 +141,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     () => pageSizes.map(sz => ({ width: sz.widthPt, height: sz.heightPt })),
     [pageSizes],
   );
-  const I = useBuilderInteractions({ documentId, pageSize, pageSizes: allPageSizes });
+  /* Placing an annotation authors a payload (its strokes, or its face and size)
+     at the moment the field is created, so the gesture machinery needs the
+     extras writer — which belongs to the persistence hook declared below it.
+     The indirection is this ref, filled in as soon as that hook exists. */
+  const extrasSink = React.useRef<((id: string, patch: AnnotationExtras) => void) | null>(null);
+  const writeExtras = React.useCallback((id: string, patch: AnnotationExtras) => {
+    if (extrasSink.current) extrasSink.current(id, patch);
+  }, []);
+  const I = useBuilderInteractions({ documentId, pageSize, pageSizes: allPageSizes, setFieldExtras: writeExtras });
 
   /* The canvas is one scrolling column of every page (a PDF is a document, not
      a slide deck). The page rail scrolls to a page rather than swapping which
@@ -112,6 +174,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     serverRecipients: recipients,
     seededFields,
   });
+  extrasSink.current = P.setFieldExtras;
 
   /* Hydrate the store from the server data. The builder's editing model *is*
      `s.fields` / `s.recipients` — the pointer machinery mutates them directly —
@@ -264,31 +327,50 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn = btn(A, '#fff', A);
-  // Canvas toolbar is icon-only so it survives a narrow viewport; the label
-  // lives in title/aria-label instead of beside the glyph.
+  /* Canvas toolbar is icon-only by default so it survives a narrow viewport —
+     the label lives in title/aria-label instead of beside the glyph. Once the
+     canvas column is wide enough to spell the whole toolbar out, the label
+     moves next to the glyph as well, so nothing has to be hovered to be read.
+     `viewportWidth` is the canvas column's own measured width, which is what
+     this toolbar spans. */
+  const wideTools = viewportWidth >= WIDE_TOOLBAR;
   const sqBtn = (bg: string, fg: string, bd: string): CSSProperties =>
-    Object.assign({}, btn(bg, fg, bd), { width:'32px', padding:'0', justifyContent:'center', fontSize:'.9375rem', fontWeight:500, flex:'0 0 auto' });
+    Object.assign({}, btn(bg, fg, bd), { width:'32px', padding:'0', justifyContent:'center', fontSize:'.9375rem', fontWeight:500, flex:'0 0 auto' },
+      wideTools ? { width:'auto', padding:'0 10px', gap:'6px' } : null);
+  const toolLabel: CSSProperties = { fontSize:'.6875rem', fontWeight:400, fontFamily:'var(--font-sans)', whiteSpace:'nowrap' };
+  /** The glyph, plus its label where there is room for it. */
+  const withLabel = (glyph: string, label: string) => wideTools
+    ? [glyph, <span key="l" style={toolLabel}>{label}</span>]
+    : glyph;
   const toolBtn = sqBtn('#fff', '#475569', '#e3e7ee');
   const alignStyle = toolBtn;
   const dangerStyle = sqBtn('#fff', '#b91c1c', '#fecaca');
   const gridBtnStyle = sqBtn(s.grid ? '#eef2ff' : '#fff', s.grid ? '#3730a3' : '#475569', s.grid ? '#c7d2fe' : '#e3e7ee');
   const iconBtn: CSSProperties = { flex:'0 0 auto', width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
+  /** `iconBtn` sized to hold a label too — the toolbar's undo/redo pair. */
+  const iconLabelBtn: CSSProperties = wideTools
+    ? Object.assign({}, iconBtn, { width:'auto', padding:'0 9px', display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'6px' })
+    : iconBtn;
   const input = inputStyle;
-  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.71875rem' });
   const textareaStyle: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'9px', padding:'8px 10px', fontSize:'.78125rem', resize:'vertical', outline:'none', width:'100%', color:'#0f172a' };
 
   /* ── recipient cards ── */
+  /* The fields a recipient is actually being asked to fill in. The sender's own
+     marks live in the same array (they are `Field` rows too) but counting them
+     here would tell a sender "3 fields assigned" for three doodles nobody is
+     asked to do anything with. */
+  const inputFields = F.filter(f => !isAnnotationType(f.type));
   const recipientCards = R.map(r => {
     const on = s.activeRecipient === r.id;
     return {
       id: r.id,
-      name: r.name, order: String(r.order), fieldCount: String(F.filter(f => f.to === r.id).length), state: r.status,
+      name: r.name, order: String(r.order), fieldCount: String(inputFields.filter(f => f.to === r.id).length), state: r.status,
       role: ROLE_LABEL[r.role],
       onClick: () => set({ activeRecipient: r.id }),
       style: { display:'flex', alignItems:'center', gap:'9px', padding:'9px', borderRadius:'11px', cursor:'pointer',
         border:'1px solid ' + (on ? r.color : '#e3e7ee'), background: on ? r.color + '14' : '#fff', width:'100%' } as CSSProperties,
       chip: { width:'26px', height:'26px', borderRadius:'8px', background:r.color, color:'#fff', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
-      stateStyle: { marginLeft:'auto', fontSize:'.625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#64748b', whiteSpace:'nowrap' } as CSSProperties
+      stateStyle: { marginLeft:'auto', fontSize:'.625rem', fontFamily:'var(--font-sans)', color:'#64748b', whiteSpace:'nowrap' } as CSSProperties
     };
   });
 
@@ -300,24 +382,49 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       style: { flex:'1', height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500,
         background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
   });
+  /* The pen is a mode, not a shape to drop: you pick it up and then draw. So
+     its tile toggles `penMode` on both the pointer and the keyboard path
+     instead of starting a drag — dragging a fixed-size "drawing" box onto the
+     page would place an empty one nothing could ever be drawn into. */
+  const togglePen = () => {
+    const on = !s.penMode;
+    set({ penMode: on, penStroke: null, dragTool: null, ghost: null });
+    flash(on ? 'Pen on · drag across the page to draw. Press Esc to put it down.' : 'Pen put down');
+  };
   const tools = TYPES.filter(t => (s.paletteTab === 'all' || s.favTypes.indexOf(t.id) > -1) &&
       (!s.paletteQuery || t.label.toLowerCase().indexOf(s.paletteQuery.toLowerCase()) > -1)).map(t => ({
     id: t.id, label: t.label, icon: t.icon,
+    isPen: t.id === 'drawing',
+    penOn: t.id === 'drawing' && s.penMode,
     // The button is operable by pointer *and* by keyboard: drag it onto the
     // page, or focus it and press Enter/Space to drop one in the middle of the
     // page ready to be nudged with the arrow keys (audit §8.9).
-    aria: 'Place ' + t.label + ' — drag onto the page, or press Enter to place it in the middle',
-    onDown: (e: React.PointerEvent) => I.onToolDown(t.id, e),
-    onPlace: () => I.placeTool(t.id),
-    style: { display:'flex', alignItems:'center', gap:'7px', padding:'8px 9px', borderRadius:'10px', cursor:'grab', textAlign:'left',
-      border:'1px solid ' + (s.dragTool === t.id ? A : '#e3e7ee'), background: s.dragTool === t.id ? '#eef2ff' : '#fbfcfd', color:'#334155' } as CSSProperties,
-    glyph: { width:'20px', height:'20px', borderRadius:'6px', background:'#eef1f6', display:'grid', placeItems:'center', fontSize:'.625rem', color:'#475569', flex:'0 0 20px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties
+    aria: t.id === 'drawing'
+      ? (s.penMode ? 'Put the pen down' : 'Pick the pen up and draw on the page')
+      : 'Place ' + t.label + ' — drag onto the page, or press Enter to place it in the middle',
+    onDown: (e: React.PointerEvent) => { if (t.id === 'drawing') return; I.onToolDown(t.id, e); },
+    onPlace: () => { if (t.id === 'drawing') { togglePen(); return; } I.placeTool(t.id); },
+    // Starring is per account, so the tab is the same palette on every device
+    // the user signs in on. Disabled until the account's set has loaded, so a
+    // toggle can never persist the seed as though it were a choice.
+    favorite: isFavorite(t.id),
+    favoriteDisabled: !favoritesReady,
+    favoriteAria: (isFavorite(t.id) ? 'Remove ' : 'Add ') + t.label + (isFavorite(t.id) ? ' from' : ' to') + ' favourites',
+    onToggleFavorite: () => toggleFavorite(t.id),
+    // Every tile fills its grid cell, so the columns line up and the star --
+    // absolutely positioned against the cell -- sits in the tile's own corner
+    // rather than floating in the gap beside a content-width button.
+    style: { display:'flex', alignItems:'center', gap:'7px', padding:'0 9px', width:'100%', height:'100%', minHeight:'44px', borderRadius:'10px',
+      cursor: t.id === 'drawing' ? 'pointer' : 'grab', textAlign:'left',
+      border:'1px solid ' + (s.dragTool === t.id || (t.id === 'drawing' && s.penMode) ? A : '#e3e7ee'),
+      background: s.dragTool === t.id || (t.id === 'drawing' && s.penMode) ? '#eef2ff' : '#fbfcfd', color:'#334155' } as CSSProperties,
+    glyph: { width:'20px', height:'20px', borderRadius:'6px', background:'#eef1f6', display:'grid', placeItems:'center', fontSize:'.625rem', color:'#475569', flex:'0 0 20px', fontFamily:'var(--font-sans)' } as CSSProperties
   }));
 
   /* ── page thumbs ── */
   const pages = Array.from({ length: Math.max(1, pageCount) }, (_, i) => i + 1);
   const thumbs = pages.map(n => {
-    const cnt = F.filter(f => f.page === n).length;
+    const cnt = inputFields.filter(f => f.page === n).length;
     const on = s.page === n;
     return { n: String(n), key: n,
       onClick: () => { set({ page: n, selected: [] }); scrollToPage(n); },
@@ -328,7 +435,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       line2: { height:'2px', background:'#e3e7ee', borderRadius:'2px', width:'80%' } as CSSProperties,
       line3: { height:'2px', background:'#e3e7ee', borderRadius:'2px', width:'60%' } as CSSProperties,
       badgeLabel: cnt ? cnt + ' fields' : 'no fields',
-      badge: { fontSize:'.625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: cnt ? '#047857' : TEXT_MUTED } as CSSProperties };
+      badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: cnt ? '#047857' : TEXT_MUTED } as CSSProperties };
   });
 
   /* Whichever page covers the middle of the viewport is the active one. Kept
@@ -466,8 +573,18 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
        or a checkbox was sized by guesswork and clipped at signing time. The
        preview is inert: `pointerEvents: 'none'` keeps every pixel of the box a
        drag handle. */
-    const choices = fieldChoices(P.fieldExtras(f.id)?.options ?? null);
+    const extras = P.fieldExtras(f.id);
+    const choices = fieldChoices(extras?.options ?? null);
     const boxW = f.w * z, boxH = f.h * z;
+    /* ── the sender's own marks (ANN-1) ──
+       An annotation is drawn as the mark it *is*, not as a labelled field box:
+       it is burned into the final PDF exactly like this, so the builder has to
+       show it rather than describe it. It carries no recipient badge either —
+       nobody is being asked to do anything with it. */
+    const isAnn = isAnnotationType(f.type);
+    const ink = f.type === 'drawing' ? drawingOptions(extras?.options ?? null) : null;
+    const tbox = f.type === 'textbox' ? textboxOptions(extras?.options ?? null) : null;
+    const tboxText = f.type === 'textbox' ? (extras?.defaultValue ?? '') : '';
     /* A radio group that cannot draw all of its choices in the box as sized is
        flagged here rather than discovered by the recipient. */
     const radioColumn = boxH >= 26 * Math.max(2, choices.length);
@@ -480,13 +597,30 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       onDown: (e: React.PointerEvent) => I.onFieldDown(f.id, e),
       onResize: (e: React.PointerEvent) => I.onResizeDown(f.id, e),
       onKey: (e: React.KeyboardEvent) => { if (e.key === 'Enter') set({ selected: [f.id] }); },
-      box: { position:'absolute', left:(f.x * z) + 'px', top:(f.y * z) + 'px', width:(f.w * z) + 'px', height:(f.h * z) + 'px',
+      isAnn,
+      ink, tbox, tboxText,
+      strokePaths: ink ? ink.strokes.map(stroke => strokePath(stroke, boxW, boxH)) : [],
+      inkWidth: ink ? Math.max(0.5, ink.stroke * z) : 0,
+      viewBox: '0 0 ' + Math.max(1, boxW) + ' ' + Math.max(1, boxH),
+      textStyle: tbox ? ({ width:'100%', height:'100%', overflow:'hidden', whiteSpace:'pre-wrap', wordBreak:'break-word',
+        fontFamily: textboxFontStack(tbox.font), fontSize: (tbox.size * z) + 'px', lineHeight: 1.2,
+        fontWeight: tbox.bold ? 700 : 400, fontStyle: tbox.italic ? 'italic' : 'normal', color: tbox.color } as CSSProperties) : null,
+      emptyTextStyle: { fontSize:'.65625rem', color:TEXT_MUTED, fontStyle:'italic' } as CSSProperties,
+      box: isAnn ? ({ position:'absolute', left:(f.x * z) + 'px', top:(f.y * z) + 'px', width:boxW + 'px', height:boxH + 'px',
+        background:'transparent', border:'1px ' + (on ? 'solid' : 'dashed') + ' ' + (on ? A : 'rgba(148,163,184,.55)'),
+        borderRadius:'4px', cursor:'grab', padding:'2px 3px', overflow:'hidden',
+        // In pen mode the page below has to receive the gesture, or a stroke
+        // could not be drawn across a mark already on it.
+        pointerEvents: s.penMode ? 'none' : 'auto',
+        boxShadow: on ? '0 0 0 2px #fff, 0 0 0 4px ' + A + '55' : 'none' } as CSSProperties)
+      : { position:'absolute', left:(f.x * z) + 'px', top:(f.y * z) + 'px', width:(f.w * z) + 'px', height:(f.h * z) + 'px',
         background: r.color + '1f', border:'1.5px solid ' + r.color, borderRadius:'6px', cursor:'grab',
+        pointerEvents: s.penMode ? 'none' : 'auto',
         boxShadow: on ? '0 0 0 2px #fff, 0 0 0 4px ' + r.color + '66' : 'none',
         display:'flex', alignItems:'center', justifyContent:'center', padding:'2px 6px',
         outline: clipped ? '1.5px dashed #dc2626' : 'none', outlineOffset: clipped ? '1px' : undefined } as CSSProperties,
       badge: { position:'absolute', top:'-9px', left:'-1px', height:'17px', padding:'0 6px', borderRadius:'5px', background:r.color,
-        color:'#fff', fontSize:'.59375rem', fontWeight:700, display:'flex', alignItems:'center', gap:'4px', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", whiteSpace:'nowrap' } as CSSProperties,
+        color:'#fff', fontSize:'.59375rem', fontWeight:700, display:'flex', alignItems:'center', gap:'4px', fontFamily:'var(--font-sans)', whiteSpace:'nowrap' } as CSSProperties,
       badgeText: initials(r.name) + ' · ' + t.label + (f.required ? ' *' : '') + (clipped ? ' · too small' : ''),
       label: f.label,
       inner: { fontSize: (f.w * z) < 110 ? '10px' : '11.5px', fontWeight:600, color:'#0f172a', opacity:.75, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.2 } as CSSProperties,
@@ -549,26 +683,37 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     if (!one) return;
     P.setFieldExtras(one.id, { defaultValue: value ? value : null });
   };
-  /* A Calculated field is authored as an expression over other fields' merge
-     tags. It is evaluated server-side (formula_service.py) — the number the
-     signer sees is never one the browser computed, because it ends up in an
-     executed contract. */
-  const wantsFormula = one ? one.type === 'formula' : false;
-  const formulaExpression =
-    oneExtras && oneExtras.options && !Array.isArray(oneExtras.options)
-      ? String((oneExtras.options as Record<string, unknown>).expression ?? '')
-      : '';
-  const editFormula = (value: string) => {
-    if (!one) return;
-    P.setFieldExtras(one.id, { options: value.trim() ? { expression: value } : null });
+
+  /* ── the selected annotation (ANN-1) ──
+     A pen drawing and a text box are the sender's own marks, so the inspector
+     shows what actually governs them — the face, the size, the ink — and hides
+     everything that only means something for a field a recipient fills in:
+     required, read-only, validation, conditional logic and the placeholder all
+     describe an obligation an annotation does not carry. */
+  const oneIsAnn = one ? isAnnotationType(one.type) : false;
+  const oneTextbox = one && one.type === 'textbox' ? textboxOptions(oneExtras?.options ?? null) : null;
+  const oneDrawing = one && one.type === 'drawing' ? drawingOptions(oneExtras?.options ?? null) : null;
+  const editTextbox = (patch: Partial<NonNullable<typeof oneTextbox>>) => {
+    if (!one || !oneTextbox) return;
+    P.setFieldExtras(one.id, { options: Object.assign({}, oneTextbox, patch) });
   };
-  const taggedFields = F.filter(f => one && f.id !== one.id && f.merge);
+  const editDrawing = (patch: { color?: string; stroke?: number }) => {
+    if (!one || !oneDrawing) return;
+    P.setFieldExtras(one.id, { options: Object.assign({}, oneDrawing, patch) });
+  };
+  /* The text is edited as free text — a trailing newline has to survive the
+     keystroke that made it — so, like the choices box, the draft is what is
+     shown and the trimmed value is what is stored. */
+  const annText = oneExtras?.defaultValue ?? '';
+  /* A type that *is* a format validates as that format even with Validation
+     left at "None" — `field_service.effective_validation` on the backend and
+     `effectiveValidation` on the signing surface both imply it. Saying "no
+     pattern enforced" here would be a lie the signer discovers instead. */
+  const impliedValidation = one && (one.validation || 'none') === 'none'
+    ? effectiveValidation({ type: one.type, validation: 'none' }).replace('none', '')
+    : '';
   const condOptions = F.filter(f => one && f.id !== one.id && f.page === (one ? one.page : 1))
     .map(f => ({ id: f.id, label: f.label + ' (' + meta(f.type).label + ')' }));
-  const mergeSuggestions = ['{{client.name}}','{{client.email}}','{{contract.amount}}','{{contract.signedAt}}'].map(tag => ({
-    tag, onClick: () => { if (one) setField(one.id, { merge: tag }); },
-    style: { padding:'4px 8px', borderRadius:'7px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#475569', cursor:'pointer' } as CSSProperties
-  }));
   const cond = one && one.cond ? one.cond : { field:'', op:'checked', value:'' };
   const condTrigger = cond.field ? F.find(f => f.id === cond.field) : null;
   const condSummary = condTrigger
@@ -576,8 +721,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       (cond.op === 'equals' ? 'equals “' + cond.value + '”' : COND_OP_LABEL[cond.op]) + '.'
     : 'Always visible to the assigned recipient.';
   const condSummaryStyle: CSSProperties = { fontSize:'.71875rem', color: condTrigger ? '#3730a3' : '#64748b', background: condTrigger ? '#eef2ff' : '#f5f6f8', border:'1px solid ' + (condTrigger ? '#c7d2fe' : '#e3e7ee'), borderRadius:'8px', padding:'8px 9px', lineHeight:1.5 };
-  const inspIcon: CSSProperties = { width:'30px', height:'30px', borderRadius:'9px', background: one ? recipIn(one.to).color : '#e3e7ee', color:'#fff', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
-  const regexBox: CSSProperties = { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.65625rem', color:'#475569', background:'#f5f6f8', border:'1px solid #e3e7ee', borderRadius:'8px', padding:'8px 9px', wordBreak:'break-all' };
+  const inspIcon: CSSProperties = { width:'30px', height:'30px', borderRadius:'9px', background: one ? recipIn(one.to).color : '#e3e7ee', color:'#fff', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, fontFamily:'var(--font-sans)' };
+  const regexBox: CSSProperties = { fontFamily:'var(--font-sans)', fontSize:'.65625rem', color:'#475569', background:'#f5f6f8', border:'1px solid #e3e7ee', borderRadius:'8px', padding:'8px 9px', wordBreak:'break-all' };
   const rowBtn: CSSProperties = { display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', background:'transparent', border:'none', cursor:'pointer', padding:'2px 0' };
   const reqSwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: one && one.required ? '#10b981' : BORDER_STRONG, position:'relative', transition:'background .15s' };
   const reqKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.required ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
@@ -612,23 +757,14 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
      400 the send call surfaces — so these are advisory. */
   const recipientIds = R.map(r => r.id);
   const orphanFields = F.filter(f => recipientIds.indexOf(f.to) < 0);
-  const mergeFields = F.filter(f => !!f.merge);
-  const mergePages = mergeFields.map(f => f.page).filter((n, i, a) => a.indexOf(n) === i).sort((a, b) => a - b);
   const sendChecks = ([
-    [F.length + (F.length === 1 ? ' field assigned' : ' fields assigned'),
+    [inputFields.length + (inputFields.length === 1 ? ' field assigned' : ' fields assigned'),
       orphanFields.length
         ? orphanFields.length + ' field(s) have no recipient on this envelope'
         : 'Every required field has a recipient',
       orphanFields.length ? '#f59e0b' : '#10b981'],
     // FALLBACK: the consent disclosure version is not exposed by any endpoint.
     ['Disclosure attached', 'ESIGN consent shown before signing', '#10b981'],
-    [mergeFields.length
-      ? mergeFields.length + (mergeFields.length === 1 ? ' merge tag' : ' merge tags') + ' unresolved'
-      : 'No merge tags',
-      mergeFields.length
-        ? mergeFields[0].merge + ' on page ' + mergePages.join(', ') + ' will render empty'
-        : 'Nothing is bound to external data',
-      mergeFields.length ? '#f59e0b' : '#10b981'],
     ['Certificate enabled', 'Sealed PDF and audit trail on completion', '#10b981']
   ] as [string, string, string][]).map(([label, metaText, c]) => ({
     label, meta: metaText,
@@ -641,7 +777,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     return (
       <section data-screen-label="Builder" style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0, background:'#eceff4' }}>
         <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'#fff', borderBottom:'1px solid #e3e7ee' }}>
-          <span style={{ width:'24px', height:'24px', borderRadius:'7px', background:'#eef2ff', color:'#3730a3', display:'grid', placeItems:'center', fontSize:'.5625rem', fontWeight:700, flex:'0 0 24px' }}>DOC</span>
+          <PdfBadge size={24} />
           <span style={{ fontSize:'.8125rem', fontWeight:600 }}>Prepare document</span>
         </div>
         <div style={{ flex:1, minHeight:0, display:'grid', placeItems:'center', padding:'26px' }}>
@@ -649,7 +785,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
             <span style={{ fontSize:'.84375rem', fontWeight:600, color:'#0f172a' }}>No document to prepare</span>
             <span style={{ fontSize:'.75rem', lineHeight:1.6, color:'#64748b' }}>Pick a PDF and we will create the draft for it, then open it here to place fields and assign recipients.</span>
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'8px' }}>
-              <UploadDocument label="Upload a PDF" />
+              <UploadDocument label="Upload a file" />
               <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, ghostBtn, { justifyContent:'center' })}>Go to documents</button>
             </div>
           </div>
@@ -661,10 +797,27 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   return (
     <section data-screen-label="Builder" style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0 }}>
       <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'#fff', borderBottom:'1px solid #e3e7ee' }}>
-        <button type="button" onClick={() => flash('Rename — inline title editing')} style={{ display:'flex', alignItems:'center', gap:'8px', background:'none', border:'none', cursor:'pointer', minWidth:0 }}>
-          <span style={{ width:'24px', height:'24px', borderRadius:'7px', background:'#eef2ff', color:'#3730a3', display:'grid', placeItems:'center', fontSize:'.5625rem', fontWeight:700, flex:'0 0 24px' }}>DOC</span>
-          <span style={{ fontSize:'.8125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{title + ' ✎'}</span>
-        </button>
+        <div style={{ display:'flex', alignItems:'center', gap:'8px', minWidth:0 }}>
+          <PdfBadge size={24} />
+          {renaming ? (
+            <input
+              type="text" autoFocus aria-label="Document name" value={titleDraft}
+              onChange={e => setTitleDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+              }}
+              style={{ fontSize:'.8125rem', fontWeight:600, fontFamily:'inherit', color:'#0f172a', padding:'3px 7px', borderRadius:'7px', border:'1px solid ' + A, outline:'none', minWidth:0, width:'260px', maxWidth:'40vw' }}
+            />
+          ) : (
+            <button type="button" onClick={startRename} title="Rename document" aria-label={'Rename document · ' + docTitle}
+              style={{ display:'flex', alignItems:'center', gap:'6px', background:'none', border:'none', padding:'0', cursor:'pointer', minWidth:0, font:'inherit' }}>
+              <span style={{ fontSize:'.8125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{docTitle}</span>
+              <span aria-hidden="true" style={{ fontSize:'.75rem', color:TEXT_MUTED, flex:'0 0 auto' }}>✎</span>
+            </button>
+          )}
+        </div>
         <div style={{ display:'flex', alignItems:'center', gap:'12px', margin:'0 auto' }}>
           <button type="button" onClick={goStep1} style={wizardStepStyle1}><span style={wizardDot1}></span>Prepare</button>
           <span style={wizardLine}></span>
@@ -681,7 +834,11 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
 
       <div style={prepareRowStyle}>
 
-        <div data-sf-scroll="1" style={{ width:'270px', flex:'0 0 270px', borderRight:'1px solid #e3e7ee', background:'#fff', overflow:'auto', padding:'14px', display:'flex', flexDirection:'column', gap:'18px' }}>
+        <ResizableRail
+          side="left" storageKey="sf.builder.rail.left" label="Prepare tools"
+          defaultWidth={320} min={250} max={520}
+          contentStyle={{ padding:'14px', display:'flex', flexDirection:'column', gap:'18px' }}
+        >
           <div>
             <div style={railHead}>Recipients</div>
             <div style={{ display:'flex', flexDirection:'column', gap:'7px', marginTop:'9px' }}>
@@ -689,8 +846,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 <button key={r.id} type="button" onClick={r.onClick} style={r.style}>
                   <span style={r.chip}>{r.order}</span>
                   <span style={{ display:'flex', flexDirection:'column', lineHeight:1.25, textAlign:'left', minWidth:0 }}>
-                    <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#0f172a' }}>{r.name}</span>
-                    <span style={{ fontSize:'.6875rem', color:'#64748b' }}>{r.role} · {r.fieldCount} fields</span>
+                    <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.name}</span>
+                    <span style={{ fontSize:'.6875rem', color:'#64748b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.role} · {r.fieldCount} fields</span>
                   </span>
                   <span style={r.stateStyle}>{r.state}</span>
                 </button>
@@ -714,14 +871,65 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               ))}
             </div>
             <input type="search" value={s.paletteQuery} onChange={e => set({ paletteQuery: e.target.value })} placeholder="Search fields" aria-label="Search fields" style={{ marginTop:'7px', height:'30px', width:'100%', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'.75rem', outline:'none', background:'#fbfcfd' }} />
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'7px', marginTop:'9px' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(118px, 1fr))', gridAutoRows:'44px', gap:'7px', marginTop:'9px' }}>
               {tools.map(t => (
-                <button key={t.id} type="button" onPointerDown={t.onDown} onClick={t.onPlace} aria-label={t.aria} style={t.style}>
-                  <span style={t.glyph}>{t.icon}</span>
-                  <span style={{ fontSize:'.71875rem', fontWeight:500 }}>{t.label}</span>
-                </button>
+                /* The star sits beside the tile rather than inside it: the tile
+                   is a button, and a button cannot contain another one. */
+                <div key={t.id} style={{ position:'relative', height:'100%' }}>
+                  <button type="button" onPointerDown={t.onDown} onClick={t.onPlace} aria-label={t.aria}
+                    aria-pressed={t.isPen ? t.penOn : undefined} style={t.style}>
+                    <span style={t.glyph}>{t.icon}</span>
+                    <span style={{ fontSize:'.71875rem', fontWeight:500, lineHeight:1.2, minWidth:0, paddingRight:'12px' }}>{t.label}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={t.onToggleFavorite}
+                    disabled={t.favoriteDisabled}
+                    aria-pressed={t.favorite}
+                    aria-label={t.favoriteAria}
+                    title={t.favoriteAria}
+                    style={{ position:'absolute', top:'2px', right:'2px', width:'18px', height:'18px', display:'grid', placeItems:'center',
+                      border:'none', background:'transparent', padding:0, borderRadius:'5px', lineHeight:1, fontSize:'.6875rem',
+                      cursor: t.favoriteDisabled ? 'default' : 'pointer', color: t.favorite ? '#b45309' : BORDER_STRONG }}
+                  >
+                    {t.favorite ? '★' : '☆'}
+                  </button>
+                </div>
               ))}
             </div>
+            {/* An empty Favourites tab reads as a broken palette unless it says
+                why it is empty. */}
+            {s.paletteTab === 'fav' && tools.length === 0 && !s.paletteQuery ? (
+              <p style={{ fontSize:'.71875rem', lineHeight:1.55, color:TEXT_MUTED, marginTop:'9px' }}>
+                No favourites yet. Star a field on the All fields tab to keep it here.
+              </p>
+            ) : null}
+            {/* The nib, shown only while the pen is up — a colour and a width
+                picker that is permanently on screen would be four controls that
+                do nothing most of the time. */}
+            {s.penMode ? (
+              <div style={{ marginTop:'10px', border:'1px solid #c7d2fe', background:'#eef2ff', borderRadius:'11px', padding:'10px', display:'flex', flexDirection:'column', gap:'9px' }}>
+                <div style={{ fontSize:'.71875rem', fontWeight:600, color:'#3730a3' }}>Pen is up — drag on the page to draw</div>
+                <div role="group" aria-label="Pen colour" style={{ display:'flex', gap:'6px' }}>
+                  {INK_COLORS.map(c => (
+                    <button
+                      key={c} type="button" onClick={() => set({ penInk: c })}
+                      aria-label={'Pen colour ' + c} aria-pressed={s.penInk === c} title={c}
+                      style={{ width:'22px', height:'22px', borderRadius:'7px', background:c, cursor:'pointer',
+                        border:'2px solid ' + (s.penInk === c ? '#0f172a' : '#fff'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }}
+                    />
+                  ))}
+                </div>
+                <label style={lbl}>Stroke width — {s.penWidth}pt
+                  <input
+                    type="range" min={MIN_PEN_WIDTH} max={MAX_PEN_WIDTH} step={0.5} value={s.penWidth}
+                    onChange={e => set({ penWidth: parseFloat(e.target.value) })}
+                    style={{ width:'100%' }}
+                  />
+                </label>
+                <button type="button" onClick={togglePen} style={ghostBtn}>Put the pen down</button>
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -743,37 +951,37 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     <span style={{ fontSize:'.75rem', fontWeight:600 }}>Page {p.n}</span>
                     <span style={p.badge}>{p.badgeLabel}</span>
                   </span>
-                  <span style={{ marginLeft:'auto', fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>↕</span>
+                  <span style={{ marginLeft:'auto', fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>↕</span>
                 </button>
               ))}
             </div>
           </div>
-        </div>
+        </ResizableRail>
 
         <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', background:'#eceff4' }}>
           <div data-sf-scroll="1" style={{ height:'46px', flex:'0 0 46px', borderBottom:'1px solid #e3e7ee', background:'#fff', display:'flex', alignItems:'center', gap:'8px', padding:'0 14px', overflowX:'auto', overflowY:'hidden', scrollbarWidth:'thin' }}>
-            <button type="button" aria-label="Undo" title="Undo" onClick={undo} disabled={!canUndo} style={Object.assign({}, iconBtn, canUndo ? null : { opacity: .45, cursor: 'not-allowed' })}>↺</button>
-            <button type="button" aria-label="Redo" title="Redo" onClick={redo} disabled={!canRedo} style={Object.assign({}, iconBtn, canRedo ? null : { opacity: .45, cursor: 'not-allowed' })}>↻</button>
+            <button type="button" aria-label="Undo" title="Undo" onClick={undo} disabled={!canUndo} style={Object.assign({}, iconLabelBtn, canUndo ? null : { opacity: .45, cursor: 'not-allowed' })}>{withLabel('↺', 'Undo')}</button>
+            <button type="button" aria-label="Redo" title="Redo" onClick={redo} disabled={!canRedo} style={Object.assign({}, iconLabelBtn, canRedo ? null : { opacity: .45, cursor: 'not-allowed' })}>{withLabel('↻', 'Redo')}</button>
             <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
             <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'2px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'2px' }}>
               <button type="button" aria-label="Zoom out" title="Zoom out" onClick={zoomOut} style={iconBtn}>−</button>
-              <span style={{ minWidth:'52px', textAlign:'center', fontSize:'.75rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#334155' }}>{zoomLabel}</span>
+              <span style={{ minWidth:'52px', textAlign:'center', fontSize:'.75rem', fontFamily:'var(--font-sans)', color:'#334155' }}>{zoomLabel}</span>
               <button type="button" aria-label="Zoom in" title="Zoom in" onClick={zoomIn} style={iconBtn}>+</button>
             </div>
-            <button type="button" onClick={fitWidth} title="Fit width" aria-label="Fit width" style={toolBtn}>⇔</button>
-            <button type="button" onClick={fitPage} title="Fit page" aria-label="Fit page" style={toolBtn}>⛶</button>
+            <button type="button" onClick={fitWidth} title="Fit width" aria-label="Fit width" style={toolBtn}>{withLabel('⇔', 'Fit width')}</button>
+            <button type="button" onClick={fitPage} title="Fit page" aria-label="Fit page" style={toolBtn}>{withLabel('⛶', 'Fit page')}</button>
             <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
-            <button type="button" onClick={toggleGrid} title="Snap grid" aria-label="Snap grid" aria-pressed={s.grid} style={gridBtnStyle}>▦</button>
+            <button type="button" onClick={toggleGrid} title="Snap grid" aria-label="Snap grid" aria-pressed={s.grid} style={gridBtnStyle}>{withLabel('▦', 'Grid')}</button>
             <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
             <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'6px' }}>
-              <button type="button" onClick={I.alignLeft} title="Align left" aria-label="Align left" style={alignStyle}>⇤</button>
-              <button type="button" onClick={I.alignCenterX} title="Center" aria-label="Center" style={alignStyle}>⇹</button>
-              <button type="button" onClick={I.distribute} title="Distribute" aria-label="Distribute" style={alignStyle}>☰</button>
-              <button type="button" onClick={I.duplicateSel} title="Duplicate" aria-label="Duplicate" style={alignStyle}>⧉</button>
-              <button type="button" onClick={I.deleteSel} title="Delete" aria-label="Delete" style={dangerStyle}>🗑</button>
+              <button type="button" onClick={I.alignLeft} title="Align left" aria-label="Align left" style={alignStyle}>{withLabel('⇤', 'Align left')}</button>
+              <button type="button" onClick={I.alignCenterX} title="Center" aria-label="Center" style={alignStyle}>{withLabel('⇹', 'Center')}</button>
+              <button type="button" onClick={I.distribute} title="Distribute" aria-label="Distribute" style={alignStyle}>{withLabel('☰', 'Distribute')}</button>
+              <button type="button" onClick={I.duplicateSel} title="Duplicate" aria-label="Duplicate" style={alignStyle}>{withLabel('⧉', 'Duplicate')}</button>
+              <button type="button" onClick={I.deleteSel} title="Delete" aria-label="Delete" style={dangerStyle}>{withLabel('🗑', 'Delete')}</button>
             </div>
-            <button type="button" onClick={openPreview} title="Open preview" aria-label="Open preview" style={toolBtn}>◱</button>
-            <span style={{ flex:'0 0 auto', marginLeft:'auto', paddingLeft:'8px', fontSize:'.71875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{selLabel}</span>
+            <button type="button" onClick={openPreview} title="Open preview" aria-label="Open preview" style={toolBtn}>{withLabel('◱', 'Preview')}</button>
+            <span style={{ flex:'0 0 auto', marginLeft:'auto', paddingLeft:'8px', fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{selLabel}</span>
           </div>
 
           <div ref={attachViewport} onScroll={onCanvasScroll} data-sf-scroll="1" style={{ flex:1, minHeight:0, overflow:'auto', overscrollBehavior:'contain', padding:'26px', display:'flex', flexDirection:'column', alignItems:'center' }}>
@@ -783,14 +991,32 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 pages={pages}
                 scale={z}
                 onGeometry={onGeometry}
-                pageBoxProps={(g) => ({ ref: I.registerSheet(g.page), onPointerDown: I.onSheetDown })}
+                pageBoxProps={(g) => ({
+                  ref: I.registerSheet(g.page),
+                  onPointerDown: I.onSheetDown,
+                  style: s.penMode ? { cursor:'crosshair' } : undefined,
+                })}
                 renderOverlay={(g) => (
                   <>
                     <div style={gridOverlay}></div>
 
                     {fieldsForPage(g.page).map(f => (
                       <div key={f.id} role="button" tabIndex={0} aria-label={f.aria} onPointerDown={f.onDown} onKeyDown={f.onKey} style={f.box}>
-                        <span style={f.badge}>{f.badgeText}</span>
+                        {!f.isAnn ? <span style={f.badge}>{f.badgeText}</span> : null}
+                        {f.ink ? (
+                          <svg viewBox={f.viewBox} width="100%" height="100%" aria-hidden="true"
+                            style={{ position:'absolute', inset:0, pointerEvents:'none', overflow:'visible' }}>
+                            {f.strokePaths.map((d, i) => (
+                              <path key={i} d={d} fill="none" stroke={f.ink!.color} strokeWidth={f.inkWidth}
+                                strokeLinecap="round" strokeLinejoin="round" />
+                            ))}
+                          </svg>
+                        ) : null}
+                        {f.tbox ? (
+                          f.tboxText
+                            ? <span style={f.textStyle!}>{f.tboxText}</span>
+                            : <span style={f.emptyTextStyle}>Empty text box — type its text in the inspector</span>
+                        ) : null}
                         {f.isCheck ? (
                           <span style={f.previewWrap}><span style={f.checkGlyph}>☑</span></span>
                         ) : null}
@@ -818,7 +1044,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                             )}
                           </span>
                         ) : null}
-                        {!f.isCheck && !f.isRadio && !f.isSelect ? (
+                        {!f.isCheck && !f.isRadio && !f.isSelect && !f.isAnn ? (
                           <span style={f.inner}>{f.label}</span>
                         ) : null}
                         {f.selected ? (
@@ -827,6 +1053,19 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                       </div>
                     ))}
 
+                    {/* The gesture in flight, drawn straight onto the page in
+                        page-point space so what the sender sees under the
+                        cursor is exactly what gets stored. */}
+                    {s.penStroke && s.penStroke.page === g.page ? (
+                      <svg aria-hidden="true" width="100%" height="100%"
+                        style={{ position:'absolute', inset:0, pointerEvents:'none' }}>
+                        <path
+                          d={s.penStroke.points.map((pt, i) => (i ? 'L' : 'M') + (pt[0] * z).toFixed(2) + ' ' + (pt[1] * z).toFixed(2)).join('')}
+                          fill="none" stroke={s.penInk} strokeWidth={Math.max(0.5, s.penWidth * z)}
+                          strokeLinecap="round" strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : null}
                     {s.marquee && g.page === s.page ? <div style={marqueeStyle}></div> : null}
                     {g.page === s.page ? guides.map(line => <div key={line.key} style={line.style}></div>) : null}
                   </>
@@ -835,21 +1074,21 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
             ) : (
               <div role="status" style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'22px 20px', maxWidth:'420px',
                 fontSize:'.78125rem', color:'#475569', lineHeight:1.6, display:'flex', flexDirection:'column', alignItems:'flex-start', gap:'12px' }}>
-                <span>Upload a PDF to this envelope before placing fields — the page you place them on has to be the document itself.</span>
-                <UploadDocument documentId={documentId} label="Upload a PDF" />
+                <span>Upload a file to this envelope before placing fields — the page you place them on has to be the document itself.</span>
+                <UploadDocument documentId={documentId} label="Upload a file" />
               </div>
             )}
           </div>
         </div>
 
-        <div data-sf-scroll="1" style={{ width:'310px', flex:'0 0 310px', borderLeft:'1px solid #e3e7ee', background:'#fff', overflow:'auto' }}>
+        <ResizableRail side="right" storageKey="sf.builder.rail.right" label="Inspector" defaultWidth={360} min={280} max={560}>
           {one ? (
             <div style={{ padding:'14px', display:'flex', flexDirection:'column', gap:'16px' }}>
               <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
                 <span style={inspIcon}>{meta(one.type).icon}</span>
                 <div style={{ display:'flex', flexDirection:'column', lineHeight:1.25 }}>
                   <span style={{ fontSize:'.84375rem', fontWeight:600 }}>{meta(one.type).label}</span>
-                  <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{one.id + ' · page ' + one.page}</span>
+                  <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{one.id + ' · page ' + one.page}</span>
                 </div>
               </div>
 
@@ -866,14 +1105,84 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 <label style={lbl}>Label
                   <input type="text" value={one.label} onChange={e => setField(one.id, { label: e.target.value })} style={input} />
                 </label>
-                <label style={lbl}>Placeholder
-                  <input type="text" value={one.placeholder} onChange={e => setField(one.id, { placeholder: e.target.value })} style={input} />
-                </label>
-                <label style={lbl}>Assigned recipient
-                  <select value={one.to} onChange={e => setField(one.id, { to: e.target.value })} style={input}>
-                    {recipientOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                  </select>
-                </label>
+                {!oneIsAnn ? (
+                  <label style={lbl}>Placeholder
+                    <input type="text" value={one.placeholder} onChange={e => setField(one.id, { placeholder: e.target.value })} style={input} />
+                  </label>
+                ) : null}
+                {!oneIsAnn ? (
+                  <label style={lbl}>Assigned recipient
+                    <select value={one.to} onChange={e => setField(one.id, { to: e.target.value })} style={input}>
+                      {recipientOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    </select>
+                  </label>
+                ) : null}
+                {oneIsAnn ? (
+                  <div role="note" style={{ fontSize:'.71875rem', lineHeight:1.55, color:'#3730a3', background:'#eef2ff',
+                    border:'1px solid #c7d2fe', borderRadius:'10px', padding:'9px 10px' }}>
+                    Your own mark on the page. Nobody is asked to fill it in — it is drawn for every recipient and burned into the completed PDF.
+                  </div>
+                ) : null}
+                {oneTextbox ? (
+                  <>
+                    <label style={lbl}>Text
+                      <textarea
+                        value={annText}
+                        onChange={e => editDefault(e.target.value)}
+                        rows={3}
+                        placeholder="Type the text to print on the page"
+                        style={Object.assign({}, input, { height:'auto', padding:'8px 11px', lineHeight:1.5, resize:'vertical',
+                          fontFamily: textboxFontStack(oneTextbox.font) } as CSSProperties)}
+                      />
+                    </label>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 90px', gap:'8px' }}>
+                      <label style={lbl}>Font
+                        <select value={oneTextbox.font} onChange={e => editTextbox({ font: e.target.value })} style={input}>
+                          {TEXTBOX_FONTS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                        </select>
+                      </label>
+                      <label style={lbl}>Size
+                        <select value={String(oneTextbox.size)} onChange={e => editTextbox({ size: parseFloat(e.target.value) })} style={input}>
+                          {(TEXTBOX_SIZES.indexOf(oneTextbox.size) > -1 ? TEXTBOX_SIZES : TEXTBOX_SIZES.concat([oneTextbox.size]).sort((a, b) => a - b))
+                            .map(size => <option key={size} value={size}>{size} pt</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                      <button type="button" aria-pressed={oneTextbox.bold} onClick={() => editTextbox({ bold: !oneTextbox.bold })}
+                        style={Object.assign({}, btn(oneTextbox.bold ? '#eef2ff' : '#fff', '#334155', oneTextbox.bold ? '#c7d2fe' : '#e3e7ee'), { fontWeight:700 })}>B</button>
+                      <button type="button" aria-pressed={oneTextbox.italic} onClick={() => editTextbox({ italic: !oneTextbox.italic })}
+                        style={Object.assign({}, btn(oneTextbox.italic ? '#eef2ff' : '#fff', '#334155', oneTextbox.italic ? '#c7d2fe' : '#e3e7ee'), { fontStyle:'italic' })}>I</button>
+                      <div role="group" aria-label="Text colour" style={{ display:'flex', gap:'5px', marginLeft:'auto' }}>
+                        {INK_COLORS.map(c => (
+                          <button key={c} type="button" onClick={() => editTextbox({ color: c })}
+                            aria-label={'Text colour ' + c} aria-pressed={oneTextbox.color === c} title={c}
+                            style={{ width:'20px', height:'20px', borderRadius:'6px', background:c, cursor:'pointer',
+                              border:'2px solid ' + (oneTextbox.color === c ? '#0f172a' : '#fff'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }} />
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+                {oneDrawing ? (
+                  <>
+                    <div style={{ fontSize:'.71875rem', color:TEXT_MUTED }}>
+                      {oneDrawing.strokes.length === 1 ? '1 stroke' : oneDrawing.strokes.length + ' strokes'} — resize the box to scale the drawing.
+                    </div>
+                    <div role="group" aria-label="Ink colour" style={{ display:'flex', gap:'6px' }}>
+                      {INK_COLORS.map(c => (
+                        <button key={c} type="button" onClick={() => editDrawing({ color: c })}
+                          aria-label={'Ink colour ' + c} aria-pressed={oneDrawing.color === c} title={c}
+                          style={{ width:'22px', height:'22px', borderRadius:'7px', background:c, cursor:'pointer',
+                            border:'2px solid ' + (oneDrawing.color === c ? '#0f172a' : '#fff'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }} />
+                      ))}
+                    </div>
+                    <label style={lbl}>Stroke width — {oneDrawing.stroke}pt
+                      <input type="range" min={MIN_PEN_WIDTH} max={MAX_PEN_WIDTH} step={0.5} value={oneDrawing.stroke}
+                        onChange={e => editDrawing({ stroke: parseFloat(e.target.value) })} style={{ width:'100%' }} />
+                    </label>
+                  </>
+                ) : null}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
                   <label style={lbl}>X
                     <input type="number" value={one.x} onChange={e => setField(one.id, { x: parseInt(e.target.value || '0', 10) })} style={input} />
@@ -888,6 +1197,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     <input type="number" value={one.h} onChange={e => setField(one.id, { h: Math.max(24, parseInt(e.target.value || '24', 10)) })} style={input} />
                   </label>
                 </div>
+                {!oneIsAnn ? (
                 <div style={{ display:'flex', flexDirection:'column', gap:'7px', border:'1px solid #eef1f6', borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
                   <button type="button" role="switch" aria-checked={!!one.required} onClick={() => setField(one.id, { required: !one.required })} style={rowBtn}>
                     <span style={{ fontSize:'.78125rem' }}>Required</span><span style={reqSwitch}><span style={reqKnob}></span></span>
@@ -896,16 +1206,19 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     <span style={{ fontSize:'.78125rem' }}>Read-only</span><span style={roSwitch}><span style={roKnob}></span></span>
                   </button>
                 </div>
+                ) : null}
+                {!oneIsAnn ? (
                 <label style={lbl}>Validation
                   <select value={one.validation} onChange={e => setField(one.id, { validation: e.target.value })} style={input}>
-                    <option value="none">None</option>
+                    <option value="none">{impliedValidation ? 'Automatic (' + VALIDATION_LABEL[impliedValidation] + ')' : 'None'}</option>
                     <option value="email">Email</option>
                     <option value="date">Date (MM/DD/YYYY)</option>
                     <option value="numeric">Numeric</option>
                     <option value="custom">Custom regex</option>
                   </select>
                 </label>
-                <div style={regexBox}>{REGEX_MAP[one.validation]}</div>
+                ) : null}
+                {!oneIsAnn ? <div style={regexBox}>{REGEX_MAP[impliedValidation || one.validation]}</div> : null}
 
                 {wantsChoices ? (
                   <label style={lbl}>Choices — one per line
@@ -926,39 +1239,6 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   </div>
                 ) : null}
 
-                {wantsFormula ? (
-                  <label style={lbl}>Expression
-                    <input
-                      type="text"
-                      value={formulaExpression}
-                      onChange={e => editFormula(e.target.value)}
-                      placeholder={'{{subtotal}} * 0.2'}
-                      style={input}
-                    />
-                  </label>
-                ) : null}
-                {wantsFormula ? (
-                  <div style={{ fontSize:'.71875rem', lineHeight:1.5, color: formulaExpression ? '#047857' : '#b45309' }}>
-                    {formulaExpression
-                      ? 'Calculated on the server when the recipient fills the fields it references. Numbers and + − × ÷ only.'
-                      : 'No expression yet — this field stays blank until you give it one. Reference other fields by their merge tag.'}
-                  </div>
-                ) : null}
-                {wantsFormula && taggedFields.length ? (
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:'6px' }}>
-                    {taggedFields.map(f => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => editFormula(formulaExpression + f.merge)}
-                        style={{ padding:'4px 8px', borderRadius:'7px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', cursor:'pointer' }}
-                      >
-                        {f.merge}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
                 {wantsDefault ? (
                   <label style={lbl}>Default value
                     <input
@@ -972,6 +1252,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 ) : null}
               </div>
 
+              {!oneIsAnn ? (
               <div style={{ borderTop:'1px solid #eef1f6', paddingTop:'14px', display:'flex', flexDirection:'column', gap:'10px' }}>
                 <div style={railHead}>Conditional logic</div>
                 <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6', borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
@@ -991,25 +1272,17 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   <div style={condSummaryStyle}>{condSummary}</div>
                 </div>
               </div>
+              ) : null}
 
-              <div style={{ borderTop:'1px solid #eef1f6', paddingTop:'14px', display:'flex', flexDirection:'column', gap:'9px' }}>
-                <div style={railHead}>Data binding</div>
-                <input type="text" value={one.merge} onChange={e => setField(one.id, { merge: e.target.value })} placeholder="{{client.name}}" aria-label="Merge tag" style={mono} />
-                <div style={{ display:'flex', flexWrap:'wrap', gap:'6px' }}>
-                  {mergeSuggestions.map(m => (
-                    <button key={m.tag} type="button" onClick={m.onClick} style={m.style}>{m.tag}</button>
-                  ))}
-                </div>
-              </div>
             </div>
           ) : null}
           {!one ? (
             <div style={{ padding:'30px 20px', display:'flex', flexDirection:'column', gap:'9px', textAlign:'center', color:TEXT_MUTED }}>
               <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#475569' }}>No field selected</span>
-              <span style={{ fontSize:'.75rem', lineHeight:1.5 }}>Select a field on the page — or lasso several — to configure labels, validation, conditional logic and merge tags.</span>
+              <span style={{ fontSize:'.75rem', lineHeight:1.5 }}>Select a field on the page — or lasso several — to configure labels, validation and conditional logic.</span>
             </div>
           ) : null}
-        </div>
+        </ResizableRail>
       </div>
 
       {s.wizardStep === 2 ? (
@@ -1029,7 +1302,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     <span style={r.orderStyle}>{r.order}</span>
                     <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0, flex:1 }}>
                       <span style={{ fontSize:'.8125rem', fontWeight:600 }}>{r.name}</span>
-                      <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.email}</span>
+                      <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{r.email}</span>
                     </div>
                     <select value={r.role} onChange={r.onRole} aria-label="Role" style={r.selectStyle}>
                       <option value="sign">Needs to sign</option>
@@ -1058,7 +1331,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
             <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
               <div style={railHead}>Invite email</div>
               <label style={lbl}>Subject
-                <input type="text" value={subject} onChange={e => changeRouting({ subject: e.target.value })} placeholder={title + ': signature request'} style={input} />
+                <input type="text" value={subject} onChange={e => changeRouting({ subject: e.target.value })} placeholder={docTitle + ': signature request'} style={input} />
               </label>
               <label style={lbl}>Message
                 <textarea rows={4} onChange={e => changeRouting({ message: e.target.value })} value={s.message} style={textareaStyle}></textarea>

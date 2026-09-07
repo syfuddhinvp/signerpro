@@ -1,16 +1,31 @@
 'use client';
-/* SignForge builder pointer/keyboard machinery — ported from the prototype app.js
+/* SignerPro builder pointer/keyboard machinery — ported from the prototype app.js
    (onToolDown / onFieldDown / onResizeDown / onSheetDown / onMove / onUp / onKey,
     deleteSel / duplicateSel / alignLeft / alignCenterX / distribute). */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSF, type SFField, type SFState } from './state';
 import { useNav } from './nav';
 import { TYPES } from './data';
+import {
+  DEFAULT_TEXTBOX_FONT, DEFAULT_TEXTBOX_SIZE, strokeBounds, toDrawingOptions,
+} from './annotations';
 
 type Drag =
-  | { mode: 'move'; ids: string[]; sx: number; sy: number; orig: { id: string; x: number; y: number }[] }
+  | {
+      mode: 'move'; ids: string[]; sx: number; sy: number;
+      orig: { id: string; x: number; y: number; page: number }[];
+      /* Where inside the anchor field the pointer grabbed it, in page points.
+         Carrying the grab point lets the field land under the cursor when the
+         gesture crosses onto a different page, where a plain client-space
+         delta would mean nothing. */
+      grabX: number; grabY: number;
+    }
   | { mode: 'resize'; ids: string[]; sx: number; sy: number; orig: { id: string; w: number; h: number }[] }
-  | { mode: 'lasso'; x0: number; y0: number; page: number };
+  | { mode: 'lasso'; x0: number; y0: number; page: number }
+  /* ANN-1 — a freehand gesture in flight. Points are collected in page points
+     and only normalised against the stroke's own bounding box on release, when
+     that box is finally known. */
+  | { mode: 'pen'; page: number; points: [number, number][] };
 
 const metaOf = (t: string) => TYPES.find(x => x.id === t) || TYPES[0];
 const snapWith = (grid: boolean, v: number) => (grid ? Math.round(v / 8) * 8 : Math.round(v));
@@ -36,15 +51,50 @@ export type BuilderInteractionsInput = {
    * against whichever page happens to be active.
    */
   pageSizes?: { width: number; height: number }[];
+  /**
+   * Store the parts of a newly created field that `SFField` has no room for —
+   * `useDocumentPersistence.setFieldExtras`. Placing an annotation is the one
+   * gesture that authors a payload (the strokes, or the text box's face and
+   * size) at the moment the field is created, so it has to reach the extras
+   * record the bulk save reads from. Omitted, annotations cannot be placed.
+   */
+  setFieldExtras?: (fieldId: string, patch: AnnotationExtras) => void;
 };
 
-export function useBuilderInteractions({ documentId, pageSize, pageSizes }: BuilderInteractionsInput = {}) {
+/** The slice of `BuilderFieldExtras` an annotation placement writes. */
+export type AnnotationExtras = {
+  apiType: 'drawing' | 'textbox';
+  options: Record<string, unknown>;
+  defaultValue?: string | null;
+};
+
+/** A newly placed annotation's payload, or null for an ordinary field. */
+function newAnnotationExtras(typeId: string): AnnotationExtras | null {
+  if (typeId === 'textbox') {
+    return {
+      apiType: 'textbox',
+      options: {
+        kind: 'textbox', font: DEFAULT_TEXTBOX_FONT, size: DEFAULT_TEXTBOX_SIZE,
+        bold: false, italic: false, color: '#0f172a',
+      },
+      defaultValue: '',
+    };
+  }
+  if (typeId === 'drawing') {
+    return { apiType: 'drawing', options: { kind: 'drawing', color: '#0f172a', stroke: 2, strokes: [] } };
+  }
+  return null;
+}
+
+export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFieldExtras }: BuilderInteractionsInput = {}) {
   const { s, set, flash, recip } = useSF();
   const { screen, go } = useNav();
   const screenRef = useRef(screen);
   screenRef.current = screen;
   const sRef = useRef<SFState>(s);
   sRef.current = s;
+  const extrasRef = useRef(setFieldExtras);
+  extrasRef.current = setFieldExtras;
   const dragRef = useRef<Drag | null>(null);
   /* One page box per page number — the document is drawn as a scrolling column
      of pages, so there is no single "the sheet" any more. */
@@ -119,16 +169,22 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
     const x = Math.max(0, Math.min(pageW - t.w, Math.round((pageW - t.w) / 2) + cascade));
     const y = Math.max(0, Math.min(pageH - t.h, Math.round((pageH - t.h) / 3) + cascade));
     const id = 'f' + Date.now().toString().slice(-6);
+    const annotation = newAnnotationExtras(t.id);
     const nf: SFField = {
       id, page: st.page, type: t.id, x, y, w: t.w, h: t.h,
-      to: st.activeRecipient, required: t.id === 'signature' || t.id === 'initials',
-      readOnly: false, label: t.label, placeholder: '',
+      to: st.activeRecipient, required: !annotation && (t.id === 'signature' || t.id === 'initials'),
+      // An annotation is the sender's own mark: nobody is asked to fill it in,
+      // which the API enforces on its side too (`_apply_annotation_rules`).
+      readOnly: !!annotation, label: t.label, placeholder: '',
       validation: t.id === 'email' ? 'email' : (t.id === 'date' ? 'date' : 'none'),
-      cond: null, merge: ''
+      cond: null
     };
     set(prev => ({ fields: prev.fields.concat([nf]), selected: [id], dragTool: null, ghost: null }));
+    if (annotation && extrasRef.current) extrasRef.current(id, annotation);
     if (screenRef.current !== 'builder') go('builder', { documentId });
-    flash(t.label + ' placed for ' + recip(st.activeRecipient).name + ' · arrows nudge, Shift+arrows by 8, Delete removes');
+    flash(annotation
+      ? t.label + ' placed on page ' + st.page + ' · type its text in the inspector'
+      : t.label + ' placed for ' + recip(st.activeRecipient).name + ' · arrows nudge, Shift+arrows by 8, Delete removes');
   }, [set, flash, recip, go, documentId, sizeOf]);
 
   const onFieldDown = useCallback((id: string, e: React.PointerEvent) => {
@@ -140,10 +196,16 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
       : (st.selected.indexOf(id) > -1 ? st.selected : [id]);
     set({ selected });
     const ids = selected.length ? selected : [id];
+    const anchor = st.fields.find(f => f.id === id);
+    if (!anchor) return;
+    const anchorSheet = sheetsRef.current.get(anchor.page);
+    const anchorRect = anchorSheet ? anchorSheet.getBoundingClientRect() : null;
     dragRef.current = {
       mode: 'move', ids,
       sx: e.clientX, sy: e.clientY,
-      orig: st.fields.filter(f => ids.indexOf(f.id) > -1).map(f => ({ id: f.id, x: f.x, y: f.y }))
+      orig: st.fields.filter(f => ids.indexOf(f.id) > -1).map(f => ({ id: f.id, x: f.x, y: f.y, page: f.page })),
+      grabX: anchorRect ? (e.clientX - anchorRect.left) / st.zoom - anchor.x : anchor.w / 2,
+      grabY: anchorRect ? (e.clientY - anchorRect.top) / st.zoom - anchor.y : anchor.h / 2,
     };
   }, [set]);
 
@@ -162,6 +224,15 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
     const r = sheet.getBoundingClientRect();
     const z = st.zoom;
     const x0 = (e.clientX - r.left) / z, y0 = (e.clientY - r.top) / z;
+    /* ANN-1: in pen mode the same drag draws instead of lassoing. The stroke is
+       collected raw — no snapping — because a hand-drawn line pulled onto an
+       8pt grid is not the line the sender drew. */
+    if (st.penMode) {
+      e.preventDefault();
+      dragRef.current = { mode: 'pen', page, points: [[x0, y0]] };
+      set({ selected: [], marquee: null, page, penStroke: { page, points: [[x0, y0]] } });
+      return;
+    }
     dragRef.current = { mode: 'lasso', x0, y0, page };
     // Clicking a page in the scrolling column makes it the active page, so the
     // palette, the inspector and the page rail all follow the pointer.
@@ -175,15 +246,37 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
     if (!d) return;
     const z = st.zoom;
     if (d.mode === 'move') {
-      const dx = (e.clientX - d.sx) / z, dy = (e.clientY - d.sy) / z;
-      const map: { [k: string]: { x: number; y: number } } = {};
+      const anchor = d.orig[0];
+      /* The document is one scrolling column of pages, so a move gesture can
+         end over a page other than the one it started on. Whichever page is
+         under the pointer wins: the anchor field follows the cursor into it and
+         the rest of the selection shifts by the same number of pages. */
+      const hit = sheetAt(e.clientX, e.clientY);
+      const pageCount = pageSizesRef.current.length;
+      const shift = hit ? hit.page - anchor.page : 0;
+      const pageOf = (o: { page: number }) => {
+        const p = o.page + shift;
+        return pageCount ? Math.max(1, Math.min(pageCount, p)) : Math.max(1, p);
+      };
+      let dx: number, dy: number;
+      if (hit) {
+        dx = ((e.clientX - hit.rect.left) / z - d.grabX) - anchor.x;
+        dy = ((e.clientY - hit.rect.top) / z - d.grabY) - anchor.y;
+      } else {
+        dx = (e.clientX - d.sx) / z;
+        dy = (e.clientY - d.sy) / z;
+      }
+      const map: { [k: string]: { x: number; y: number; page: number } } = {};
       d.orig.forEach(o => {
         const f = st.fields.find(item => item.id === o.id);
-        map[o.id] = clampToPage(snap(o.x + dx), snap(o.y + dy), f ? f.w : 0, f ? f.h : 0, f ? f.page : undefined);
+        const page = pageOf(o);
+        map[o.id] = Object.assign(
+          { page },
+          clampToPage(snap(o.x + dx), snap(o.y + dy), f ? f.w : 0, f ? f.h : 0, page),
+        );
       });
       const moved = d.orig.map(o => map[o.id]);
-      const first = st.fields.find(f => f.id === d.orig[0].id);
-      const dragPage = first ? first.page : st.page;
+      const dragPage = map[anchor.id] ? map[anchor.id].page : anchor.page;
       const guides: { axis: string; at: number }[] = [];
       if (moved.length === 1) {
         const m = moved[0];
@@ -193,7 +286,11 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
           if (Math.abs(f.y - m.y) <= 4) guides.push({ axis: 'h', at: f.y });
         });
       }
-      set(prev => ({ guides, fields: prev.fields.map(f => (map[f.id] ? Object.assign({}, f, map[f.id]) : f)) }));
+      set(prev => ({
+        guides,
+        page: dragPage,
+        fields: prev.fields.map(f => (map[f.id] ? Object.assign({}, f, map[f.id]) : f)),
+      }));
     } else if (d.mode === 'resize') {
       const o = d.orig[0];
       const f = st.fields.find(item => item.id === o.id);
@@ -203,6 +300,24 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
       const w = Math.min(maxW, Math.max(32, snap(o.w + (e.clientX - d.sx) / z)));
       const h = Math.min(maxH, Math.max(24, snap(o.h + (e.clientY - d.sy) / z)));
       set(prev => ({ fields: prev.fields.map(f => (f.id === o.id ? Object.assign({}, f, { w, h }) : f)) }));
+    } else if (d.mode === 'pen') {
+      const sheet = sheetsRef.current.get(d.page);
+      if (!sheet) return;
+      const r = sheet.getBoundingClientRect();
+      const size = sizeOf(d.page);
+      const px = (e.clientX - r.left) / z, py = (e.clientY - r.top) / z;
+      // Clamped to the page: the API rejects a field that does not fit inside
+      // it, and a stroke trailed off the edge would author exactly that.
+      const point: [number, number] = [
+        Math.max(0, Math.min(size ? size.width : px, px)),
+        Math.max(0, Math.min(size ? size.height : py, py)),
+      ];
+      const last = d.points[d.points.length - 1];
+      // Sub-point moves are noise on a trackpad; dropping them keeps the blob
+      // (and the PDF path) proportional to the mark rather than to the hardware.
+      if (Math.abs(point[0] - last[0]) < 0.4 && Math.abs(point[1] - last[1]) < 0.4) return;
+      d.points.push(point);
+      set({ penStroke: { page: d.page, points: d.points.slice() } });
     } else if (d.mode === 'lasso') {
       const lassoPage = d.page ?? st.page;
       const sheet = sheetsRef.current.get(lassoPage);
@@ -214,7 +329,7 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
         f.x < m.x + m.w && f.x + f.w > m.x && f.y < m.y + m.h && f.y + f.h > m.y).map(f => f.id);
       set({ marquee: m, selected: hits });
     }
-  }, [set, snap, clampToPage, sizeOf]);
+  }, [set, snap, clampToPage, sizeOf, sheetAt]);
 
   const onUp = useCallback((e: PointerEvent) => {
     const st = sRef.current;
@@ -230,23 +345,57 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
           snap((e.clientY - r.top) / z - t.h / 2),
           t.w, t.h, hit.page,
         );
+        const annotation = newAnnotationExtras(t.id);
         const nf: SFField = {
           id, page: hit.page, type: t.id,
           x: at.x, y: at.y,
-          w: t.w, h: t.h, to: st.activeRecipient, required: t.id === 'signature' || t.id === 'initials',
-          readOnly: false, label: t.label, placeholder: '',
+          w: t.w, h: t.h, to: st.activeRecipient,
+          required: !annotation && (t.id === 'signature' || t.id === 'initials'),
+          readOnly: !!annotation, label: t.label, placeholder: '',
           validation: t.id === 'email' ? 'email' : (t.id === 'date' ? 'date' : 'none'),
-          cond: null, merge: ''
+          cond: null
         };
         set(prev => ({ fields: prev.fields.concat([nf]), selected: [id], dragTool: null, ghost: null, page: hit.page }));
-        flash(t.label + ' placed on page ' + hit.page + ' and assigned to ' + recip(st.activeRecipient).name);
+        if (annotation && extrasRef.current) extrasRef.current(id, annotation);
+        flash(annotation
+          ? t.label + ' placed on page ' + hit.page + ' · type its text in the inspector'
+          : t.label + ' placed on page ' + hit.page + ' and assigned to ' + recip(st.activeRecipient).name);
       } else {
         set({ dragTool: null, ghost: null });
       }
       return;
     }
-    if (dragRef.current) { dragRef.current = null; set({ marquee: null, guides: [] }); }
-  }, [set, flash, recip, snap, clampToPage, sheetAt]);
+    const drag = dragRef.current;
+    if (drag && drag.mode === 'pen') {
+      dragRef.current = null;
+      const points = drag.points;
+      // A tap with no drag is still a dot, but a stroke cannot be saved without
+      // somewhere to store it — nor if the screen never handed us the extras
+      // writer, in which case the mark would be silently dropped on save.
+      if (!points.length || !extrasRef.current) { set({ penStroke: null }); return; }
+      const pad = Math.max(2, st.penWidth);
+      const bounds = strokeBounds(points, pad);
+      const size = sizeOf(drag.page);
+      const x = Math.max(0, bounds.x), y = Math.max(0, bounds.y);
+      const w = Math.min(bounds.w, size ? size.width - x : bounds.w);
+      const h = Math.min(bounds.h, size ? size.height - y : bounds.h);
+      const box = { x, y, w, h };
+      const id = 'f' + Date.now().toString().slice(-6);
+      const nf: SFField = {
+        id, page: drag.page, type: 'drawing', x: box.x, y: box.y, w: box.w, h: box.h,
+        to: st.activeRecipient, required: false, readOnly: true,
+        label: 'Pen Drawing', placeholder: '', validation: 'none', cond: null,
+      };
+      set(prev => ({ fields: prev.fields.concat([nf]), selected: [id], penStroke: null }));
+      extrasRef.current(id, {
+        apiType: 'drawing',
+        options: toDrawingOptions(points, box, { color: st.penInk, stroke: st.penWidth }),
+      });
+      flash('Drawing added on page ' + drag.page + ' · it is burned into the completed PDF');
+      return;
+    }
+    if (drag) { dragRef.current = null; set({ marquee: null, guides: [] }); }
+  }, [set, flash, recip, snap, clampToPage, sheetAt, sizeOf]);
 
   const deleteSel = useCallback(() => {
     const n = sRef.current.selected.length;
@@ -298,7 +447,11 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes }: Buil
     const tag = ((e.target as HTMLElement) && (e.target as HTMLElement).tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     const st = sRef.current;
-    if (screenRef.current !== 'builder' || !st.selected.length) return;
+    if (screenRef.current !== 'builder') return;
+    /* Escape puts the pen down. A mode with no way out but the mouse traps a
+       keyboard user in it: every drag on the page would keep drawing. */
+    if (e.key === 'Escape' && st.penMode) { e.preventDefault(); set({ penMode: false, penStroke: null }); return; }
+    if (!st.selected.length) return;
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSel(); }
     else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSel(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {

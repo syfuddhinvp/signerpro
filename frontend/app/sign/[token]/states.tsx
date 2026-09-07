@@ -2,7 +2,7 @@
  * Every terminal state a public signing link can land in, as one designed card.
  *
  * A signer who follows a dead link is not a developer: they get the same
- * SignForge card the app's own error boundaries use, saying what happened and
+ * SignerPro card the app's own error boundaries use, saying what happened and
  * what to do next — never a stack trace, and never a crash.
  */
 
@@ -74,7 +74,7 @@ const COPY: Record<TokenProblem, { tone: keyof typeof TONE; label: string; title
     body: 'This link was opened many times in quick succession. Wait a minute and reload — the envelope itself is unaffected.',
   },
   unreachable: {
-    tone: 'bad', label: 'Service unavailable', title: 'SignForge could not load this envelope',
+    tone: 'bad', label: 'Service unavailable', title: 'SignerPro could not load this envelope',
     body: 'The signing service did not respond. Nothing you have signed has been lost; reload in a moment to pick up exactly where you left off.',
   },
 };

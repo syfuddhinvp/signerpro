@@ -28,7 +28,7 @@ import type {
 } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Audit trail · SignForge' };
+export const metadata: Metadata = { title: 'Audit trail · SignerPro' };
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id: documentId } = await params;

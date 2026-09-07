@@ -22,8 +22,12 @@ anyio==4.7.0
 pillow>=12.3.0
 pyasn1>=0.6.4
 
-# Optional: only needed when STORAGE_BACKEND=s3 (imported lazily by app/core/storage.py)
-# boto3>=1.34.0
+# Selected by STORAGE_BACKEND=s3 and imported lazily by app/core/storage.py, so
+# it costs nothing at startup when unused. Installed unconditionally for the
+# same reason as redis below: without it in the image, the S3/MinIO backend
+# cannot be switched on at all -- build_storage() would raise on the first
+# write, i.e. after the process is already serving traffic.
+boto3>=1.34.0
 
 # Selected by RATE_LIMIT_BACKEND=redis and imported lazily by
 # app/core/ratelimit.py, so it costs nothing at startup when unused. Installed

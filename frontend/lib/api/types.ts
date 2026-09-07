@@ -41,7 +41,10 @@ export type FieldType =
   // them to `text`/`date` on the first save, which is what made `attachment`
   // fields unreachable from the signing surface even after they got a real
   // upload endpoint.
-  | 'stamp' | 'attachment' | 'formula' | 'datetime';
+  | 'stamp' | 'attachment' | 'datetime'
+  // ANN-1: the sender's page annotations — a pen drawing and a text box. Always
+  // read-only; see `lib/sf/annotations.ts` for the payload each one carries.
+  | 'drawing' | 'textbox';
 /** `app/schemas/recipient.py:RecipientRole` */
 export type RecipientRole = 'sign' | 'approve' | 'copy' | 'inperson';
 /** `app/schemas/document.py` */
@@ -125,6 +128,8 @@ export type SavedSignatureResponse = {
   signature_text: string | null;
   type_face: string | null;
   is_passkey_bound: boolean;
+  /** Exactly one saved signature per account carries this. */
+  is_default: boolean;
   adopted_at: IsoDateTime;
   preview_url: string | null;
   /** Prototype-facing aliases the backend also emits. */
@@ -137,6 +142,11 @@ export type NotificationPreferenceResponse = {
   label: string;
   enabled: boolean;
   extra_recipients: string[];
+};
+
+/** The field types starred into the builder palette's Favourites tab. */
+export type FieldFavoritesResponse = {
+  types: string[];
 };
 
 export type IntegrationResponse = {
@@ -155,13 +165,22 @@ export type AccountAuditEntry = {
   document_title: string | null;
   event_type: string;
   event_message: string;
+  /** The acting user's or recipient's email; null for system events. */
+  actor: string | null;
   ip_address: string | null;
   user_agent: string | null;
   log_metadata: Record<string, unknown> | null;
   created_at: IsoDateTime;
 };
 
-export type AccountAuditFeed = { items: AccountAuditEntry[]; total: number };
+export type AccountAuditFeed = {
+  items: AccountAuditEntry[];
+  /** Entries matching the active filters — what the pager divides. */
+  total: number;
+  /** Facets over the whole trail, not just this page, for the filter menus. */
+  event_types: string[];
+  actors: string[];
+};
 
 /* ── organizations (schemas/organization.py) ────────────────────────────── */
 
@@ -296,6 +315,9 @@ export type DocumentLibraryParams = {
   folder_id?: string;
   owner?: string;
   since_days?: number;
+  /** `YYYY-MM-DD`, inclusive on both ends. Mutually exclusive with `since_days`. */
+  updated_from?: string;
+  updated_to?: string;
   q?: string;
   sort?: LibrarySort;
   limit?: number;
@@ -358,7 +380,6 @@ export type FieldResponse = {
   validation: string;
   validation_pattern: string | null;
   condition: Record<string, unknown> | null;
-  merge_tag: string | null;
   read_only: boolean;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
@@ -381,7 +402,6 @@ export type FieldCreate = {
   validation?: ValidationKind;
   validation_pattern?: string | null;
   condition?: FieldCondition | null;
-  merge_tag?: string | null;
   read_only?: boolean;
 };
 
@@ -1084,6 +1104,58 @@ export type LogParams = {
   since_days?: number;
   limit?: number;
   offset?: number;
+};
+
+/* ── notifications (the header bell) ─────────────────────────────────────── */
+
+export type NotificationTone = 'info' | 'good' | 'warn' | 'bad';
+
+export type NotificationRow = {
+  id: UUID;
+  title: string;
+  detail: string | null;
+  tone: NotificationTone;
+  /** A shell screen key, when the row leads somewhere. */
+  screen: string | null;
+  target_id: string | null;
+  read_at: string | null;
+  created_at: string;
+};
+
+export type NotificationFacets = {
+  /** `{ good: 12, bad: 1, ... }`, unfiltered by tone — what a chip *would*
+   *  select, not what is currently selected. */
+  tones: Record<NotificationTone, number>;
+  unread: number;
+  read: number;
+};
+
+export type NotificationFeed = {
+  items: NotificationRow[];
+  /** Unread across the whole feed, ignoring filters and paging — the badge. */
+  unread: number;
+  /** Rows matching the current filter, ignoring the page size. */
+  total: number;
+  facets: NotificationFacets;
+};
+
+export type NotificationStatusFilter = 'all' | 'unread' | 'read';
+
+export type NotificationParams = {
+  status?: NotificationStatusFilter;
+  tone?: NotificationTone;
+  q?: string;
+  since_days?: number;
+  limit?: number;
+  offset?: number;
+};
+
+export type NotificationBulkAction = 'read' | 'unread' | 'delete';
+
+export type NotificationWriteResponse = {
+  updated: number;
+  deleted: number;
+  unread: number;
 };
 
 export type PlatformAuditRow = {

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import InviteForm from '@/components/sf/auth/InviteForm';
 
-export const metadata: Metadata = { title: 'Accept your invitation · SignForge', robots: { index: false } };
+export const metadata: Metadata = { title: 'Accept your invitation · SignerPro', robots: { index: false } };
 
 /** Landing page for the emailed link `{app_base_url}/invite/{token}`. */
 export default async function Page({ params }: { params: Promise<{ token: string }> }) {

@@ -460,7 +460,7 @@ def test_the_sealed_pdf_is_locked_against_editing(client: TestClient, pdf_bytes:
     assert meta is not None
     assert meta.title
     assert meta.author
-    assert "SignForge" in (meta.producer or "")
+    assert "SignerPro" in (meta.producer or "")
     assert document_id in (meta.get("/Keywords") or "")
     assert (meta.get("/CreationDate") or "").startswith("D:")
     assert (meta.get("/ModDate") or "").startswith("D:")
@@ -469,7 +469,7 @@ def test_the_sealed_pdf_is_locked_against_editing(client: TestClient, pdf_bytes:
 def test_the_verified_mark_and_properties_reach_every_page(client: TestClient, pdf_bytes: bytes) -> None:
     """Provenance on the page itself, not only in the certificate.
 
-    A sealed page carries a small "Signed and verified via SignForge" line with
+    A sealed page carries a small "Signed and verified via SignerPro" line with
     the envelope id, so a printed page can be traced back to its audit trail.
     """
 
@@ -485,7 +485,7 @@ def test_the_verified_mark_and_properties_reach_every_page(client: TestClient, p
     reader = PdfReader(BytesIO(final.content))
     reader.decrypt("")
     first_page_text = reader.pages[0].extract_text() or ""
-    assert "Signed and verified via SignForge" in first_page_text
+    assert "Signed and verified via SignerPro" in first_page_text
     assert document_id in first_page_text
 
     # The certificate that travels with it reports the chain it verified.

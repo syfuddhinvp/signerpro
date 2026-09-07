@@ -23,7 +23,7 @@ import { ConsentGate, OtpGate } from './SignGate';
 import { SignState, TokenProblemState } from './states';
 import { tokenProblemFor, type SigningSessionResponse } from './types';
 
-export const metadata: Metadata = { title: 'Sign · SignForge' };
+export const metadata: Metadata = { title: 'Sign · SignerPro' };
 export const dynamic = 'force-dynamic';
 
 export default async function Page({ params }: { params: Promise<{ token: string }> }) {
@@ -80,6 +80,7 @@ export default async function Page({ params }: { params: Promise<{ token: string
         pdfUrl={pdfHref}
         pageCount={session.document.page_count || 1}
         otherPlacements={session.other_field_placements ?? []}
+        annotations={session.annotations ?? []}
         onDownload={undefined}
       />
     );
@@ -143,6 +144,7 @@ export default async function Page({ params }: { params: Promise<{ token: string
       pdfHref={pdfHref}
       consentVersion={session.consent_version || '1.0'}
       otherPlacements={session.other_field_placements ?? []}
+      annotations={session.annotations ?? []}
     />
   );
 }

@@ -154,7 +154,7 @@ export function errorForStatus(status: number, payload: unknown): ApiError {
       issues: validationIssues(payload),
     };
   }
-  if (status >= 500) return { kind: 'server', status, message: detailMessage(payload, 'The SignForge API returned an error.') };
+  if (status >= 500) return { kind: 'server', status, message: detailMessage(payload, 'The SignerPro API returned an error.') };
   return { kind: 'client', status, message: detailMessage(payload, 'The request could not be completed.') };
 }
 
@@ -196,8 +196,8 @@ export async function requestJson<T>(
       kind: 'network',
       status: 0,
       message: timedOut
-        ? 'The SignForge API did not respond in time.'
-        : cause instanceof Error ? cause.message : 'The SignForge API is unreachable.',
+        ? 'The SignerPro API did not respond in time.'
+        : cause instanceof Error ? cause.message : 'The SignerPro API is unreachable.',
     });
   }
 

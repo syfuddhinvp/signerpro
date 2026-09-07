@@ -7,9 +7,11 @@ import { useNav } from '@/lib/sf/nav';
 import type { Recipient, SFField } from '@/lib/sf/state';
 import type { SignerField } from '@/lib/sf/adapters';
 import { btn } from '@/lib/sf/ui';
+import { drawingOptions, strokePath, textboxFontStack, textboxOptions } from '@/lib/sf/annotations';
 import { effectiveValidation, fieldValueProblem, fitsNativeInput, nativeInputType } from '@/lib/sf/fieldValidation';
 import LazyPdfPages from '@/components/sf/pdf/LazyPdfPages';
 import { useElementWidth } from '@/components/sf/pdf/useElementWidth';
+import { typeFaceStack } from '@/lib/sf/fonts';
 
 export type SignerProps = {
   /**
@@ -59,6 +61,13 @@ export type SignerProps = {
    * themselves.
    */
   otherPlacements?: OtherPlacement[];
+  /**
+   * The sender's own marks on the page — a pen drawing or a text box (ANN-1).
+   * They are content, not an obligation: every recipient sees them whoever they
+   * were assigned to, they are inert, and they are burned into the completed
+   * PDF exactly as drawn here.
+   */
+  annotations?: PageAnnotation[];
   /** Upload a file into an `attachment` or `stamp` field. */
   onUploadAttachment?: (field: SFField, file: File) => void;
   /**
@@ -73,6 +82,19 @@ export type SignerProps = {
    * bar and a Finish button that would do nothing.
    */
   viewOnly?: boolean;
+};
+
+/** `backend/app/schemas/signer.py:AnnotationResponse`. Geometry in points. */
+export type PageAnnotation = {
+  id: string;
+  type: string;
+  page_number: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  default_value?: string | null;
+  options?: Record<string, unknown> | unknown[] | null;
 };
 
 /** `FieldPlacementResponse` — geometry only, by design. */
@@ -107,7 +129,7 @@ function signableOf(fields: (SignerField | SFField)[], values: Record<string, un
 export default function Signer({
   fields, recipients, pageCount, title, readOnly = false, initialValues,
   onSaveValue, onOpenSignature, onDisclosure, onDecline, onReassign, onFinish, onDownload,
-  pdfUrl, otherPlacements, onUploadAttachment, stampEndpoint, viewOnly = false,
+  pdfUrl, otherPlacements, annotations, onUploadAttachment, stampEndpoint, viewOnly = false,
 }: SignerProps = {}) {
   const { s, set, flash, accent, recip, meta, signable, isDone } = useSF();
   const { go } = useNav();
@@ -161,17 +183,57 @@ export default function Signer({
   const done = req.filter(f => complete(f)).length;
   const pct = req.length ? Math.round((done / req.length) * 100) : 100;
 
-  const nextField = () => {
-    const pending = signList.filter(f => f.required && !complete(f));
-    if (!pending.length) { flash('All required fields complete — ready to finish'); return; }
-    const f = pending[0];
-    const el = signEls.current[f.id];
-    if (el && signScroll.current) signScroll.current.scrollTop = Math.max(0, el.offsetTop - 160);
+  /**
+   * Reading order down the document: page, then top edge, then left edge. The
+   * "next" field has to be the next one the signer's eye reaches, not the next
+   * one in whatever order the sender happened to place them.
+   */
+  const inReadingOrder = (a: SignerField | SFField, b: SignerField | SFField) =>
+    (a.page || 1) - (b.page || 1) || a.y - b.y || a.x - b.x;
+  const pending = signList.filter(f => f.required && !complete(f)).sort(inReadingOrder);
+  /* What the guide points at: the field the signer is on if it is still
+     outstanding, otherwise the next one down the page. */
+  const target = pending.find(f => f.id === s.activeSignField) ?? pending[0] ?? null;
+
+  /**
+   * Put a field on screen.
+   *
+   * Measured against the scroll box, not `offsetTop`: a field is absolutely
+   * positioned inside its own page box, so its `offsetTop` is its offset within
+   * that page. Scrolling by it landed every field on page 2+ hundreds of pixels
+   * short — the signer pressed "Next required field" and the document barely
+   * moved.
+   */
+  const scrollToField = (id: string) => {
+    const el = signEls.current[id];
+    const box = signScroll.current;
+    if (!el || !box) return;
+    const e = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    // Centred where there is room, but never above the sticky header's shadow.
+    const inset = Math.max(96, (box.clientHeight - e.height) / 2);
+    const top = box.scrollTop + (e.top - b.top) - inset;
+    const smooth = typeof window !== 'undefined'
+      && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (typeof box.scrollTo === 'function') box.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
+    else box.scrollTop = Math.max(0, top);
+    // Keyboard and screen-reader users are taken to the field, not just shown it.
+    const control = el.querySelector<HTMLElement>('button, input, select, textarea');
+    if (control) control.focus({ preventScroll: true });
+  };
+
+  const goToField = (f: SignerField | SFField) => {
     set({ activeSignField: f.id });
+    scrollToField(f.id);
     if (f.type === 'signature' || f.type === 'initials') {
       if (onOpenSignature) onOpenSignature(f.id);
       else set({ modal: 'signature' });
     }
+  };
+
+  const nextField = () => {
+    if (!target) { flash('All required fields complete — ready to finish'); return; }
+    goToField(target);
   };
 
   const openSig = (id: string) => {
@@ -187,8 +249,7 @@ export default function Signer({
     if (broken) {
       flash(broken.label + ' · ' + problemFor(broken));
       set({ activeSignField: broken.id });
-      const el = signEls.current[broken.id];
-      if (el && signScroll.current) signScroll.current.scrollTop = Math.max(0, el.offsetTop - 160);
+      scrollToField(broken.id);
       return;
     }
     if (pct < 100) { flash('Complete all required fields first'); nextField(); return; }
@@ -203,7 +264,7 @@ export default function Signer({
   const successBtn = btn('#059669', '#fff', '#059669');
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
 
-  const signPctStyle: CSSProperties = { fontSize: '.71875rem', fontWeight: 700, fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: pct === 100 ? '#047857' : A };
+  const signPctStyle: CSSProperties = { fontSize: '.71875rem', fontWeight: 700, fontFamily: 'var(--font-sans)', color: pct === 100 ? '#047857' : A };
   const signBarStyle: CSSProperties = { width: pct + '%', height: '100%', borderRadius: '99px', background: pct === 100 ? '#10b981' : A, transition: 'width .25s ease' };
   const nextFieldLabel = done === 0 ? 'Start signing' : (pct === 100 ? 'All fields complete' : 'Next required field');
   /**
@@ -221,6 +282,9 @@ export default function Signer({
     const isSig = f.type === 'signature' || f.type === 'initials';
     const typed = typeof v === 'string' && v.indexOf('typed:') === 0 ? v.split(':') : null;
     const active = s.activeSignField === f.id;
+    /* The field the guide is pointing at, so "next" is visible on the page and
+       not only in the header. */
+    const isNext = target ? target.id === f.id : false;
     const filled = isDone(f);
     const options = (f as SignerField).options ?? [];
     const problem = fieldValueProblem(f, v);
@@ -232,14 +296,15 @@ export default function Signer({
         position: 'absolute', left: (f.x * scale) + 'px', top: (f.y * scale) + 'px', width: (f.w * scale) + 'px', height: (f.h * scale) + 'px',
         border: '1.5px solid ' + (problem ? '#dc2626' : (filled ? '#10b981' : r.color)), borderRadius: '6px',
         background: problem ? '#fef2f2' : (filled ? '#ecfdf5' : r.color + '14'),
-        boxShadow: active ? '0 0 0 4px ' + r.color + '40' : 'none', display: 'flex', alignItems: 'center', padding: '2px'
+        boxShadow: active ? '0 0 0 4px ' + r.color + '40' : (isNext ? '0 0 0 3px ' + r.color + '2e' : 'none'),
+        display: 'flex', alignItems: 'center', padding: '2px'
       } as CSSProperties,
       tag: {
         position: 'absolute', top: '-9px', left: '-1px', height: '17px', padding: '0 6px', borderRadius: '5px',
-        background: problem ? '#dc2626' : (filled ? '#10b981' : r.color), color: '#fff', fontSize: '.59375rem', fontWeight: 700, display: 'flex', alignItems: 'center', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", whiteSpace: 'nowrap'
+        background: problem ? '#dc2626' : (filled ? '#10b981' : r.color), color: '#fff', fontSize: '.59375rem', fontWeight: 700, display: 'flex', alignItems: 'center', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap'
       } as CSSProperties,
-      tagText: (problem ? '! ' : (filled ? '✓ ' : (f.required ? '* ' : ''))) + t.label,
-      aria: t.label + ' — ' + f.label + (f.required ? ' (required)' : ''),
+      tagText: (problem ? '! ' : (filled ? '✓ ' : (isNext ? '➜ ' : (f.required ? '* ' : '')))) + t.label,
+      aria: t.label + ' — ' + f.label + (f.required ? ' (required)' : '') + (isNext ? ' — next' : ''),
       isSig, isCheck: f.type === 'checkbox',
       /* A Radio Group is a set of radio buttons, not a dropdown. Both used to
          render the same `<select>`, so a field the sender placed as a radio
@@ -276,7 +341,7 @@ export default function Signer({
       imgStyle: { maxHeight: Math.max(8, f.h * scale - 12) + 'px', maxWidth: '100%', objectFit: 'contain' } as CSSProperties,
       hasTyped: !!typed,
       typedText: typed ? typed.slice(2).join(':') : '',
-      typedStyle: { fontFamily: "'" + (typed ? typed[1] : 'Caveat') + "', cursive", fontSize: Math.max(10, Math.min(30, f.h * scale - 18)) + 'px', color: '#0f172a', lineHeight: 1 } as CSSProperties,
+      typedStyle: { fontFamily: typeFaceStack(typed ? typed[1] : null), fontSize: Math.max(10, Math.min(30, f.h * scale - 18)) + 'px', color: '#0f172a', lineHeight: 1 } as CSSProperties,
       sigBtn: { width: '100%', height: '100%', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center' } as CSSProperties,
       onSign: () => openSig(f.id),
       /** Real dropdown choices when the field was authored with them. */
@@ -366,8 +431,104 @@ export default function Signer({
   const attachScroll = (node: HTMLDivElement | null) => { signScroll.current = node; scrollRef(node); };
   const availableWidth = Math.max(240, (viewportWidth || 816) - 28);
 
+  /**
+   * Which way the next field lies when it is off screen, so the signer is never
+   * left guessing whether the thing they still owe is above or below them.
+   * `null` while it is in view — the guide only appears when it is needed.
+   */
+  const [guideDir, setGuideDir] = useState<'up' | 'down' | null>(null);
+  const targetId = target ? target.id : null;
+  useEffect(() => {
+    const box = signScroll.current;
+    if (!box || !targetId) { setGuideDir(null); return; }
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const el = signEls.current[targetId];
+      if (!el) { setGuideDir(null); return; }
+      const e = el.getBoundingClientRect();
+      const b = box.getBoundingClientRect();
+      if (e.bottom < b.top + 8) setGuideDir('up');
+      else if (e.top > b.bottom - 8) setGuideDir('down');
+      else setGuideDir(null);
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    measure();
+    box.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    // The pages settle in after pdf.js measures them, which moves every field.
+    const settle = window.setTimeout(measure, 400);
+    return () => {
+      box.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      window.clearTimeout(settle);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [targetId, availableWidth, pages.length]);
+
+  const guideLabel = target
+    ? target.label + ' · page ' + String(target.page || 1)
+    : null;
+
+  /**
+   * After a signature or initials is applied, carry the signer on to the next
+   * outstanding field. Only these two: they complete in one gesture, so there
+   * is no half-finished state to yank the page away from — a text field, which
+   * commits on blur, would move the document out from under someone still
+   * reading what they typed.
+   */
+  const advancedFrom = useRef<string | null>(null);
+  useEffect(() => {
+    const active = s.activeSignField;
+    if (!active || advancedFrom.current === active) return;
+    const f = signList.find(x => x.id === active);
+    if (!f || (f.type !== 'signature' && f.type !== 'initials') || !complete(f)) return;
+    advancedFrom.current = active;
+    const next = pending[0];
+    if (!next || next.id === active) return;
+    set({ activeSignField: next.id });
+    scrollToField(next.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.activeSignField, s.signValues]);
+
+  /* One of the sender's marks, drawn at the same scale as everything else on
+     the page. Inert in every sense: `pointerEvents: none` and `aria-hidden`
+     where it has no text, so it never intercepts a signer's tap on a field
+     underneath it. */
+  const annotationNode = (a: PageAnnotation, scale: number) => {
+    const w = a.width * scale, h = a.height * scale;
+    const box: CSSProperties = {
+      position: 'absolute', left: (a.x * scale) + 'px', top: (a.y * scale) + 'px',
+      width: w + 'px', height: h + 'px', pointerEvents: 'none', overflow: 'hidden',
+    };
+    if (a.type === 'drawing') {
+      const ink = drawingOptions(a.options ?? null);
+      if (!ink.strokes.length) return null;
+      return (
+        <svg key={a.id} aria-hidden="true" viewBox={'0 0 ' + Math.max(1, w) + ' ' + Math.max(1, h)}
+          style={Object.assign({}, box, { overflow: 'visible' })}>
+          {ink.strokes.map((stroke, i) => (
+            <path key={i} d={strokePath(stroke, w, h)} fill="none" stroke={ink.color}
+              strokeWidth={Math.max(0.5, ink.stroke * scale)} strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+        </svg>
+      );
+    }
+    const text = a.default_value ?? '';
+    if (!text) return null;
+    const style = textboxOptions(a.options ?? null);
+    return (
+      <div key={a.id} style={Object.assign({}, box, {
+        whiteSpace: 'pre-wrap', wordBreak: 'break-word', padding: '2px 3px',
+        fontFamily: textboxFontStack(style.font), fontSize: (style.size * scale) + 'px', lineHeight: 1.2,
+        fontWeight: style.bold ? 700 : 400, fontStyle: style.italic ? 'italic' : 'normal', color: style.color,
+      } as CSSProperties)}>{text}</div>
+    );
+  };
+
   const fieldNodes = (page: number, scale: number) => (
     <>
+      {(annotations ?? []).filter(a => (a.page_number || 1) === page).map(a => annotationNode(a, scale))}
       {(otherPlacements ?? [])
         .filter(p => (p.page_number || 1) === page)
         .map(p => (
@@ -384,7 +545,7 @@ export default function Signer({
           ></div>
         ))}
       {fieldsOnPage(page, scale).map(f => (
-        <div key={f.id} ref={(el) => { if (el) signEls.current[f.id] = el; }} style={f.box}>
+        <div key={f.id} ref={(el) => { if (el) signEls.current[f.id] = el; else delete signEls.current[f.id]; }} style={f.box}>
           <span style={f.tag}>{f.tagText}</span>
           {f.isSig ? (
             <button type="button" onClick={f.onSign} aria-label={f.aria} style={f.sigBtn}>
@@ -554,7 +715,13 @@ export default function Signer({
             <div style={signBarStyle}></div>
           </div>
         </div>
-        <button type="button" onClick={nextField} style={primaryBtn}>{nextFieldLabel}</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+          <button type="button" onClick={nextField} style={primaryBtn}>{nextFieldLabel}</button>
+          {/* Named and located, so the button is a destination rather than a leap. */}
+          <span aria-live="polite" style={{ fontSize: '.6875rem', color: '#64748b', maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {guideLabel ? 'Next: ' + guideLabel : 'Nothing left to complete'}
+          </span>
+        </div>
         <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
           <button type="button" onClick={runOr(onDisclosure, 'disclosure')} style={ghostBtn}>Disclosure</button>
           <button type="button" onClick={runOr(onDecline, 'decline')} style={ghostBtn}>Decline</button>
@@ -563,6 +730,29 @@ export default function Signer({
         </div>
       </div>
 
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* The guide: shown only while the next required field is off screen, and
+          pinned to the edge it lies beyond, so it doubles as a direction. */}
+      {guideDir && guideLabel ? (
+        <button
+          type="button"
+          onClick={nextField}
+          style={{
+            position: 'absolute', zIndex: 4, left: '50%', transform: 'translateX(-50%)',
+            ...(guideDir === 'up' ? { top: '12px' } : { bottom: '16px' }),
+            display: 'flex', alignItems: 'center', gap: '7px', maxWidth: 'calc(100% - 28px)',
+            height: '34px', padding: '0 14px', borderRadius: '99px', cursor: 'pointer',
+            border: '1px solid ' + A, background: A, color: '#fff',
+            fontSize: '.75rem', fontWeight: 600, fontFamily: 'var(--font-sans)',
+            boxShadow: '0 10px 24px -10px rgba(15,23,42,.55)',
+          }}
+        >
+          <span aria-hidden="true">{guideDir === 'up' ? '↑' : '↓'}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {(guideDir === 'up' ? 'Back to ' : 'Next: ') + guideLabel}
+          </span>
+        </button>
+      ) : null}
       <div data-sf-scroll="1" ref={attachScroll} style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '18px 14px' }}>
         <div style={{ maxWidth: '816px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           {paper}
@@ -571,6 +761,7 @@ export default function Signer({
             <button type="button" onClick={() => { if (onDownload) onDownload(); else go('audit'); }} style={ghostBtn}>Download unsigned PDF</button>
           </div>
         </div>
+      </div>
       </div>
     </section>
   );

@@ -40,7 +40,7 @@ const DEAD_COPY: Record<DeadState, { title: string; body: string; cta: 'signin' 
   },
   conflict: {
     title: 'You already have an account',
-    body: 'That email address is already registered on SignForge. Sign in with it instead — an administrator can add you to the workspace directly.',
+    body: 'That email address is already registered on SignerPro. Sign in with it instead — an administrator can add you to the workspace directly.',
     cta: 'signin',
   },
 };
@@ -92,7 +92,7 @@ export default function InviteForm({ token }: { token: string }) {
         return;
       }
       const org = data.user?.organizationName;
-      flash(org ? `Welcome to ${org}` : 'Welcome to SignForge');
+      flash(org ? `Welcome to ${org}` : 'Welcome to SignerPro');
       router.replace(typeof data.next === 'string' && data.next ? data.next : '/overview');
     } catch {
       setError(authErrorMessage('backend_unreachable'));

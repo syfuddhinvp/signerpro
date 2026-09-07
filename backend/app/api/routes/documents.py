@@ -1,5 +1,6 @@
 import io
 import zipfile
+from datetime import date
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -102,6 +103,8 @@ def document_library(
     folder_id: str | None = Query(default=None),
     owner: str | None = Query(default=None),
     since_days: int | None = Query(default=None, ge=1, le=3650),
+    updated_from: date | None = Query(default=None),
+    updated_to: date | None = Query(default=None),
     q: str | None = Query(default=None, max_length=200),
     sort: str = Query(default="recent", pattern="^(recent|name|status|owner)$"),
     limit: int = Query(default=25, ge=1, le=200),
@@ -118,6 +121,8 @@ def document_library(
         folder_id=folder_id,
         owner=owner,
         since_days=since_days,
+        updated_from=updated_from,
+        updated_to=updated_to,
         q=q,
         sort=sort,
         limit=limit,

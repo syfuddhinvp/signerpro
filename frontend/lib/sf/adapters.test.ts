@@ -67,7 +67,7 @@ describe('library filters round-trip', () => {
     const search = '?folder=archive&status=draft&type=nda&time=30&owner=me&q=acme+renewal&sort=name';
     const filters = fromSearch(search);
     expect(filters).toEqual({
-      folder: 'archive', status: 'draft', type: 'nda', time: '30',
+      folder: 'archive', status: 'draft', type: 'nda', time: '30', from: '', to: '',
       owner: 'me', q: 'acme renewal', sort: 'name',
     });
     // …and back to a URL that re-parses to the identical filters.
@@ -100,12 +100,32 @@ describe('library filters round-trip', () => {
 
   it('maps a fully-specified filter set onto the real query params', () => {
     const filters: LibraryFilters = {
-      folder: 'archive', status: 'waiting', type: 'nda', time: '90', owner: 'team', q: ' msa ', sort: 'name',
+      folder: 'archive', status: 'waiting', type: 'nda', time: '90', from: '', to: '',
+      owner: 'team', q: ' msa ', sort: 'name',
     };
     expect(toLibraryParams(filters, 12, 24)).toEqual({
       quick: 'archived', limit: 12, offset: 24, status: 'sent',
       doc_type: 'nda', since_days: 90, owner: 'team', q: 'msa', sort: 'name',
     });
+  });
+
+  it('sends an inclusive date range instead of since_days when time is custom', () => {
+    const filters: LibraryFilters = {
+      ...LIBRARY_FILTER_DEFAULTS, time: 'custom', from: '2026-08-01', to: '2026-08-31',
+    };
+    const params = toLibraryParams(filters, 25);
+    expect(params.updated_from).toBe('2026-08-01');
+    expect(params.updated_to).toBe('2026-08-31');
+    expect(params).not.toHaveProperty('since_days');
+  });
+
+  it('drops a half-typed date rather than sending it', () => {
+    const filters: LibraryFilters = {
+      ...LIBRARY_FILTER_DEFAULTS, time: 'custom', from: '2026-8', to: '2026-02-31',
+    };
+    const params = toLibraryParams(filters, 25);
+    expect(params).not.toHaveProperty('updated_from');
+    expect(params).not.toHaveProperty('updated_to');
   });
 
   it('treats an unknown folder as a real folder id, not a quick view', () => {

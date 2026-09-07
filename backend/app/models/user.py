@@ -35,6 +35,9 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     locale: Mapped[str | None] = mapped_column(String(20), nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(60), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    #: Storage key for a photo uploaded here, as opposed to `avatar_url`, which
+    #: is an external URL an identity provider gave us. Uploaded wins.
+    avatar_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # active | invited | deprovisioned
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
     preferences: Mapped[dict | None] = mapped_column(JSON, nullable=True)

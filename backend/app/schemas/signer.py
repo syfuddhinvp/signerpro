@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -32,7 +33,7 @@ class FieldPlacementResponse(BaseModel):
     already spoken for, so it can lay the sheet out and grey the box out rather
     than drawing this signer's inputs on top of it. It does **not** need — and
     must never receive — the other recipient's label, captured value, options,
-    placeholder, merge tag or recipient id: those are exactly the salary/SSN
+    placeholder or recipient id: those are exactly the salary/SSN
     payloads finding SIGN-1 recorded leaking. Geometry, page and coarse type
     are all that survive the redaction.
     """
@@ -48,6 +49,32 @@ class FieldPlacementResponse(BaseModel):
     height: Decimal
 
 
+class AnnotationResponse(BaseModel):
+    """One of the sender's own marks on the page — a pen drawing or a text box.
+
+    Annotations are document content, not an obligation, so every recipient
+    sees them whoever they happen to be assigned to. They are exposed on their
+    own rather than folded into ``other_field_placements`` because the mark
+    itself (the strokes, or the text and its face) is the point — redacted
+    geometry would draw an empty box — and because they carry nothing a
+    recipient entered, so there is nothing to leak.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    type: FieldType
+    page_number: int
+    x: Decimal
+    y: Decimal
+    width: Decimal
+    height: Decimal
+    #: A text box's text. A drawing has none.
+    default_value: str | None = None
+    #: The normalised annotation payload — see ``app/core/annotations.py``.
+    options: dict[str, Any] | list[Any] | None = None
+
+
 class SigningSessionResponse(BaseModel):
     document: PublicDocument
     recipient: PublicRecipient
@@ -57,6 +84,8 @@ class SigningSessionResponse(BaseModel):
     #: Redacted geometry for every other recipient's fields — layout context
     #: only, no labels and no values. See ``FieldPlacementResponse``.
     other_field_placements: list[FieldPlacementResponse] = Field(default_factory=list)
+    #: The sender's page annotations, shown to every recipient (ANN-1).
+    annotations: list[AnnotationResponse] = Field(default_factory=list)
     read_only: bool
     expires_at: datetime
     pdf_url: str

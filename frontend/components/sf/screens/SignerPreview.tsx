@@ -66,7 +66,7 @@ export default function SignerPreview({
 
         {recipients.length ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>PREVIEW AS</span>
+            <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>PREVIEW AS</span>
             {recipients.map(r => (
               <Link
                 key={r.id}

@@ -78,7 +78,7 @@ class PasskeyService:
         ]
         options = generate_registration_options(
             rp_id=rp_id,
-            rp_name="SignForge",
+            rp_name="SignerPro",
             user_id=user.id.encode(),
             user_name=user.email,
             user_display_name=user.name,

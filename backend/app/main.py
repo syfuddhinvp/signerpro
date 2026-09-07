@@ -11,7 +11,9 @@ from app.api.routes import audit, auth, billing, documents, fields, invitations,
 from app.api.routes import account, activity, invoices, revenue, support
 from app.api.routes import contacts, folders, teams, templates
 from app.api.routes import api_keys, embed, public_api, reports
-from app.api.routes import erasure, flags, logs, passkeys, sso, tenants, verification
+from app.api.routes import erasure, flags, logs, notifications, passkeys, sso, tenants, verification
+from app.services import notification_service
+from app.services.audit_service import audit_service
 from app.core.config import expected_migration_head, get_settings, parse_cors_origins
 from app.core.logging import RequestLoggingMiddleware, configure_logging
 from app import models  # noqa: F401
@@ -112,6 +114,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
 
 
+# The bell feed is produced from audit events, wired once at import time so
+# every code path that logs an event raises the notification too (see
+# `services/notification_service.py`).
+notification_service.register(audit_service)
+
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(recipients.router)
@@ -147,6 +154,7 @@ app.include_router(contacts.router)
 app.include_router(templates.router)
 app.include_router(folders.router)
 app.include_router(teams.router)
+app.include_router(notifications.router)
 
 
 @app.get("/api/health")

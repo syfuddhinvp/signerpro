@@ -41,15 +41,32 @@ export const account = {
   me: (c: Caller) => get<T.CurrentUserResponse>(c, '/api/me'),
   updateMe: (c: Caller, body: { name?: string; locale?: string; timezone?: string; avatar_url?: string }) =>
     patch<T.CurrentUserResponse>(c, '/api/me', body),
+  /** Replaces the profile photo. `image` is a data URL or bare base64 (PNG/JPEG). */
+  updateAvatar: (c: Caller, image: string) =>
+    put<T.CurrentUserResponse>(c, '/api/me/avatar', { image_base64: image }),
+  removeAvatar: (c: Caller) => del<T.CurrentUserResponse>(c, '/api/me/avatar'),
   signatures: (c: Caller) => get<T.SavedSignatureResponse[]>(c, '/api/me/signatures'),
   createSignature: (c: Caller, body: Record<string, unknown>) =>
     post<T.SavedSignatureResponse>(c, '/api/me/signatures', body),
+  /** Answers with the whole list, already re-sorted with the default first. */
+  setDefaultSignature: (c: Caller, id: string) =>
+    post<T.SavedSignatureResponse[]>(c, `/api/me/signatures/${id}/default`, {}),
   deleteSignature: (c: Caller, id: string) => del<void>(c, `/api/me/signatures/${id}`),
   notificationPreferences: (c: Caller) => get<T.NotificationPreferenceResponse[]>(c, '/api/me/notification-preferences'),
   updateNotificationPreferences: (c: Caller, body: { prefs?: Record<string, boolean>; extra_recipients?: string[] }) =>
     put<T.NotificationPreferenceResponse[]>(c, '/api/me/notification-preferences', body),
-  auditTrail: (c: Caller, params?: { limit?: number; offset?: number }) =>
-    get<T.AccountAuditFeed>(c, '/api/me/audit-trail', params),
+  fieldFavorites: (c: Caller) => get<T.FieldFavoritesResponse>(c, '/api/me/field-favorites'),
+  /** Replaces the whole starred set; the palette is the source of truth. */
+  updateFieldFavorites: (c: Caller, types: string[]) =>
+    put<T.FieldFavoritesResponse>(c, '/api/me/field-favorites', { types }),
+  auditTrail: (
+    c: Caller,
+    params?: {
+      limit?: number; offset?: number; search?: string; event_type?: string;
+      actor?: string; date_from?: string; date_to?: string;
+      sort_by?: 'time' | 'action' | 'document' | 'actor'; sort_dir?: 'asc' | 'desc';
+    },
+  ) => get<T.AccountAuditFeed>(c, '/api/me/audit-trail', params),
   integrations: (c: Caller) => get<T.IntegrationResponse[]>(c, '/api/integrations'),
   cloudTargets: (c: Caller) => get<T.CloudTargetItem[]>(c, '/api/integrations/cloud-targets'),
   updateCloudTargets: (c: Caller, targets: T.CloudTargetItem[]) =>
@@ -228,6 +245,11 @@ export const teams = {
   update: (c: Caller, id: string, body: { name?: string; description?: string | null }) =>
     patch<T.TeamResponse>(c, `/api/teams/${id}`, body),
   remove: (c: Caller, id: string) => del<void>(c, `/api/teams/${id}`),
+  /** Idempotent — adding someone who is already in the team sets their role. */
+  addMember: (c: Caller, id: string, body: { user_id: string; role?: string }) =>
+    post<T.TeamResponse>(c, `/api/teams/${id}/members`, body),
+  removeMember: (c: Caller, id: string, userId: string) =>
+    del<void>(c, `/api/teams/${id}/members/${userId}`),
 };
 
 export const folders = {
@@ -361,6 +383,25 @@ export const logs = {
   platformDetail: (c: Caller, id: string) => get<T.SystemLogRow>(c, `/api/saas/logs/${id}`),
   platformAudit: (c: Caller, params?: { action?: string; organization_id?: string; q?: string; limit?: number; offset?: number }) =>
     get<T.PlatformAuditPage>(c, '/api/saas/audit', params),
+};
+
+export const notifications = {
+  /** The feed, for both the header bell and the notifications page. `unread`
+   *  is the badge and is independent of every filter here. */
+  list: (c: Caller, params?: T.NotificationParams) =>
+    get<T.NotificationFeed>(c, '/api/notifications', params),
+  markRead: (c: Caller, id: string) =>
+    post<T.NotificationWriteResponse>(c, `/api/notifications/${id}/read`),
+  markUnread: (c: Caller, id: string) =>
+    post<T.NotificationWriteResponse>(c, `/api/notifications/${id}/unread`),
+  remove: (c: Caller, id: string) =>
+    del<T.NotificationWriteResponse>(c, `/api/notifications/${id}`),
+  markAllRead: (c: Caller) => post<T.NotificationWriteResponse>(c, '/api/notifications/read-all'),
+  /** Deletes read rows only — unread ones are the only in-app record of an
+   *  event nobody has seen yet. */
+  clearRead: (c: Caller) => post<T.NotificationWriteResponse>(c, '/api/notifications/clear-read'),
+  bulk: (c: Caller, ids: string[], action: T.NotificationBulkAction) =>
+    post<T.NotificationWriteResponse>(c, '/api/notifications/bulk', { ids, action }),
 };
 
 /* ── platform: tenants, directory, flags, revenue ───────────────────────── */

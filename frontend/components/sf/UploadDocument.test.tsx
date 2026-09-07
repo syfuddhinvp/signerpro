@@ -36,7 +36,7 @@ function mount(props: React.ComponentProps<typeof UploadDocument> = {}) {
 
 const toast = () => screen.getByTestId('toast').textContent;
 
-const picker = () => screen.getByLabelText('Choose a PDF to upload') as HTMLInputElement;
+const picker = () => screen.getByLabelText('Choose a file to upload') as HTMLInputElement;
 const pick = (file: File) => fireEvent.change(picker(), { target: { files: [file] } });
 
 /** `{ ok: true, data }` in the shape `ApiResult` uses. */

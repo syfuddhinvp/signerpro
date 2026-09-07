@@ -49,7 +49,7 @@ def _promote(client: TestClient, headers: dict[str, str]) -> None:
 
 def _platform_and_tenant(client: TestClient) -> tuple[dict[str, str], dict[str, str], str]:
     """A platform admin plus an unrelated tenant admin, with the tenant's org id."""
-    platform = _register(client, org="SignForge", email="ops@signforge.com", name="Jordan Mehta")
+    platform = _register(client, org="SignerPro", email="ops@signforge.com", name="Jordan Mehta")
     _promote(client, platform)
     tenant = _register(client, org="Acme Realty", email="priya@acme.io", name="Priya Rao")
     return platform, tenant, _me(client, tenant)["organization_id"]

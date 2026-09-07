@@ -29,7 +29,7 @@ import {
   toSeriesLabels,
 } from '@/lib/sf/adapters';
 
-export const metadata: Metadata = { title: 'Overview · SignForge' };
+export const metadata: Metadata = { title: 'Overview · SignerPro' };
 
 const OVERVIEW_RANGE = '90d';
 

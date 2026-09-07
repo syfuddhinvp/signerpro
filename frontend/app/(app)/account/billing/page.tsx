@@ -1,17 +1,20 @@
 import type { Metadata } from 'next';
 import Billing from '@/components/sf/screens/Billing';
+import Invoices from '@/components/sf/screens/Invoices';
 import { serverCaller } from '@/lib/api/client';
-import { billing as billingApi } from '@/lib/api/resources';
+import { billing as billingApi, organizations as organizationsApi } from '@/lib/api/resources';
+import { toInvoiceRows } from '@/lib/sf/adapters';
 import type {
   BillingSettingsResponse,
   ChargeResponse,
   PaymentMethodResponse,
+  InvoiceResponse,
   SubscriptionResponse,
   UpcomingInvoiceResponse,
 } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Billing & plan · Account · SignForge' };
+export const metadata: Metadata = { title: 'Billing & plan · Account · SignerPro' };
 
 /* A workspace that has never checked out still has to render the screen, so
    every call gets a shape-complete fallback rather than throwing. */
@@ -64,15 +67,26 @@ const FALLBACK_UPCOMING: UpcomingInvoiceResponse = {
   due_at: null,
 };
 
-export default async function Page() {
+/** The invoice list's four chips; anything else in the URL falls back to `all`. */
+const FILTERS = ['all', 'open', 'paid', 'past_due'];
+
+export default async function Page({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+  const { status } = await searchParams;
+  const filter = status && FILTERS.indexOf(status) > -1 ? status : 'all';
   const api = serverCaller('/account/billing');
 
-  const [subResult, settingsResult, pmResult, upcomingResult, chargesResult] = await Promise.all([
+  const [subResult, settingsResult, pmResult, upcomingResult, chargesResult, invoiceResult, orgResult] = await Promise.all([
     billingApi.subscription(api),
     billingApi.settings(api),
     billingApi.paymentMethods(api),
     billingApi.upcomingInvoice(api),
     billingApi.charges(api, { limit: 4 }),
+    /* `scope` is not on `invoices.list`'s param type, so the caller is used
+       directly rather than editing the shared resource module. */
+    api<InvoiceResponse[]>('/api/invoices', {
+      query: { status: filter === 'all' ? undefined : filter, scope: 'organization' },
+    }),
+    organizationsApi.me(api),
   ]);
 
   const paymentMethods: PaymentMethodResponse[] = pmResult.ok ? pmResult.data : [];
@@ -91,6 +105,17 @@ export default async function Page() {
         paymentMethods={paymentMethods}
         upcoming={upcomingResult.ok ? upcomingResult.data : FALLBACK_UPCOMING}
         charges={charges}
+      />
+      {!invoiceResult.ok ? (
+        <div style={{ padding: '22px 22px 0' }}>
+          <ApiUnavailable what="Your invoices" detail={invoiceResult.error.message} />
+        </div>
+      ) : null}
+      <Invoices
+        rows={toInvoiceRows(invoiceResult.ok ? invoiceResult.data : [])}
+        filter={filter}
+        platform={false}
+        scopeName={orgResult.ok ? orgResult.data.name : 'Your workspace'}
       />
     </>
   );

@@ -1,5 +1,5 @@
 'use client';
-/* SignForge app shell — one sidebar, top header, popovers, trial banner, ghost + toast.
+/* SignerPro app shell — one sidebar, top header, popovers, trial banner, ghost + toast.
 
    The navigation is a single tree: product areas at the top level, the current
    area's own rows nested under it. The prototype's dark icon rail beside a
@@ -14,8 +14,12 @@ import { useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import { type ScreenKey, SECTION_PARAM, accountSectionForPath, isDocumentScreen, sectionFor } from '@/lib/sf/routes';
 import { type NavContext, sidebarAreas } from '@/lib/sf/navigation';
+import Icon from '@/components/sf/Icon';
+import BrandMark from '@/components/sf/BrandMark';
+import NotificationBell from '@/components/sf/parts/NotificationBell';
 import { useSession, signOut as endSession } from '@/components/sf/SessionProvider';
-import { TOUR } from '@/lib/sf/data';
+import { tourSteps } from '@/lib/sf/data';
+import type { NotificationFeed } from '@/lib/api/types';
 import { btn, railHead, TITLES, BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
 
 /** Where the fold preference is remembered. Per browser, per device — it is a
@@ -36,11 +40,14 @@ export type ShellData = {
   invoiceCount: number | null;
   logCount: number | null;
   openTicketCount: number | null;
+  /** First paint of the header bell. `null` means the feed call failed —
+   *  the bell still renders, with no badge. */
+  notifications: NotificationFeed | null;
 };
 
 const EMPTY_SHELL_DATA: ShellData = {
   quick: null, folders: null, userFolders: [], quota: null,
-  invoiceCount: null, logCount: null, openTicketCount: null,
+  invoiceCount: null, logCount: null, openTicketCount: null, notifications: null,
 };
 
 export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?: React.ReactNode; data?: ShellData }) {
@@ -58,7 +65,6 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   /* The workspace name is the caller's real organization. It was hardcoded to
      "Acme Corporation", so every tenant saw Acme as its own workspace. */
   const orgName = session.organizationName;
-  const orgChip = initials(orgName || '—');
 
   /* ── the navigation model ──────────────────────────────────────────────
      Rail and sidebar both come out of `lib/sf/navigation.ts`. Everything the
@@ -73,6 +79,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
     workspace: isPlat ? 'platform' : 'tenant',
     area: areaActive,
     screen,
+    role: userRole,
     section,
     folder,
     documentId: nav.documentId,
@@ -84,6 +91,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
       invoices: data.invoiceCount,
       logs: data.logCount,
       tickets: data.openTicketCount,
+      notifications: data.notifications ? data.notifications.unread : null,
     },
     folders: data.userFolders,
   };
@@ -95,16 +103,32 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
      disagree, and React would throw away the whole tree to reconcile it. So
      the first paint is always the expanded sidebar, and a stored fold applies
      on the effect that follows. */
-  const [folded, setFolded] = useState(false);
+  const [preferFolded, setPreferFolded] = useState(false);
   useEffect(() => {
-    try { setFolded(window.localStorage.getItem(FOLD_KEY) === '1'); } catch { /* private mode, blocked storage */ }
+    try { setPreferFolded(window.localStorage.getItem(FOLD_KEY) === '1'); } catch { /* private mode, blocked storage */ }
   }, []);
+
+  /* The builder needs the width: the page it lays fields onto is the work, and
+     252px of navigation beside it is 252px the page does not get. So opening
+     the builder folds the sidebar for as long as you are in it, and leaving
+     restores whatever you had before — the stored preference is never touched
+     by the automatic fold, only by the button. `override` is that temporary
+     state: `null` means "just use the preference". */
+  const [override, setOverride] = useState<boolean | null>(null);
+  const onBuilder = screen === 'builder';
+  useEffect(() => {
+    setOverride(onBuilder ? true : null);
+  }, [onBuilder]);
+  const folded = override ?? preferFolded;
+
+  /* On the builder the button moves the temporary state, so an unfold there is
+     for this visit only and does not rewrite a preference set elsewhere. */
   const toggleFold = () => {
-    setFolded(prev => {
-      const next = !prev;
-      try { window.localStorage.setItem(FOLD_KEY, next ? '1' : '0'); } catch { /* nothing to do */ }
-      return next;
-    });
+    const next = !folded;
+    if (onBuilder) { setOverride(next); return; }
+    setOverride(null);
+    setPreferFolded(next);
+    try { window.localStorage.setItem(FOLD_KEY, next ? '1' : '0'); } catch { /* nothing to do */ }
   };
 
   const areas = sidebarAreas(navCtx).map(area => ({
@@ -119,8 +143,9 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
       position:'relative',
     } as CSSProperties,
     glyph: {
-      width:'22px', height:'22px', borderRadius:'7px', display:'grid', placeItems:'center', fontSize:'.75rem', flex:'0 0 22px',
+      width:'26px', height:'26px', borderRadius:'8px', display:'grid', placeItems:'center', flex:'0 0 26px',
       background: area.active ? A : '#f1f3f7', color: area.active ? '#fff' : '#64748b',
+      boxShadow: area.active ? '0 1px 2px rgba(79,70,229,.35)' : 'none', transition:'background .12s ease, color .12s ease',
     } as CSSProperties,
     /* Folded, the count has no room beside the label, so it becomes a small
        marker on the corner of the glyph — still visible, still countable. */
@@ -133,7 +158,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
    *  which differs folded and unfolded. */
   const areaCountBase: CSSProperties = {
     borderRadius:'99px', background:'#f43f5e', color:'#fff', fontSize:'.625rem', fontWeight:700,
-    display:'grid', placeItems:'center', fontFamily:"'Inter', 'Google Sans Flex', sans-serif",
+    display:'grid', placeItems:'center', fontFamily:'var(--font-sans)',
   };
 
   /** One row style for every row in the tree, whichever group it is in — the
@@ -150,7 +175,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
     width: tone ? '8px' : '7px', height: tone ? '8px' : '7px', borderRadius:'99px',
     background: tone || (active ? A : BORDER_STRONG), flex:'0 0 auto',
   });
-  const rowCountStyle: CSSProperties = { marginLeft:'auto', fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
+  const rowCountStyle: CSSProperties = { marginLeft:'auto', fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' };
   /** The expanded area's children, indented under it against a guide rule. */
   const childrenStyle: CSSProperties = {
     display:'flex', flexDirection:'column', gap:'10px',
@@ -170,15 +195,17 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   const quotaWidth = (quota ? Math.max(0, Math.min(100, quota.pct)) : 0) + '%';
 
   /* ── help / org menu ──
-     There is no notification-feed endpoint, so there is no notification tray.
+     The bell beside this lives in `parts/NotificationBell.tsx` and reads
+     `GET /api/notifications`, whose rows are produced from the audit trail.
      The prototype's tray hardcoded five alerts — a signature, an invoice due
-     date, a failed payment and an escalation — none of which were real. */
+     date, a failed payment and an escalation — none of which were real; this
+     one can only say what the trail also recorded. */
   const helpItems = ([
     ['Start product tour', 'tour'], ['Support centre', 'support'], ['Contact support', 'support'],
     ['Guides & docs', 'guides'], ['API console', 'sandbox']
   ] as [string, string | null][]).map(([label, target]) => ({ label,
     onClick: () => {
-      if (target === 'tour') { const st0 = TOUR[0]; set({ tourStep: 0, helpOpen: false }); go(st0.screen as ScreenKey, { workspace: st0.ws }); return; }
+      if (target === 'tour') { const st0 = tourSteps(session.isPlatformAdmin === true, session.role)[0]; set({ tourStep: 0, helpOpen: false }); go(st0.screen as ScreenKey, { workspace: st0.ws }); return; }
       set({ helpOpen: false });
       if (target) go(target as ScreenKey);
     },
@@ -189,29 +216,28 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   const pageTitle = titles[screen] ? titles[screen][0] : '';
   const pageSub = titles[screen] ? titles[screen][1] : '';
 
-  const logoStyle: CSSProperties = { width:'30px', height:'30px', borderRadius:'9px', background: A, color:'#fff', display:'grid', placeItems:'center', fontSize:'.75rem', fontWeight:700, letterSpacing:'-.5px' };
   const openBuilderBtn: CSSProperties = Object.assign({}, btn('#fff', '#475569', '#e3e7ee'), { display: s.wide ? 'inline-flex' : 'none' });
   const primaryBtn: CSSProperties = btn(A, '#fff', A);
   const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
-  const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
-  const orgRowStyle: CSSProperties = { display:'flex', alignItems:'center', gap:'8px', width:'100%', padding:'7px 8px', borderRadius:'9px', border:'1px solid #e3e7ee', background:'#fbfcfd' };
-  const orgChipStyle: CSSProperties = { width:'22px', height:'22px', borderRadius:'7px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'.5625rem', fontWeight:700, flex:'0 0 22px' };
+  const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', display:'grid', placeItems:'center', padding:0, lineHeight:1 };
   const helpStyle: CSSProperties = { width:'32px', height:'32px', borderRadius:'9px', border:'1px solid #e3e7ee', background: s.helpOpen ? '#eef2ff' : '#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem' };
   const wsTenantStyle: CSSProperties = { flex:'1', height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: isPlat ? 500 : 600,
     background: isPlat ? 'transparent' : '#fff', color: isPlat ? '#64748b' : '#0f172a', boxShadow: isPlat ? 'none' : '0 1px 2px rgba(15,23,42,.12)' };
   const wsPlatformStyle: CSSProperties = { flex:'1', height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: isPlat ? 600 : 500,
     background: isPlat ? '#fff' : 'transparent', color: isPlat ? '#92400e' : '#64748b', boxShadow: isPlat ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
-  const wsScopeLabel = isPlat ? 'Super admin · all tenants' : 'Organization scope';
+  // Identity line under the signed-in user: which tenant (or the whole
+  // platform) the session is currently acting on.
+  const accountScope = isPlat ? 'Super admin · all tenants' : (orgName || '—');
 
   /* ── embedded-session bar ── */
   const embed = s.embedSession;
   const hasEmbed = !!embed;
   const embedBarStyle: CSSProperties = { flex:'0 0 auto', display:'flex', alignItems:'center', gap:'12px', padding:'9px 22px', background:'#eef2ff', borderBottom:'1px solid #c7d2fe' };
-  const embedChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background: A, color:'#fff', fontSize:'.625rem', fontWeight:700, letterSpacing:'.06em', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto' };
+  const embedChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background: A, color:'#fff', fontSize:'.625rem', fontWeight:700, letterSpacing:'.06em', fontFamily:'var(--font-sans)', flex:'0 0 auto' };
   const embedTitle = embed ? embed.title : '';
   const embedMeta = embed ? embed.host + ' · session ' + embed.id + ' · external_id ' + embed.externalId : '';
   const embedContacts = embed ? embed.contacts.join(' · ') : '';
-  const embedContactsChip: CSSProperties = { padding:'4px 9px', borderRadius:'99px', background:'#fff', border:'1px solid #c7d2fe', fontSize:'.65625rem', color:'#3730a3', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", whiteSpace:'nowrap', flex:'0 0 auto' };
+  const embedContactsChip: CSSProperties = { padding:'4px 9px', borderRadius:'99px', background:'#fff', border:'1px solid #c7d2fe', fontSize:'.65625rem', color:'#3730a3', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', flex:'0 0 auto' };
 
   /* ── ghost + toast ── */
   const gt = s.dragTool ? sf.meta(s.dragTool) : null;
@@ -235,46 +261,53 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   const embedEnd = () => set({ embedSession: null });
 
   return (
-    <div style={{ display:'flex', height:'100vh', width:'100%', overflow:'hidden', fontFamily:"'Google Sans Flex', 'Helvetica Neue', Arial, sans-serif", color:'#0f172a', background:'#f5f6f8', WebkitFontSmoothing:'antialiased' } as CSSProperties}>
+    <div style={{ display:'flex', height:'100vh', width:'100%', overflow:'hidden', fontFamily:'var(--font-sans)', color:'#0f172a', background:'#f5f6f8', WebkitFontSmoothing:'antialiased' } as CSSProperties}>
 
       <aside
         data-tour="sidebar"
-        data-sf-scroll="1"
         data-folded={folded ? '1' : '0'}
-        style={{ width: folded ? '62px' : '252px', flex: folded ? '0 0 62px' : '0 0 252px', background:'#fff', borderRight:'1px solid #e3e7ee', display:'flex', flexDirection:'column', gap:'14px', padding: folded ? '14px 9px' : '14px', overflowY:'auto', overflowX:'hidden', minHeight:0, transition:'width .16s ease, flex-basis .16s ease' }}
+        style={{ width: folded ? '62px' : '252px', flex: folded ? '0 0 62px' : '0 0 252px', background:'#fff', borderRight:'1px solid #e3e7ee', display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0, transition:'width .16s ease, flex-basis .16s ease' }}
       >
 
-        <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
-          <div style={{ display:'flex', flexDirection: folded ? 'column' : 'row', alignItems:'center', gap:'9px' }}>
-            <span style={logoStyle}>SF</span>
-            {folded ? null : <span style={{ fontSize:'.875rem', fontWeight:700, letterSpacing:'-.3px' }}>SignForge</span>}
+        {/* Brand rail: its own band, the same height as the header next to it so
+            the two bottom borders read as one line across the top of the app. */}
+        <div style={{ height:'60px', flex:'0 0 60px', borderBottom:'1px solid #e3e7ee', display:'flex', flexDirection:'row', alignItems:'center', justifyContent: folded ? 'center' : 'flex-start', gap:'9px', padding: folded ? '0 9px' : '0 14px' }}>
+          <BrandMark size={30} accent={A} radius={9} />
+          {folded ? null : <span style={{ fontSize:'.8125rem', fontWeight:700, letterSpacing:'-.3px' }}>SignerPro</span>}
+          {folded ? null : (
             <button
               type="button"
               onClick={toggleFold}
-              aria-label={folded ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-expanded={!folded}
-              title={folded ? 'Expand sidebar' : 'Collapse sidebar'}
-              style={{ ...iconBtn, marginLeft: folded ? '0' : 'auto', flex:'0 0 28px' }}
-            >{folded ? '»' : '«'}</button>
-          </div>
-          {folded ? null : (
-            <>
-              <div data-tour="workspace" style={{ display:'flex', gap:'3px', background:'#f1f3f7', padding:'3px', borderRadius:'9px' }}>
-                <button type="button" onClick={setTenantWs} style={wsTenantStyle}>Tenant</button>
-                {session.isPlatformAdmin ? (
-                  <button type="button" onClick={setPlatformWs} style={wsPlatformStyle}>Platform</button>
-                ) : null}
-              </div>
-              <div style={orgRowStyle}>
-                <span style={orgChipStyle}>{orgChip}</span>
-                <span style={{ display:'flex', flexDirection:'column', minWidth:0, lineHeight:1.2, textAlign:'left' }}>
-                  <span style={{ fontSize:'.75rem', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{orgName}</span>
-                  <span style={{ fontSize:'.625rem', color:TEXT_MUTED }}>{wsScopeLabel}</span>
-                </span>
-              </div>
-            </>
+              aria-label="Collapse sidebar"
+              aria-expanded={true}
+              title="Collapse sidebar"
+              style={{ ...iconBtn, marginLeft:'auto', flex:'0 0 28px' }}
+            ><Icon name="chevronLeft" size={14} /></button>
           )}
         </div>
+
+        <div
+          data-sf-scroll="1"
+          style={{ flex:'1 1 auto', display:'flex', flexDirection:'column', gap:'14px', padding: folded ? '14px 9px' : '14px', overflowY:'auto', overflowX:'hidden', minHeight:0 }}
+        >
+
+        {folded ? (
+          <button
+            type="button"
+            onClick={toggleFold}
+            aria-label="Expand sidebar"
+            aria-expanded={false}
+            title="Expand sidebar"
+            style={{ ...iconBtn, alignSelf:'center', flex:'0 0 28px' }}
+          ><Icon name="chevronRight" size={14} /></button>
+        ) : (
+          session.isPlatformAdmin ? (
+            <div data-tour="workspace" style={{ display:'flex', gap:'3px', background:'#f1f3f7', padding:'3px', borderRadius:'9px' }}>
+              <button type="button" onClick={setTenantWs} style={wsTenantStyle}>Tenant</button>
+              <button type="button" onClick={setPlatformWs} style={wsPlatformStyle}>Platform</button>
+            </div>
+          ) : null
+        )}
 
         <nav data-tour="areas" data-sf-nav="1" aria-label="Sections" style={{ display:'flex', flexDirection:'column', gap:'1px' }}>
           {areas.map(area => (
@@ -287,7 +320,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
                 title={folded ? area.item.label : undefined}
                 style={area.style}
               >
-                <span style={area.glyph}>{area.item.icon}</span>
+                <span style={area.glyph}><Icon name={area.item.icon} /></span>
                 {folded ? null : (
                   <span style={{ flex:'1 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{area.item.label}</span>
                 )}
@@ -316,7 +349,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
         <div style={{ marginTop:'auto', display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid #eef1f6', paddingTop:'12px', alignItems: folded ? 'center' : 'stretch' }}>
           {folded ? null : (
           <div style={{ border:'1px solid #eef1f6', borderRadius:'11px', padding:'11px', background:'#fbfcfd' }}>
-            <div style={{ fontSize:'.625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", letterSpacing:'.04em' }}>ENVELOPE QUOTA</div>
+            <div style={{ fontSize:'.625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)', letterSpacing:'.04em' }}>ENVELOPE QUOTA</div>
             <div style={{ display:'flex', alignItems:'baseline', gap:'6px', marginTop:'5px' }}>
               <span style={{ color:'#0f172a', fontSize:'1.0625rem', fontWeight:700 }}>{quotaUsed}</span>
               <span style={{ color:TEXT_MUTED, fontSize:'.6875rem' }}>{quotaLimit}</span>
@@ -327,15 +360,18 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
           </div>
           )}
           <div style={{ display:'flex', alignItems:'center', gap:'9px', flexDirection: folded ? 'column' : 'row' }}>
-            <span title={folded ? userName + ' · ' + userRole : undefined} style={{ width:'26px', height:'26px', borderRadius:'99px', background:'#eef1f6', color:'#475569', display:'grid', placeItems:'center', fontSize:'.625rem', fontWeight:700, flex:'0 0 26px' }}>{initials(userName)}</span>
+            <span title={folded ? userName + ' · ' + accountScope + ' · ' + userRole : undefined} style={{ width:'26px', height:'26px', borderRadius:'99px', background:'#eef1f6', color:'#475569', display:'grid', placeItems:'center', fontSize:'.625rem', fontWeight:700, flex:'0 0 26px' }}>{initials(userName)}</span>
             {folded ? null : (
             <div style={{ display:'flex', flexDirection:'column', lineHeight:1.25, minWidth:0 }}>
               <span style={{ color:'#0f172a', fontSize:'.75rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{userName}</span>
+              <span title={accountScope} style={{ color:'#475569', fontSize:'.6875rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{accountScope}</span>
               <span style={{ color:TEXT_MUTED, fontSize:'.65625rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{userRole}</span>
             </div>
             )}
-            <button type="button" onClick={signOut} aria-label="Sign out" title="Sign out" style={{ ...iconBtn, marginLeft: folded ? '0' : 'auto', flex:'0 0 28px' }}>⏎</button>
+            <button type="button" onClick={signOut} aria-label="Sign out" title="Sign out" style={{ ...iconBtn, marginLeft: folded ? '0' : 'auto', flex:'0 0 28px' }}><Icon name="signOut" size={14} /></button>
           </div>
+        </div>
+
         </div>
       </aside>
 
@@ -360,6 +396,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
                 <button type="button" onClick={openSend} style={primaryBtn}>Send for signature</button>
               </>
             ) : null}
+            <NotificationBell initial={data.notifications ?? undefined} />
             <div style={{ position:'relative', display:'flex', gap:'6px', alignItems:'center' }}>
               <button type="button" aria-label="Help" aria-expanded={s.helpOpen} onClick={toggleHelp} style={helpStyle}>?</button>
               {s.helpOpen ? (
@@ -383,7 +420,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
             <div style={{ display:'flex', gap:'6px', marginLeft:'auto', flex:'0 0 auto', alignItems:'center' }}>
               <span style={embedContactsChip}>{embedContacts}</span>
               <button type="button" onClick={embedReturn} style={ghostBtn}>Return to host app</button>
-              <button type="button" onClick={embedEnd} style={iconBtn}>✕</button>
+              <button type="button" onClick={embedEnd} aria-label="Dismiss session bar" style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
           </div>
         ) : null}

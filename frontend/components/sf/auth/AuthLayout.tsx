@@ -10,6 +10,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import Link from 'next/link';
 import { useSF } from '@/lib/sf/state';
+import BrandMark from '@/components/sf/BrandMark';
 import { AUTH_TABS, AUTH_TITLES } from '@/lib/sf/data';
 import { AUTH_PATHS } from '@/lib/sf/routes';
 import { TEXT_MUTED, TEXT_MUTED_ON_DARK } from '@/lib/sf/ui';
@@ -32,8 +33,8 @@ export function authErrorMessage(code: string | undefined, error?: string): stri
     case 'gone': return 'That link has expired or has already been used.';
     case 'conflict': return 'An account with that email already exists.';
     case 'rate_limited': return 'Too many attempts. Please wait a moment and try again.';
-    case 'backend_unreachable': return 'Cannot reach the SignForge API. Please try again in a moment.';
-    case 'backend_error': return 'The SignForge API returned an unexpected error.';
+    case 'backend_unreachable': return 'Cannot reach the SignerPro API. Please try again in a moment.';
+    case 'backend_error': return 'The SignerPro API returned an unexpected error.';
     default: return 'Something went wrong. Please try again.';
   }
 }
@@ -46,7 +47,7 @@ export const authErrorStyle: CSSProperties = {
 
 const AUTH_PROOF = [
   { label: 'Tamper-evident by default', meta: 'SHA-256 sealing, RFC 3161 timestamps and hourly ledger anchoring' },
-  { label: 'Prepare in minutes', meta: 'Drag-and-drop fields, conditional logic and merge tags' },
+  { label: 'Prepare in minutes', meta: 'Drag-and-drop fields, conditional logic and reusable templates' },
   { label: 'Route any way you work', meta: 'Sequential, parallel, approvers and in-person signing' },
   { label: 'Audit-ready evidence', meta: 'IP, geolocation, user agent and per-field checksums' },
 ];
@@ -55,7 +56,7 @@ const AUTH_CERTS = ['SOC 2 Type II', 'ISO 27001', 'HIPAA', '21 CFR Part 11', 'eI
 
 const certStyle: CSSProperties = {
   padding: '5px 10px', borderRadius: '99px', border: '1px solid #1e293b', background: '#111c33',
-  color: TEXT_MUTED_ON_DARK, fontSize: '.65625rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif",
+  color: TEXT_MUTED_ON_DARK, fontSize: '.65625rem', fontFamily: 'var(--font-sans)',
 };
 
 const TAB_PATH: Record<string, string> = { signin: AUTH_PATHS.signin, signup: AUTH_PATHS.signup };
@@ -74,11 +75,6 @@ export default function AuthLayout({
 }) {
   const { accent } = useSF();
   const A = accent();
-
-  const logoStyle: CSSProperties = {
-    width: '30px', height: '30px', borderRadius: '9px', background: A, color: '#fff',
-    display: 'grid', placeItems: 'center', fontSize: '.75rem', fontWeight: 700, letterSpacing: '-.5px',
-  };
 
   const linkBtnStyle: CSSProperties = {
     background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '.75rem', color: A, fontWeight: 500,
@@ -118,7 +114,7 @@ export default function AuthLayout({
   }));
 
   const authHint = mode === 'signup' ? 'No card required' : 'Protected by multi-factor authentication';
-  const authSwitchLabel = mode === 'signup' ? 'Already have an account? Sign in' : 'New to SignForge? Create an account';
+  const authSwitchLabel = mode === 'signup' ? 'Already have an account? Sign in' : 'New to SignerPro? Create an account';
   const authSwitchHref = mode === 'signup' ? AUTH_PATHS.signin : AUTH_PATHS.signup;
 
   return (
@@ -126,10 +122,10 @@ export default function AuthLayout({
 
       <div style={{ background: '#0f172a', padding: '44px 42px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '28px', overflow: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
-          <div style={logoStyle}>SF</div>
+          <BrandMark size={30} accent={A} radius={9} />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-            <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1rem', letterSpacing: '-.2px' }}>SignForge</span>
-            <span style={{ color: TEXT_MUTED_ON_DARK, fontSize: '.6875rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>ENTERPRISE E-SIGNATURE</span>
+            <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: '.875rem', letterSpacing: '-.2px' }}>SignerPro</span>
+            <span style={{ color: TEXT_MUTED_ON_DARK, fontSize: '.625rem', fontFamily: 'var(--font-sans)' }}>ENTERPRISE E-SIGNATURE</span>
           </div>
         </div>
 
@@ -179,7 +175,7 @@ export default function AuthLayout({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ height: '1px', flex: 1, background: '#e3e7ee' }}></span>
-                  <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>OR</span>
+                  <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>OR</span>
                   <span style={{ height: '1px', flex: 1, background: '#e3e7ee' }}></span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
@@ -187,7 +183,7 @@ export default function AuthLayout({
                     <button key={o.label} type="button" disabled aria-disabled="true" title="Not available yet" style={o.style}>{o.label}</button>
                   ))}
                 </div>
-                <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, textAlign: 'center', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
+                <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, textAlign: 'center', fontFamily: 'var(--font-sans)' }}>
                   Single sign-on and passkeys are not available yet.
                 </span>
               </div>
@@ -195,7 +191,7 @@ export default function AuthLayout({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '0 4px' }}>
-            <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{authHint}</span>
+            <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>{authHint}</span>
             <Link href={authSwitchHref} style={linkBtnStyle}>{authSwitchLabel}</Link>
           </div>
         </div>

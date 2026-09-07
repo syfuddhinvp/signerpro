@@ -42,7 +42,16 @@ honest and costs nothing. Building evaluation is a real feature (2–3 days) tha
 asked for.
 **How to apply.** If evaluation is built later, it is built as a new capability behind the existing
 type, not as a migration of the type.
-**Reversed by.** A named customer requirement.
+**Amended 7 September 2026 — the type is removed, by owner decision.** W10 built evaluation, so the
+"don't remove it" half of D2 had already been superseded once. It is now withdrawn the other way:
+the owner asked for merge tags to go, and a `formula` field exists only to reference other fields by
+merge tag, so the type went with them (`c7a5b2d94f70`). The C1 concern D2 raised is answered rather
+than ignored — the migration rewrites existing `formula` rows to `text` and clears their options, so
+no row renders as a Signature and no value is stamped as though it were still derived. PostgreSQL
+cannot drop an ENUM member, so `fieldtype` keeps an unused `formula` value; nothing writes it.
+`currency` is untouched and still parses amounts, now via `currency_service`.
+**Reversed by.** A named customer requirement for calculated fields — which would be a fresh build,
+not a revert.
 
 ### D3 — Defer SSO/SAML, WebAuthn, and PAdES until a paying enterprise account requires one.
 **Decision.** These stay unbuilt and undisclosed-as-coming. The fake buttons are already gone; that

@@ -48,7 +48,7 @@ export default function Revenue({
 
   const revenueStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
-    metaStyle: { fontSize:'.6875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: x.good ? '#047857' : '#c2410c' } as CSSProperties,
+    metaStyle: { fontSize:'.6875rem', fontFamily:'var(--font-sans)', color: x.good ? '#047857' : '#c2410c' } as CSSProperties,
   }));
 
   const planBars = subsByPlan.map(p => ({
@@ -58,7 +58,7 @@ export default function Revenue({
 
   const churn = churnRows.map(r => ({
     k: r.k, v: r.v,
-    style: { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontWeight:600, color: r.tone === 'good' ? '#047857' : '#c2410c' } as CSSProperties,
+    style: { fontFamily:'var(--font-sans)', fontWeight:600, color: r.tone === 'good' ? '#047857' : '#c2410c' } as CSSProperties,
   }));
 
   const replayEvent = (row: BillingEventRow) => {
@@ -102,7 +102,7 @@ export default function Revenue({
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0,1fr))', gap:'12px' }}>
         {revenueStats.map(st => (
           <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'15px 16px', display:'flex', flexDirection:'column', gap:'7px' }}>
-            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{st.label}</span>
+            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{st.label}</span>
             <span style={{ fontSize:'1.5rem', fontWeight:700, letterSpacing:'-.8px' }}>{st.value}</span>
             <span style={st.metaStyle}>{st.meta}</span>
           </div>
@@ -118,7 +118,7 @@ export default function Revenue({
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'11px' }}>
             {balanceTiles.map(b => (
               <div key={b.label} style={{ border:'1px solid #eef1f6', borderRadius:'12px', padding:'12px', background:'#fbfcfd', display:'flex', flexDirection:'column', gap:'4px' }}>
-                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{b.label}</span>
+                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{b.label}</span>
                 <span style={{ fontSize:'1.125rem', fontWeight:700, letterSpacing:'-.4px' }}>{b.value}</span>
                 <span style={{ fontSize:'.65625rem', color:'#64748b' }}>{b.meta}</span>
               </div>
@@ -135,7 +135,7 @@ export default function Revenue({
             <div key={p.name} style={{ display:'flex', alignItems:'center', gap:'11px' }}>
               <span style={{ width:'88px', fontSize:'.78125rem', color:'#334155', flex:'0 0 88px' }}>{p.name}</span>
               <div style={{ flex:1, height:'8px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={p.bar}></div></div>
-              <span style={{ width:'118px', textAlign:'right', fontSize:'.71875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#475569', flex:'0 0 118px' }}>{p.meta}</span>
+              <span style={{ width:'118px', textAlign:'right', fontSize:'.71875rem', fontFamily:'var(--font-sans)', color:'#475569', flex:'0 0 118px' }}>{p.meta}</span>
             </div>
           )) : (<span style={emptyNote}>No subscriptions yet.</span>)}
           <div style={{ borderTop:'1px solid #f2f4f8', paddingTop:'11px', display:'flex', flexDirection:'column', gap:'7px' }}>
@@ -151,14 +151,14 @@ export default function Revenue({
       <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
         <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }}>
           <div style={railHead}>{payoutDestination} webhook events</div>
-          <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{events.length} events · {deliveredPct} delivered</span>
+          <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{events.length} events · {deliveredPct} delivered</span>
         </div>
         {webhooks.length ? webhooks.map(w => (
           <div key={w.id} style={w.rowStyle}>
             <span style={w.pill}>{w.status}</span>
-            <span style={{ fontSize:'.75rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#0f172a', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{w.type}</span>
-            <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto' }}>{w.ref}</span>
-            <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto' }}>{w.ts}</span>
+            <span style={{ fontSize:'.75rem', fontFamily:'var(--font-sans)', color:'#0f172a', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{w.type}</span>
+            <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{w.ref}</span>
+            <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{w.ts}</span>
             <button type="button" onClick={w.onReplay} style={ghostBtn}>{w.label}</button>
           </div>
         )) : (

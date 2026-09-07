@@ -14,7 +14,7 @@ import { serverCaller } from '@/lib/api/client';
 import { documents as documentsApi } from '@/lib/api/resources';
 import { documentPathFor, SCREEN_PATH } from '@/lib/sf/routes';
 
-export const metadata: Metadata = { title: 'Audit trail · SignForge' };
+export const metadata: Metadata = { title: 'Audit trail · SignerPro' };
 
 type SearchParams = Record<string, string | string[] | undefined>;
 

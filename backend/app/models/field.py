@@ -38,7 +38,6 @@ class Field(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     validation_pattern: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # {"field_id": ..., "op": "checked"|"equals"|"notEmpty", "value": ...}
     condition: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    merge_tag: Mapped[str | None] = mapped_column(String(120), nullable=True)
     read_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
 
     document: Mapped["Document"] = relationship(back_populates="fields")

@@ -126,7 +126,7 @@ describe('failure modes are told apart', () => {
 
     await enterCode();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/cannot reach the signforge api/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/cannot reach the signerpro api/i);
   });
 });
 

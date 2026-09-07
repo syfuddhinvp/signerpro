@@ -24,6 +24,7 @@ import {
   folders as foldersApi,
   invoices as invoicesApi,
   logs as logsApi,
+  notifications as notificationsApi,
   support as supportApi,
 } from '@/lib/api/resources';
 import type { FolderResponse, FolderTreeResponse } from '@/lib/api/types';
@@ -32,6 +33,8 @@ import type { FolderResponse, FolderTreeResponse } from '@/lib/api/types';
 const ENVELOPE_USAGE_KEY = 'max_documents_per_month';
 /** Same retention window the logs screen queries, so the badge matches it. */
 const LOG_SINCE_DAYS = 90;
+/** How many rows the bell shows before "see all" would be the answer. */
+const NOTIFICATION_PAGE = 20;
 
 /** The folder tree, depth-first, with the path in the label so nested folders
  *  stay tellable apart in a flat sidebar list. */
@@ -55,7 +58,7 @@ async function loadShellData(): Promise<ShellData> {
      own `serverCaller` still redirects to /login with the right `next`. */
   const api = serverCallerSoft();
 
-  const [countsResult, foldersResult, usageResult, invoicesResult, logsResult, ticketsResult] =
+  const [countsResult, foldersResult, usageResult, invoicesResult, logsResult, ticketsResult, notificationsResult] =
     await Promise.all([
       documentsApi.counts(api),
       foldersApi.tree(api),
@@ -63,6 +66,9 @@ async function loadShellData(): Promise<ShellData> {
       invoicesApi.list(api, { scope: 'organization' }),
       logsApi.tenant(api, { since_days: LOG_SINCE_DAYS, limit: 1 }),
       supportApi.ticketPage(api, { limit: 1 }),
+      /* The bell's first paint, so the badge is correct in server HTML rather
+         than appearing a beat after hydration. */
+      notificationsApi.list(api, { limit: NOTIFICATION_PAGE }),
     ]);
 
   const counts = countsResult.ok ? countsResult.data : null;
@@ -104,6 +110,7 @@ async function loadShellData(): Promise<ShellData> {
     openTicketCount: ticketCounts
       ? ticketCounts.open + ticketCounts.pending + ticketCounts.escalated
       : null,
+    notifications: notificationsResult.ok ? notificationsResult.data : null,
   };
 }
 

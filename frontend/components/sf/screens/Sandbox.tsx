@@ -41,9 +41,9 @@ export default function Sandbox() {
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
-  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.71875rem' });
+  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:'var(--font-sans)', fontSize:'.71875rem' });
   const codeArea: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'10px', padding:'10px 11px', fontSize:'.71875rem', lineHeight:1.7,
-    fontFamily:"'Inter', 'Google Sans Flex', sans-serif", resize:'vertical', outline:'none', width:'100%', color:'#0f172a', background:'#fbfcfd' };
+    fontFamily:'var(--font-sans)', resize:'vertical', outline:'none', width:'100%', color:'#0f172a', background:'#fbfcfd' };
 
   /* The request the Send button will actually issue — the snippets are generated
      from exactly these values, so what a developer copies is what just ran. */
@@ -59,10 +59,10 @@ export default function Sandbox() {
   const sbFullPath = sbPath + sbQueryString;
   const sbBodyLine = String(st.sbBody).replace(/\n\s*/g, ' ');
   const sbSnippets: Record<string, string> = {
-    curl: 'curl -X ' + st.sbMethod + ' "https://api.signforge.com' + sbFullPath + '" \\\n  -H "Authorization: Bearer $SIGNFORGE_KEY" \\\n  -H "Content-Type: application/json"' + (st.sbMethod === 'GET' ? '' : " \\\n  -d '" + sbBodyLine + "'"),
-    node: 'const sf = new SignForge(process.env.SIGNFORGE_KEY);\nconst res = await sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nconsole.log(res);',
-    python: 'import signforge\n\nsf = signforge.Client(os.environ["SIGNFORGE_KEY"])\nres = sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', json=' + sbBodyLine) + ')\nprint(res)',
-    php: '$sf = new \\SignForge\\Client(getenv("SIGNFORGE_KEY"));\n$res = $sf->request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nprint_r($res);'
+    curl: 'curl -X ' + st.sbMethod + ' "https://api.signerpro.com' + sbFullPath + '" \\\n  -H "Authorization: Bearer $SIGNERPRO_KEY" \\\n  -H "Content-Type: application/json"' + (st.sbMethod === 'GET' ? '' : " \\\n  -d '" + sbBodyLine + "'"),
+    node: 'const sf = new SignerPro(process.env.SIGNERPRO_KEY);\nconst res = await sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nconsole.log(res);',
+    python: 'import signerpro\n\nsf = signerpro.Client(os.environ["SIGNERPRO_KEY"])\nres = sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', json=' + sbBodyLine) + ')\nprint(res)',
+    php: '$sf = new \\SignerPro\\Client(getenv("SIGNERPRO_KEY"));\n$res = $sf->request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nprint_r($res);'
   };
   const sbLangTabs = SB_LANG_TABS.map(([id, label]) => {
     const on = st.sbLang === id;
@@ -167,7 +167,7 @@ export default function Sandbox() {
               <option value="PATCH">PATCH</option>
               <option value="DELETE">DELETE</option>
             </select>
-            <select value={sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", background:'#fff', color:'#0f172a', outline:'none' }}>
+            <select value={sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', fontFamily:'var(--font-sans)', background:'#fff', color:'#0f172a', outline:'none' }}>
               {sbPathOptions.map(o => (<option key={o.id} value={o.id}>{o.label}</option>))}
             </select>
             <button type="button" onClick={sbSend} style={primaryBtn}>{sbSendLabel}</button>
@@ -217,7 +217,7 @@ export default function Sandbox() {
             {hasSbResponse ? (
               <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
                 <span style={sbStatusPill}>{sbStatus}</span>
-                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{sbLatency}</span>
+                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{sbLatency}</span>
               </div>
             ) : null}
           </div>
@@ -227,7 +227,7 @@ export default function Sandbox() {
               <div style={{ display:'flex', flexDirection:'column', gap:'5px', borderTop:'1px solid #f2f4f8', paddingTop:'10px' }}>
                 <span style={railHead}>Headers</span>
                 {sbHeaders.map(h => (
-                  <div key={h.k} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.6875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
+                  <div key={h.k} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.6875rem', fontFamily:'var(--font-sans)' }}>
                     <span style={{ color:'#64748b' }}>{h.k}</span><span style={{ color:'#0f172a', wordBreak:'break-all' }}>{h.v}</span>
                   </div>
                 ))}
@@ -247,7 +247,7 @@ export default function Sandbox() {
           {sbHistory.map((h: any) => (
             <button key={h.key} type="button" onClick={h.onClick} style={h.style}>
               <span style={h.pill}>{h.label}</span>
-              <span style={{ marginLeft:'auto', fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{h.meta}</span>
+              <span style={{ marginLeft:'auto', fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{h.meta}</span>
             </button>
           ))}
           <span style={{ fontSize:'.71875rem', color:'#b91c1c', lineHeight:1.5 }}>These calls run against your live workspace with your own session. There is no test tenant, nothing is sandboxed, and writes are permanent.</span>

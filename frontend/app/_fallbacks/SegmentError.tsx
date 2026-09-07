@@ -1,10 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import {
-  fallbackBody, fallbackCard, fallbackCode, fallbackGhost, fallbackMark,
-  fallbackPage, fallbackPrimary, fallbackRow, fallbackTitle,
-} from '@/lib/sf/fallback';
+import { fallbackGhost, fallbackPage, fallbackPrimary } from '@/lib/sf/fallback';
+import FallbackHero from '@/components/sf/parts/FallbackHero';
 
 /**
  * Body of a segment `error.tsx`.
@@ -29,17 +27,18 @@ export default function SegmentError({
   homeLabel: string;
 }) {
   return (
-    <div style={{ ...fallbackPage, minHeight: '60vh', background: 'transparent' }}>
-      <div style={fallbackCard} role="alert">
-        <div style={fallbackMark}>SF</div>
-        <h1 style={fallbackTitle}>{title}</h1>
-        <p style={fallbackBody}>{body}</p>
-        {error.digest ? <p style={fallbackCode}>Reference {error.digest}</p> : null}
-        <div style={fallbackRow}>
-          <button type="button" onClick={reset} style={fallbackPrimary}>Retry</button>
-          <Link href={homeHref} style={fallbackGhost}>{homeLabel}</Link>
-        </div>
-      </div>
+    <div style={{ ...fallbackPage, minHeight: '60vh', background: 'transparent' }} role="alert">
+      <FallbackHero
+        title={title}
+        body={body}
+        digest={error.digest}
+        actions={
+          <>
+            <button type="button" onClick={reset} style={fallbackPrimary}>Retry</button>
+            <Link href={homeHref} style={fallbackGhost}>{homeLabel}</Link>
+          </>
+        }
+      />
     </div>
   );
 }

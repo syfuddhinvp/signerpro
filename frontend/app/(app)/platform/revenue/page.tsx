@@ -22,7 +22,7 @@ import {
 } from '@/lib/sf/adapters';
 import type { BalanceResponse, ChurnResponse, RevenueSummary } from '@/lib/api/types';
 
-export const metadata: Metadata = { title: 'Revenue · SignForge Platform' };
+export const metadata: Metadata = { title: 'Revenue · SignerPro Platform' };
 
 const CHURN_RANGES = ['3m', '6m', '12m'];
 

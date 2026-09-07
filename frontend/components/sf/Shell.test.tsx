@@ -31,6 +31,15 @@ const DATA: ShellData = {
   userFolders: [{ id: 'team-legal', name: 'Legal', count: 7, scope: 'team' }],
   quota: { used: 40, limit: 500, pct: 8 },
   invoiceCount: 9, logCount: 120, openTicketCount: 2,
+  notifications: {
+    items: [
+      { id: 'n1', title: 'Recipient signed', detail: 'Buyer Seller Packet — buyer@example.com signed.', tone: 'good', screen: 'documents', target_id: 'd1', read_at: null, created_at: '2026-09-06T09:00:00Z' },
+      { id: 'n2', title: 'Document viewed', detail: 'Mutual NDA — opened by seller@example.com.', tone: 'info', screen: 'documents', target_id: 'd2', read_at: '2026-09-06T08:00:00Z', created_at: '2026-09-06T07:30:00Z' },
+    ],
+    unread: 1,
+    total: 2,
+    facets: { tones: { bad: 0, warn: 0, good: 1, info: 1 }, unread: 1, read: 1 },
+  },
 };
 
 function mount(pathname: string, query = '') {
@@ -133,7 +142,9 @@ describe('the expanded area', () => {
     mount('/documents');
     expect(rowLinks().some(([, h]) => h.includes('/prepare'))).toBe(false);
 
+    /* The builder opens folded, so unfold before reading the rows. */
     mount('/documents/doc-9/prepare');
+    fireEvent.click(screen.getByLabelText('Expand sidebar'));
     const hrefs = rowLinks().map(([, href]) => href);
     expect(hrefs).toContain('/documents/doc-9/workflow');
     expect(hrefs).toContain('/documents/doc-9/audit');
@@ -147,7 +158,7 @@ describe('the expanded area', () => {
 
 describe('folding', () => {
   it('starts expanded and collapses to an icon strip', () => {
-    mount('/documents/doc-9/prepare');
+    mount('/documents/doc-9/workflow');
     const aside = () => document.querySelector('aside') as HTMLElement;
     expect(aside().getAttribute('data-folded')).toBe('0');
     expect(rowLinks().length).toBeGreaterThan(0);
@@ -169,6 +180,32 @@ describe('folding', () => {
     expect((document.querySelector('aside') as HTMLElement).getAttribute('data-folded')).toBe('1');
     fireEvent.click(screen.getByLabelText('Expand sidebar'));
     expect(window.localStorage.getItem('sf.sidebar.folded')).toBe('0');
+  });
+
+  it('folds itself on the builder and restores what you had on the way out', () => {
+    const aside = () => document.querySelector('aside') as HTMLElement;
+    mount('/documents');
+    expect(aside().getAttribute('data-folded')).toBe('0');
+
+    /* The builder wants the width. */
+    mount('/documents/doc-9/prepare');
+    expect(aside().getAttribute('data-folded')).toBe('1');
+    /* And it did so without rewriting the preference. */
+    expect(window.localStorage.getItem('sf.sidebar.folded')).toBe(null);
+
+    mount('/documents');
+    expect(aside().getAttribute('data-folded')).toBe('0');
+  });
+
+  it('lets you unfold on the builder for that visit only', () => {
+    const aside = () => document.querySelector('aside') as HTMLElement;
+    mount('/documents/doc-9/prepare');
+    fireEvent.click(screen.getByLabelText('Expand sidebar'));
+    expect(aside().getAttribute('data-folded')).toBe('0');
+    expect(window.localStorage.getItem('sf.sidebar.folded')).toBe(null);
+
+    mount('/documents/doc-9/prepare');
+    expect(aside().getAttribute('data-folded')).toBe('1');
   });
 
   it('renders expanded when storage is unreadable', () => {

@@ -6,7 +6,7 @@ import { toQuickReplyPairs, toQueueTicketTiles } from '@/lib/sf/adapters';
 import type { TicketDetailResponse, TicketPage } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Support · SignForge Platform' };
+export const metadata: Metadata = { title: 'Support · SignerPro Platform' };
 
 const EMPTY_PAGE: TicketPage = { items: [], total: 0, counts: { all: 0, open: 0, pending: 0, escalated: 0, resolved: 0 } };
 

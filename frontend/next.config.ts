@@ -132,16 +132,16 @@ const nextConfig: NextConfig = {
     return config;
   },
   /**
-   * Routes that moved. Billing and invoices are account sections now
-   * (`/account/billing`, `/account/invoices`), and the Subscription and
-   * Payment services sections were folded into Billing & plan rather than
-   * kept as two more pages saying the same thing. Bookmarks and any
+   * Routes that moved. Billing is an account section now (`/account/billing`),
+   * and Invoices, Subscription and Payment services were folded into Billing &
+   * plan rather than kept as three more pages saying the same thing. Bookmarks and any
    * `?next=` still in flight land on the screen that owns the content.
    */
   async redirects() {
     return [
       { source: "/billing", destination: "/account/billing", permanent: true },
-      { source: "/billing/invoices", destination: "/account/invoices", permanent: true },
+      { source: "/billing/invoices", destination: "/account/billing", permanent: true },
+      { source: "/account/invoices", destination: "/account/billing", permanent: true },
       { source: "/account/subscription", destination: "/account/billing", permanent: true },
       { source: "/account/payment", destination: "/account/billing", permanent: true },
     ];

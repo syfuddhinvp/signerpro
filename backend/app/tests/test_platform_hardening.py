@@ -52,7 +52,7 @@ def _promote(client: TestClient, headers: dict[str, str]) -> None:
 
 
 def _platform_and_tenant(client: TestClient) -> tuple[dict[str, str], dict[str, str], str]:
-    platform = _register(client, org="SignForge", email="ops@signforge.com", name="Jordan Mehta")
+    platform = _register(client, org="SignerPro", email="ops@signforge.com", name="Jordan Mehta")
     _promote(client, platform)
     tenant = _register(client, org="Acme Realty", email="priya@acme.io", name="Priya Rao")
     return platform, tenant, _me(client, tenant)["organization_id"]
@@ -398,7 +398,7 @@ def test_the_last_platform_admin_cannot_be_demoted(client: TestClient) -> None:
         assert "platform administrator" in response.json()["detail"]
 
     # With a second platform admin in place the demotion is allowed again.
-    second = _register(client, org="SignForge Ops", email="sam@signforge.com", name="Sam Ops")
+    second = _register(client, org="SignerPro Ops", email="sam@signforge.com", name="Sam Ops")
     _promote(client, second)
     assert client.patch(
         f"/api/saas/users/{admin_id}/role", json={"role": "orgadmin"}, headers=second

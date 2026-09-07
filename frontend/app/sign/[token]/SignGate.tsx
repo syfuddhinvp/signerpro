@@ -18,7 +18,7 @@ const stack: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '1
 const row: CSSProperties = { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' };
 const note: CSSProperties = {
   margin: 0, fontSize: '.71875rem', color: TEXT_MUTED, lineHeight: 1.6,
-  fontFamily: "'Inter', 'Google Sans Flex', sans-serif",
+  fontFamily: 'var(--font-sans)',
 };
 
 export function OtpGate({ token, email }: { token: string; email: string }) {

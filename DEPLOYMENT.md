@@ -130,11 +130,48 @@ Migrations are expand-only; there is no down-path rehearsed for production. Roll
 
 ---
 
+## 4b. Object storage (S3 / MinIO)
+
+Executed PDFs and adopted signatures go through one abstraction (`app/core/storage.py`) with two
+backends. The development stack runs **MinIO** on the S3 backend, so the code path exercised
+locally is the one production uses — the switch to AWS is credentials and a bucket, not a code
+change.
+
+Development (`docker-compose.yml`) needs nothing: the `minio` service and a one-shot `minio-init`
+that creates the bucket come up with the stack. The console is on <http://localhost:9003>
+(`minioadmin` / `minioadmin`); the API is on host port 9002 because 9000/9001 are commonly taken.
+Override with `MINIO_PORT` / `MINIO_CONSOLE_PORT`.
+
+Production:
+
+| Variable | AWS S3 | MinIO / R2 |
+| --- | --- | --- |
+| `STORAGE_BACKEND` | `s3` | `s3` |
+| `S3_BUCKET`, `S3_REGION` | required | required |
+| `S3_ENDPOINT_URL` | unset | the endpoint the API calls |
+| `S3_PUBLIC_ENDPOINT_URL` | unset | the endpoint **browsers** reach, when it differs |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | unset — use an IAM role | required |
+| `S3_SERVER_SIDE_ENCRYPTION` | `AES256` | empty, unless a KMS is configured |
+
+Two things bite otherwise:
+
+- **Presigned URLs are opened by the browser.** SigV4 signs the host, so a URL signed against an
+  internal endpoint cannot be rewritten to a public one afterwards. `S3_PUBLIC_ENDPOINT_URL` makes
+  the app sign against the public host to begin with.
+- **MinIO rejects `ServerSideEncryption: AES256`** unless it has a KMS. Leave the variable empty
+  there; keep `AES256` on AWS, where it is the default.
+
+Leave `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` unset on AWS and attach an IAM role — boto3 picks
+it up, and no long-lived key sits in the environment.
+
+`/api/health/ready` covers storage: on the S3 backend it does a `head_bucket`, so a bad bucket or
+bad credentials fail readiness instead of surfacing as a 500 on someone's first signature.
+
 ## 5. Known operational limits
 
 - `RATE_LIMIT_BACKEND=memory` is per-process. With more than one backend replica, the limits are
   effectively multiplied by the replica count — switch to `redis` (and the `redis` profile).
 - `STORAGE_BACKEND=local` stores uploads on the `signforge-uploads` volume, which is **not shared
-  between hosts**. Multi-host deployment needs object storage behind the existing abstraction.
+  between hosts**. Multi-host deployment needs `STORAGE_BACKEND=s3` (see below).
 - Access tokens are 15 minutes and the frontend refreshes on a 30s skew. Concurrent refreshes can
   race, because backend rotation revokes on first use (`COMPLETION_PLAN.md` W7).

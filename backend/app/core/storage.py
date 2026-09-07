@@ -134,6 +134,7 @@ class S3Storage:
         prefix: str | None = None,
         region: str | None = None,
         endpoint_url: str | None = None,
+        public_endpoint_url: str | None = None,
         sse: str | None = None,
         sse_kms_key_id: str | None = None,
     ) -> None:
@@ -144,26 +145,63 @@ class S3Storage:
         self.prefix = (prefix if prefix is not None else settings.s3_prefix or "").strip("/")
         self.region = region or settings.s3_region
         self.endpoint_url = endpoint_url or settings.s3_endpoint_url
+        self.public_endpoint_url = public_endpoint_url or settings.s3_public_endpoint_url
+        self.access_key_id = settings.s3_access_key_id
+        self.secret_access_key = settings.s3_secret_access_key
         self.sse = sse if sse is not None else settings.s3_server_side_encryption
         self.sse_kms_key_id = sse_kms_key_id if sse_kms_key_id is not None else settings.s3_sse_kms_key_id
         self._client = None
+        self._presign_client = None
 
     # -- internals -----------------------------------------------------
+    def _build_client(self, endpoint_url: str | None):
+        try:
+            import boto3  # imported lazily: optional dependency
+        except ImportError as exc:  # pragma: no cover - depends on env
+            raise RuntimeError(
+                "STORAGE_BACKEND=s3 requires boto3 (pip install boto3)"
+            ) from exc
+        credentials = {}
+        if self.access_key_id and self.secret_access_key:
+            credentials = {
+                "aws_access_key_id": self.access_key_id,
+                "aws_secret_access_key": self.secret_access_key,
+            }
+        return boto3.client(
+            "s3",
+            region_name=self.region,
+            endpoint_url=endpoint_url,
+            # MinIO only serves path-style addressing; virtual-host style would
+            # send requests to bucket.minio:9000, which resolves nowhere.
+            config=self._client_config(),
+            **credentials,
+        )
+
+    def _client_config(self):
+        from botocore.config import Config
+
+        addressing = "path" if self.endpoint_url else "auto"
+        return Config(s3={"addressing_style": addressing}, signature_version="s3v4")
+
     @property
     def client(self):
         if self._client is None:
-            try:
-                import boto3  # imported lazily: optional dependency
-            except ImportError as exc:  # pragma: no cover - depends on env
-                raise RuntimeError(
-                    "STORAGE_BACKEND=s3 requires boto3 (pip install boto3)"
-                ) from exc
-            self._client = boto3.client(
-                "s3",
-                region_name=self.region,
-                endpoint_url=self.endpoint_url,
-            )
+            self._client = self._build_client(self.endpoint_url)
         return self._client
+
+    @property
+    def presign_client(self):
+        """Signs URLs against the endpoint a browser can actually reach.
+
+        Same credentials and same signature, different host: SigV4 covers the
+        host header, so a URL signed for `minio:9000` cannot simply be
+        rewritten to `localhost:9000` after the fact.
+        """
+        if not self.public_endpoint_url:
+            return self.client
+        if self._presign_client is None:
+            self._presign_client = self._build_client(self.public_endpoint_url)
+        return self._presign_client
 
     def _object_key(self, relative_path: str) -> str:
         key = normalize_key(relative_path)
@@ -217,7 +255,7 @@ class S3Storage:
         params = {"Bucket": self.bucket, "Key": self._object_key(relative_path)}
         if filename:
             params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
-        return self.client.generate_presigned_url(
+        return self.presign_client.generate_presigned_url(
             "get_object", Params=params, ExpiresIn=expires_in
         )
 

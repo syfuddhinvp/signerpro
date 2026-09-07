@@ -1,4 +1,4 @@
-"""The SignForge seeder must produce the aggregates the design screens read.
+"""The SignerPro seeder must produce the aggregates the design screens read.
 
 These tests run ``scripts/seed_signforge.py`` against a throwaway SQLite
 database and assert the shape of the data, not its exact numbers: the design's
@@ -225,10 +225,9 @@ def test_design_documents_recipients_and_fields(seeded: Session) -> None:
     }
     for field in fields:
         assert field.recipient_id is None or field.recipient_id in recipient_ids
-    # The conditional field and the merge tags survived.
+    # The conditional field survived.
     conditional = [f for f in fields if f.condition]
     assert conditional and conditional[0].condition["op"] == "checked"
-    assert any(f.merge_tag == "{{client.name}}" for f in fields)
 
 
 def test_templates_are_templates_not_envelopes(seeded: Session) -> None:

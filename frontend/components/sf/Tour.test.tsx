@@ -13,7 +13,22 @@ vi.mock('next/navigation', async () => (await import('@/test/navigation')).navig
 import { resetNavigation, router, setPathname } from '@/test/navigation';
 import { SFProvider, useSF } from '@/lib/sf/state';
 import Tour from '@/components/sf/Tour';
-import { TOUR } from '@/lib/sf/data';
+import { TOUR, tourSteps } from '@/lib/sf/data';
+import { SessionProvider, type ClientSession } from '@/components/sf/SessionProvider';
+
+/** The tour is session-aware: the platform step only exists for an admin. */
+const SESSION: ClientSession = {
+  userId: 'u1', name: 'Ada Byron', email: 'ada@northwind.test', role: 'owner',
+  organizationId: 'o1', organizationName: 'Northwind', isPlatformAdmin: true,
+};
+
+function Wrap({ step, admin = true }: { step: number; admin?: boolean }) {
+  return (
+    <SessionProvider session={{ ...SESSION, isPlatformAdmin: admin }}>
+      <SFProvider><Harness step={step} /><Tour /></SFProvider>
+    </SessionProvider>
+  );
+}
 
 /** jsdom lays nothing out, so targets get an explicit box to be measured from. */
 function box(el: HTMLElement, r: { left: number; top: number; width: number; height: number }) {
@@ -35,7 +50,7 @@ function mount(step: number, pathname = '/overview') {
   box(screenRoot, { left: 312, top: 60, width: 900, height: 500 });
   document.body.append(areas, screenRoot);
 
-  const view = render(<SFProvider><Harness step={step} /><Tour /></SFProvider>);
+  const view = render(<Wrap step={step} />);
   act(() => { fireEvent.click(screen.getByText('start')); });
   return view;
 }
@@ -105,6 +120,23 @@ describe('Tour spotlight', () => {
     expect(screen.queryByLabelText('Product tour')).toBeNull();
   });
 
+  it('drops the platform step for a tenant user', () => {
+    /* `/platform` redirects a non-admin straight back to `/overview`, so the
+       step could never arrive — and its copy is about a workspace they are not
+       allowed to open. It is removed rather than left to time out, which also
+       keeps "Step n of m" and the dots honest. */
+    expect(tourSteps(true)).toHaveLength(TOUR.length);
+    /* A sender is redirected away from Reports, Billing and Developer, so the
+       tour must not try to walk them there. */
+    expect(tourSteps(false, 'sender').some(step => ['reports', 'billing', 'api', 'sandbox'].includes(step.screen))).toBe(false);
+    expect(tourSteps(false)).toHaveLength(TOUR.length - 1);
+    expect(tourSteps(false).some(step => step.ws === 'platform')).toBe(false);
+
+    render(<Wrap step={0} admin={false} />);
+    act(() => { fireEvent.click(screen.getAllByText('start')[0]); });
+    expect(screen.getByText('Step 1 of ' + (TOUR.length - 1))).toBeTruthy();
+  });
+
   it('gives every step a resolvable shape', () => {
     TOUR.forEach(step => {
       expect(typeof step.title).toBe('string');
@@ -123,7 +155,7 @@ describe('Tour across a route change', () => {
   /** Re-render at a new URL, the way a completed navigation would. */
   function arriveAt(pathname: string, view: { rerender: (ui: React.ReactElement) => void }, step: number) {
     setPathname(pathname);
-    act(() => { view.rerender(<SFProvider><Harness step={step} /><Tour /></SFProvider>); });
+    act(() => { view.rerender(<Wrap step={step} />); });
   }
 
   it('draws no ring while the step is still navigating', () => {

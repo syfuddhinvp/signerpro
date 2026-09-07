@@ -1,6 +1,6 @@
 'use client';
 
-/* SignForge — the document upload entry point.
+/* SignerPro — the document upload entry point.
  *
  * `POST /api/documents/{id}/upload-pdf` has always existed on the backend, but
  * nothing in the UI ever opened a file picker: the library's "Upload & prepare"
@@ -112,15 +112,15 @@ export default function UploadDocument({ documentId, label = 'Upload & prepare',
       </button>
       {busy ? (
         <span id={statusId} role="status" style={{ fontSize: '.71875rem', color: TEXT_MUTED }}>
-          Uploading your PDF…
+          Uploading your file…
         </span>
       ) : null}
       <input
         ref={inputRef}
         type="file"
-        accept="application/pdf,.pdf"
+        accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.tif,.tiff,.webp,.doc,.docx,.odt,.rtf,.txt,.md,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp"
         onChange={e => { void onPick(e.target.files?.[0]); }}
-        aria-label="Choose a PDF to upload"
+        aria-label="Choose a file to upload"
         // Off-screen rather than `display:none` so it stays reachable to AT.
         style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', border: 0 }}
       />

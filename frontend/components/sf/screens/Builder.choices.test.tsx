@@ -45,7 +45,7 @@ const field = (type: FieldResponse['type']): FieldResponse => ({
   id: 'fld-1', document_id: 'doc-7', recipient_id: 'rec-1', type, label: 'Pick one',
   required: true, page_number: 1, x: 40, y: 40, width: 180, height: 40,
   placeholder: null, default_value: null, value: null, options: null, is_locked: false,
-  validation: 'none', validation_pattern: null, condition: null, merge_tag: null, read_only: false,
+  validation: 'none', validation_pattern: null, condition: null, read_only: false,
   created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
 });
 

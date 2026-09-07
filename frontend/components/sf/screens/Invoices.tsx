@@ -104,7 +104,7 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
     { k:'Subtotal', v: inv.subtotal, bold:false },
     { k:'Tax', v: inv.tax, bold:false },
     { k:'Total', v: inv.total, bold:true }
-  ].map(t => ({ k:t.k, v:t.v, style: { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontWeight: t.bold ? 700 : 500, fontSize: t.bold ? '.875rem' : '.78125rem', color:'#0f172a' } as CSSProperties }));
+  ].map(t => ({ k:t.k, v:t.v, style: { fontFamily:'var(--font-sans)', fontWeight: t.bold ? 700 : 500, fontSize: t.bold ? '.875rem' : '.78125rem', color:'#0f172a' } as CSSProperties }));
   const invMetaRows = [
     { k:'Payment intent', v:inv.pi }, { k:'Payment method', v:inv.method },
     { k:'Customer', v:inv.tenant }, { k:'Hosted invoice', v:inv.hostedUrl },
@@ -178,11 +178,11 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
           <button key={i.id} type="button" onClick={i.onOpen} style={i.rowStyle}>
             <span style={{ display:'flex', flexDirection:'column', gap:'3px', textAlign:'left', flex:'1 1 190px', minWidth:'170px' }}>
               <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.number} · {i.who}</span>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.period} · {i.pi}</span>
+              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.period} · {i.pi}</span>
             </span>
             <span style={i.pill}>{i.statusLabel}</span>
-            <span style={{ fontSize:'.8125rem', fontWeight:600, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto', width:'96px', textAlign:'right' }}>{i.total}</span>
-            <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto', width:'86px', textAlign:'right' }}>{i.due}</span>
+            <span style={{ fontSize:'.8125rem', fontWeight:600, fontFamily:'var(--font-sans)', flex:'0 0 auto', width:'96px', textAlign:'right' }}>{i.total}</span>
+            <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)', flex:'0 0 auto', width:'86px', textAlign:'right' }}>{i.due}</span>
           </button>
         ))}
       </div>
@@ -191,7 +191,7 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px' }}>
           <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
             <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.2px' }}>{invNumber}</span>
-            <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{invMeta}</span>
+            <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{invMeta}</span>
           </div>
           <span style={invPill}>{invStatus}</span>
         </div>
@@ -199,7 +199,7 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
           {invLines.map((l, li: number) => (
             <div key={li} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.78125rem', padding:'8px 0', borderTop:'1px solid #f2f4f8' }}>
               <span style={{ color:'#334155', minWidth:0 }}>{l.d}</span>
-              <span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 auto' }}>{l.amt}</span>
+              <span style={{ fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{l.amt}</span>
             </div>
           ))}
         </div>
@@ -213,7 +213,7 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
         <div style={{ display:'flex', flexDirection:'column', gap:'7px', borderTop:'1px solid #eef1f6', paddingTop:'12px' }}>
           {invMetaRows.map(m => (
             <div key={m.k} style={{ display:'flex', justifyContent:'space-between', gap:'10px', fontSize:'.71875rem' }}>
-              <span style={{ color:'#64748b' }}>{m.k}</span><span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#334155', textAlign:'right', wordBreak:'break-all' }}>{m.v}</span>
+              <span style={{ color:'#64748b' }}>{m.k}</span><span style={{ fontFamily:'var(--font-sans)', color:'#334155', textAlign:'right', wordBreak:'break-all' }}>{m.v}</span>
             </div>
           ))}
         </div>

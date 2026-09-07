@@ -1,5 +1,5 @@
 /**
- * SignForge design tokens — the source of truth `tailwind.config.ts` reads.
+ * SignerPro design tokens — the source of truth `tailwind.config.ts` reads.
  *
  * Colours are stored as bare HSL triplets (`H S% L%`) because the Tailwind
  * theme wraps them as `hsl(var(--token) / <alpha-value>)`. Nothing else in the
@@ -84,8 +84,8 @@
   --focus-ring: 0 0 0 2px hsl(var(--color-bg-surface)), 0 0 0 4px hsl(var(--color-focus-ring));
 
   /* ── type ───────────────────────────────────────────────────────────── */
-  --font-sans: 'Google Sans Flex', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Inter', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-geist), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* The type scale is expressed in `rem`, so every size resolves against the
      fluid root font size set on `html` in globals.css. The `rem` figures are the

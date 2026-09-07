@@ -149,7 +149,7 @@ async function downloadOnce(
       signal: requestSignal(init, DOWNLOAD_TIMEOUT_MS),
     });
   } catch {
-    return apiFail({ kind: 'network', status: 0, message: 'Cannot reach the SignForge API.' });
+    return apiFail({ kind: 'network', status: 0, message: 'Cannot reach the SignerPro API.' });
   }
   if (response.status === 401) {
     if (mayRetry && (await refreshSessionOnce())) return downloadOnce(path, init, false);

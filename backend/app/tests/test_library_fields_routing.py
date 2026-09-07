@@ -1,5 +1,7 @@
-"""Coverage for the SignForge library (DOC-1…DOC-7), bulk field save (FLD-2/3)
+"""Coverage for the SignerPro library (DOC-1…DOC-7), bulk field save (FLD-2/3)
 and recipient routing (RTE-1…RTE-4)."""
+
+from datetime import date, timedelta
 
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -17,6 +19,35 @@ def _document(client: TestClient, headers: dict[str, str], title: str = "Doc") -
 
 
 # ----------------------------------------------------------------- library
+
+
+def test_library_updated_range_is_inclusive_of_both_days(client: TestClient) -> None:
+    """`updated_to` must include documents touched *on* that date — a naive
+    midnight bound would have excluded every one of them."""
+    headers = auth_headers(client)
+    today = _document(client, headers, "Touched today")
+    stamp = date.today()
+
+    inside = client.get(
+        "/api/documents/library",
+        headers=headers,
+        params={"updated_from": stamp.isoformat(), "updated_to": stamp.isoformat()},
+    ).json()
+    assert today in [item["id"] for item in inside["items"]]
+
+    before = client.get(
+        "/api/documents/library",
+        headers=headers,
+        params={"updated_to": (stamp - timedelta(days=1)).isoformat()},
+    ).json()
+    assert before["items"] == []
+
+    after = client.get(
+        "/api/documents/library",
+        headers=headers,
+        params={"updated_from": (stamp + timedelta(days=1)).isoformat()},
+    ).json()
+    assert after["items"] == []
 
 
 def test_library_filters_sorting_pagination_and_counts(client: TestClient) -> None:
@@ -260,7 +291,6 @@ def test_bulk_field_save_round_trip(client: TestClient, pdf_bytes: bytes) -> Non
                     "width": 200,
                     "height": 30,
                     "validation": "email",
-                    "merge_tag": "cobuyer.email",
                     "read_only": False,
                 },
             ]
@@ -272,7 +302,6 @@ def test_bulk_field_save_round_trip(client: TestClient, pdf_bytes: bytes) -> Non
     checkbox = next(item for item in fields if item["type"] == "checkbox")
     email_field = next(item for item in fields if item["type"] == "email")
     assert email_field["validation"] == "email"
-    assert email_field["merge_tag"] == "cobuyer.email"
     assert email_field["read_only"] is False
     assert email_field["condition"] is None
 
@@ -327,11 +356,10 @@ def test_bulk_field_save_round_trip(client: TestClient, pdf_bytes: bytes) -> Non
     patched = client.patch(
         f"/api/documents/{document_id}/fields/{conditional['id']}",
         headers=headers,
-        json={"read_only": False, "validation": "none", "merge_tag": "cobuyer.name"},
+        json={"read_only": False, "validation": "none"},
     )
     assert patched.status_code == 200, patched.text
     assert patched.json()["read_only"] is False
-    assert patched.json()["merge_tag"] == "cobuyer.name"
 
     assert client.delete(f"/api/documents/{document_id}/fields/{conditional['id']}", headers=headers).status_code == 204
     assert len(client.get(f"/api/documents/{document_id}/fields", headers=headers).json()) == 1

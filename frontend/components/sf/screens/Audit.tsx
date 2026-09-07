@@ -8,6 +8,7 @@ import { btn, pill, railHead, BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
 import type { AttestationRow, AuditRow, CertificateCard } from '@/lib/sf/adapters';
 import { apiDownload, saveBlob } from '@/lib/api/browser';
 import { audit as auditApi } from '@/lib/api/resources';
+import { typeFaceStack } from '@/lib/sf/fonts';
 
 export type AuditProps = {
   /** The envelope whose certificate the download button fetches. */
@@ -65,7 +66,7 @@ export default function Audit({
     rowStyle: { display: 'flex', justifyContent: 'space-between', gap: '14px', padding: '13px 15px', borderTop: i ? '1px solid #eef1f6' : 'none' } as CSSProperties,
     dot: { width: '9px', height: '9px', borderRadius: '99px', marginTop: '5px', flex: '0 0 9px',
       background: a.kind === 'good' ? '#10b981' : a.kind === 'info' ? A : a.kind === 'bad' ? '#ef4444' : BORDER_STRONG } as CSSProperties,
-    actorStyle: { fontSize: '.65625rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#64748b', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '6px', padding: '2px 6px' } as CSSProperties,
+    actorStyle: { fontSize: '.65625rem', fontFamily: 'var(--font-sans)', color: '#64748b', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '6px', padding: '2px 6px' } as CSSProperties,
   })), [entries, A]);
 
   const qrCells = useMemo(() => buildQrCells(verifyUrl), [verifyUrl]);
@@ -73,7 +74,7 @@ export default function Audit({
   const rail = attestations.map(r => ({
     name: r.name, initials: initials(r.name), meta: r.meta,
     chip: { width: '28px', height: '28px', borderRadius: '99px', background: r.color, color: '#fff', display: 'grid', placeItems: 'center', fontSize: '.6875rem', fontWeight: 700, flex: '0 0 28px' } as CSSProperties,
-    sigStyle: { fontFamily: "'Caveat', cursive", fontSize: '1.25rem', color: '#0f172a' } as CSSProperties,
+    sigStyle: { fontFamily: typeFaceStack('Caveat'), fontSize: '1.25rem', color: '#0f172a' } as CSSProperties,
   }));
 
   const qrWrap: CSSProperties = { width: '118px', height: '118px', padding: '7px', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '10px', display: 'grid', gridTemplateColumns: 'repeat(23, 1fr)', gridTemplateRows: 'repeat(23, 1fr)', gap: '0px' };
@@ -134,7 +135,7 @@ export default function Audit({
       <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', overflow: 'hidden' }}>
         <div style={{ padding: '13px 15px', borderBottom: '1px solid #eef1f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={railHead}>Immutable event log</div>
-          <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>append-only · {String(chain?.entryCount ?? audit.length)} events{chainNote}</span>
+          <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>append-only · {String(chain?.entryCount ?? audit.length)} events{chainNote}</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {audit.length ? audit.map((a, i) => (
@@ -146,11 +147,11 @@ export default function Audit({
                     <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>{a.action}</span>
                     <span style={a.actorStyle}>{a.actor}</span>
                   </div>
-                  <div style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", lineHeight: 1.7, wordBreak: 'break-all' }}>{a.meta}</div>
-                  <div style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif", wordBreak: 'break-all' }}>checksum {a.checksum}</div>
+                  <div style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)', lineHeight: 1.7, wordBreak: 'break-all' }}>{a.meta}</div>
+                  <div style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)', wordBreak: 'break-all' }}>checksum {a.checksum}</div>
                 </div>
               </div>
-              <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", whiteSpace: 'nowrap' }}>{a.time}</span>
+              <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>{a.time}</span>
             </div>
           )) : (
             <div style={{ padding: '28px 15px', display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'center', textAlign: 'center' }}>
@@ -166,7 +167,7 @@ export default function Audit({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <span style={{ fontSize: '.875rem', fontWeight: 700, letterSpacing: '-.2px' }}>Certificate of Completion</span>
-              <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{(certificate?.envelopeRef ?? '—') + ' · ' + (certificate?.issued ?? 'not sealed yet')}</span>
+              <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{(certificate?.envelopeRef ?? '—') + ' · ' + (certificate?.issued ?? 'not sealed yet')}</span>
             </div>
             <span style={certPill}>{certificate?.statusLabel ?? 'Draft'}</span>
           </div>
@@ -188,14 +189,14 @@ export default function Audit({
                   Open public verification →
                 </a>
               )}
-              <span style={{ fontSize: '.65625rem', fontFamily: "'Inter', 'Google Sans Flex', sans-serif", color: '#0f172a', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '8px', padding: '7px 8px', wordBreak: 'break-all' }}>{documentHash}</span>
+              <span style={{ fontSize: '.65625rem', fontFamily: 'var(--font-sans)', color: '#0f172a', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '8px', padding: '7px 8px', wordBreak: 'break-all' }}>{documentHash}</span>
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
             {(certificate?.rows ?? []).map(c => (
               <div key={c.k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '.75rem' }}>
                 <span style={{ color: '#64748b' }}>{c.k}</span>
-                <span style={{ fontWeight: 500, fontFamily: "'Inter', 'Google Sans Flex', sans-serif", textAlign: 'right' }}>{c.v}</span>
+                <span style={{ fontWeight: 500, fontFamily: 'var(--font-sans)', textAlign: 'right' }}>{c.v}</span>
               </div>
             ))}
           </div>
@@ -214,7 +215,7 @@ export default function Audit({
               <span style={a.chip}>{a.initials}</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flex: 1, minWidth: 0 }}>
                 <span style={{ fontSize: '.78125rem', fontWeight: 600 }}>{a.name}</span>
-                <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{a.meta}</span>
+                <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{a.meta}</span>
               </div>
               <span style={a.sigStyle}>{a.name}</span>
             </div>

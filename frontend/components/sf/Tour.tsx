@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import { type ScreenKey, screenForPath, workspaceForPath } from '@/lib/sf/routes';
-import { TOUR } from '@/lib/sf/data';
+import { tourSteps } from '@/lib/sf/data';
+import { useOptionalSession } from '@/components/sf/SessionProvider';
 import { btn, linkBtn as linkBtnOf, TEXT_MUTED } from '@/lib/sf/ui';
 
 /** Breathing room between the highlighted element and the ring around it. */
@@ -98,8 +99,14 @@ export default function Tour() {
   const A = accent();
   const pathname = usePathname() || '/';
 
-  const tourActive = s.tourStep >= 0 && s.tourStep < TOUR.length;
-  const tour = tourActive ? TOUR[s.tourStep] : null;
+  /* Optional because the tour also mounts in tests and previews that render
+     the shell without an authenticated session; no session reads as no
+     platform access, which is the safe side to be wrong on. */
+  const session = useOptionalSession();
+  const steps = tourSteps(session?.isPlatformAdmin === true, session?.role);
+
+  const tourActive = s.tourStep >= 0 && s.tourStep < steps.length;
+  const tour = tourActive ? steps[s.tourStep] : null;
   const selector = tour ? tour.target : null;
 
   /* ── arrival ────────────────────────────────────────────────────────────
@@ -178,8 +185,8 @@ export default function Tour() {
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn = btn(A, '#fff', A);
 
-  const tourStepLabel = 'Step ' + (s.tourStep + 1) + ' of ' + TOUR.length;
-  const tourDots = TOUR.map((_x, i) => ({
+  const tourStepLabel = 'Step ' + (s.tourStep + 1) + ' of ' + steps.length;
+  const tourDots = steps.map((_x, i) => ({
     style: {
       width: i === s.tourStep ? '18px' : '6px', height: '6px', borderRadius: '99px',
       background: i === s.tourStep ? A : (i < s.tourStep ? '#c7d2fe' : '#e3e7ee'), transition: 'width .18s',
@@ -206,18 +213,18 @@ export default function Tour() {
     background: '#fff', borderRadius: '15px', padding: '16px', boxShadow: '0 28px 60px -22px rgba(15,23,42,.55)', zIndex: 121,
     display: 'flex', flexDirection: 'column', gap: '12px', animation: 'sfIn .16s ease',
   };
-  const tourNextLabel = s.tourStep === TOUR.length - 1 ? 'Finish' : 'Next';
+  const tourNextLabel = s.tourStep === steps.length - 1 ? 'Finish' : 'Next';
 
   const tourNext = () => {
     const n = s.tourStep + 1;
-    if (n >= TOUR.length) { set({ tourStep: -1 }); flash('Tour complete — reopen it any time from the help menu'); return; }
-    const st1 = TOUR[n];
+    if (n >= steps.length) { set({ tourStep: -1 }); flash('Tour complete — reopen it any time from the help menu'); return; }
+    const st1 = steps[n];
     set({ tourStep: n });
     go(st1.screen as ScreenKey, { workspace: st1.ws });
   };
   const tourBack = () => {
     const p = Math.max(0, s.tourStep - 1);
-    const st2 = TOUR[p];
+    const st2 = steps[p];
     set({ tourStep: p });
     go(st2.screen as ScreenKey, { workspace: st2.ws });
   };
@@ -228,7 +235,7 @@ export default function Tour() {
       <div data-tour-spotlight="1" style={spotStyle}></div>
       <div style={tourCardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-          <span style={{ fontSize: '.65625rem', letterSpacing: '.06em', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{tourStepLabel}</span>
+          <span style={{ fontSize: '.65625rem', letterSpacing: '.06em', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>{tourStepLabel}</span>
           <button type="button" onClick={tourSkip} style={linkBtn}>Skip tour</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
@@ -237,7 +244,7 @@ export default function Tour() {
           {arrived ? null : (
             /* Said out loud rather than left as a blank pause: the step's copy
                describes a screen that is not on screen yet. */
-            <span data-tour-pending="1" style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>
+            <span data-tour-pending="1" style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
               Opening the screen this step is about…
             </span>
           )}

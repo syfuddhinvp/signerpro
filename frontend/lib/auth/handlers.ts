@@ -91,7 +91,7 @@ export async function forwardAuth(
   } catch {
     return jsonError(
       'backend_unreachable',
-      `Cannot reach the SignForge API at ${url}. Start the backend or set BACKEND_URL.`,
+      `Cannot reach the SignerPro API at ${url}. Start the backend or set BACKEND_URL.`,
       503,
     );
   }
@@ -106,7 +106,7 @@ export async function forwardAuth(
     if (upstream.status === 410) return jsonError('gone', detailOf(payload, 'That link has expired or has already been used.'), 410);
     if (upstream.status === 429) return jsonError('rate_limited', detailOf(payload, 'Too many attempts. Please wait a moment and try again.'), 429);
     if (upstream.status === 400 || upstream.status === 422) return jsonError('bad_request', detailOf(payload, 'Please check the details you entered.'), 400);
-    return jsonError('backend_error', detailOf(payload, 'The SignForge API returned an unexpected error.'), 502);
+    return jsonError('backend_error', detailOf(payload, 'The SignerPro API returned an unexpected error.'), 502);
   }
 
   // An account with confirmed MFA gets a challenge instead of a token: no
@@ -116,7 +116,7 @@ export async function forwardAuth(
   } | null;
   if (challenge?.mfa_required === true) {
     if (typeof challenge.mfa_token !== 'string') {
-      return jsonError('backend_error', 'The SignForge API returned an incomplete MFA challenge.', 502);
+      return jsonError('backend_error', 'The SignerPro API returned an incomplete MFA challenge.', 502);
     }
     return NextResponse.json({
       ok: true,
@@ -130,7 +130,7 @@ export async function forwardAuth(
   const token = (payload as { access_token?: unknown } | null)?.access_token;
   const enriched = (payload as { user?: SessionUser } | null)?.user;
   if (typeof token !== 'string' || !enriched) {
-    return jsonError('backend_error', 'The SignForge API returned an unrecognised login response.', 502);
+    return jsonError('backend_error', 'The SignerPro API returned an unrecognised login response.', 502);
   }
 
   const response = NextResponse.json({
@@ -195,7 +195,7 @@ export async function forwardPlain(path: string, body: unknown) {
       signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
     });
   } catch {
-    return jsonError('backend_unreachable', 'Cannot reach the SignForge API. Please try again in a moment.', 503);
+    return jsonError('backend_unreachable', 'Cannot reach the SignerPro API. Please try again in a moment.', 503);
   }
 
   if (upstream.ok) return NextResponse.json({ ok: true });
@@ -207,5 +207,5 @@ export async function forwardPlain(path: string, body: unknown) {
   if (upstream.status === 400 || upstream.status === 422) {
     return jsonError('bad_request', detailOf(payload, 'Please check the details you entered.'), 400);
   }
-  return jsonError('backend_error', detailOf(payload, 'The SignForge API returned an unexpected error.'), 502);
+  return jsonError('backend_error', detailOf(payload, 'The SignerPro API returned an unexpected error.'), 502);
 }

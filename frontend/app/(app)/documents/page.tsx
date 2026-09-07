@@ -27,7 +27,7 @@ import {
 import type { DocumentCounts, FolderTreeResponse } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Documents · SignForge' };
+export const metadata: Metadata = { title: 'Documents · SignerPro' };
 
 /**
  * The design has no pager: it renders one screenful of rows, and the real

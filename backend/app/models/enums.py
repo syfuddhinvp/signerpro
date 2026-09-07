@@ -58,8 +58,13 @@ class FieldType(StrEnum):
     # `full_name` in the client mapper.
     stamp = "stamp"
     attachment = "attachment"
-    formula = "formula"
     datetime = "datetime"
+    # ANN-1: the sender's own marks on the page -- a freehand pen drawing and a
+    # text box with a chosen face and size. Both are authored content, never a
+    # recipient obligation: `app/core/annotations.py` holds the shape they
+    # carry and the rules that keep them read-only.
+    drawing = "drawing"
+    textbox = "textbox"
 
 
 class SignatureType(StrEnum):

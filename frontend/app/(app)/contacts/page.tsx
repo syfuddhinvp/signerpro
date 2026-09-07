@@ -15,7 +15,7 @@ import { toContactCounts, toContacts, toGroupLabels } from '@/lib/sf/adapters';
 import type { ContactGroupResponse, ContactListResponse, DocumentLibraryPage } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Contacts · SignForge' };
+export const metadata: Metadata = { title: 'Contacts · SignerPro' };
 
 const EMPTY_LIST: ContactListResponse = { items: [], total: 0, counts: {} };
 

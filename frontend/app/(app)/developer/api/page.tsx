@@ -4,7 +4,7 @@ import { serverCaller } from '@/lib/api/client';
 import { apiKeys as apiKeysApi, contacts as contactsApi, organizations as organizationsApi } from '@/lib/api/resources';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'API reference · SignForge' };
+export const metadata: Metadata = { title: 'API reference · SignerPro' };
 
 export default async function Page() {
   const api = serverCaller('/developer/api');

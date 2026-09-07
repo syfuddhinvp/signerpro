@@ -19,12 +19,13 @@ import SignerPreview from '@/components/sf/screens/SignerPreview';
 import { serverCaller } from '@/lib/api/client';
 import { documents as documentsApi, fields as fieldsApi, recipients as recipientsApi } from '@/lib/api/resources';
 import { toSignerFields, toSignerRecipients, toSignValues } from '@/lib/sf/adapters';
+import { isAnnotationType } from '@/lib/sf/annotations';
 import { documentPathFor } from '@/lib/sf/routes';
 import { isSealedStatus } from '@/lib/sf/sealed';
 import type { FieldResponse, RecipientResponse } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Signer view · SignForge' };
+export const metadata: Metadata = { title: 'Signer view · SignerPro' };
 
 type SearchParams = { recipient?: string };
 
@@ -60,18 +61,28 @@ export default async function Page({
     ? recipientList.find(r => r.id === query.recipient)
     : (recipientList.find(r => r.role === 'sign') ?? recipientList[0]);
 
-  const assigned = toSignerFields(apiFields).filter(f => !previewed || f.to === previewed.id);
+  /* The sender's own marks are not anybody's fields: they are shown to every
+     recipient and never offered as an input, so they are split out here the
+     same way the public signing session splits them out (ANN-1). */
+  const annotationFields = apiFields.filter(f => isAnnotationType(f.type));
+  const annotations = annotationFields.map(f => ({
+    id: f.id, type: f.type, page_number: f.page_number,
+    x: Number(f.x), y: Number(f.y), width: Number(f.width), height: Number(f.height),
+    default_value: f.default_value, options: f.options,
+  }));
+  const inputFields = apiFields.filter(f => !isAnnotationType(f.type));
+  const assigned = toSignerFields(inputFields).filter(f => !previewed || f.to === previewed.id);
   // The real document, through the session proxy — the same bytes the recipient
   // is served, so the preview is a preview rather than a mock-up (audit C2).
   const pdfUrl = `/api/proxy/documents/${document.id}/pdf`;
   // Everyone else's placements, greyed out, exactly as the recipient sees them.
-  const others = toSignerFields(apiFields)
+  const others = toSignerFields(inputFields)
     .filter(f => previewed && f.to !== previewed.id)
     .map(f => ({ id: f.id, type: f.apiType, page_number: f.page, x: f.x, y: f.y, width: f.w, height: f.h }));
 
   /* Field counts per recipient, so the preview's recipient chips say how much
      each of them is actually being asked to do. */
-  const allFields = toSignerFields(apiFields);
+  const allFields = toSignerFields(inputFields);
   const previewRecipients = recipientList.map(r => ({
     id: r.id,
     name: r.name,
@@ -99,6 +110,7 @@ export default async function Page({
           initialValues={toSignValues(assigned)}
           pdfUrl={pdfUrl}
           otherPlacements={others}
+          annotations={annotations}
           viewOnly={previewed ? previewed.role === 'copy' : false}
         />
       </SignerPreview>    </>

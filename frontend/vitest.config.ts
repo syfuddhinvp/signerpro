@@ -31,7 +31,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": new URL(".", import.meta.url).pathname
+      "@": new URL(".", import.meta.url).pathname,
+      // See test/next-font-google.ts: the real module needs Next's loader.
+      "next/font/google": new URL("./test/next-font-google.ts", import.meta.url).pathname
     }
   }
 });

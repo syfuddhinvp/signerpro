@@ -17,7 +17,7 @@ import type { Metadata } from 'next';
 import { apiFetchPublic } from '@/lib/api/client';
 import { TEXT_MUTED } from '@/lib/sf/ui';
 
-export const metadata: Metadata = { title: 'Verify a document · SignForge' };
+export const metadata: Metadata = { title: 'Verify a document · SignerPro' };
 
 type VerificationResponse = {
   verified: boolean;
@@ -36,7 +36,7 @@ type VerificationResponse = {
 
 const PAGE: React.CSSProperties = {
   minHeight: '100vh', background: '#f5f6f8', display: 'grid', placeItems: 'start center',
-  padding: '48px 20px', fontFamily: "'Inter', 'Google Sans Flex', system-ui, sans-serif",
+  padding: '48px 20px', fontFamily: 'var(--font-sans)',
 };
 const CARD: React.CSSProperties = {
   width: '100%', maxWidth: '560px', background: '#fff', border: '1px solid #e3e7ee',
@@ -152,7 +152,7 @@ export default async function Page({
             </div>
             <div style={ROW}>
               <span style={LABEL}>{data.hash_algorithm}</span>
-              <span style={{ ...VALUE, fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontWeight: 500, fontSize: '.6875rem' }}>
+              <span style={{ ...VALUE, fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: '.6875rem' }}>
                 {data.final_sha256}
               </span>
             </div>

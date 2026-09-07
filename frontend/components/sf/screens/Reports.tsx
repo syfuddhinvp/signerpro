@@ -1,5 +1,5 @@
 'use client';
-/* SignForge — Reports screen (isReports). Markup ported verbatim from the
+/* SignerPro — Reports screen (isReports). Markup ported verbatim from the
    prototype template + renderVals(); every figure now comes from
    `GET /api/reports/*` via `app/(app)/reports/page.tsx`. */
 import React, { useMemo, useState } from 'react';
@@ -18,8 +18,8 @@ import {
   type ReportTileRow,
 } from '@/lib/sf/adapters';
 
-const th: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
-const thRight: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, textAlign:'right', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
+const th: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:'var(--font-sans)' };
+const thRight: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, textAlign:'right', fontFamily:'var(--font-sans)' };
 const td: CSSProperties = { padding:'11px 14px', verticalAlign:'middle' };
 const emptyCell: CSSProperties = { padding:'22px 14px', fontSize:'.78125rem', color:TEXT_MUTED, textAlign:'center' };
 
@@ -47,15 +47,14 @@ const SECTION_REPORT_KEY: Record<string, string> = {
 };
 
 /**
- * Server data, fetched and adapted in `app/(app)/reports/page.tsx` (and its
- * platform twin). The screen owns only UI state: the section (in the store,
+ * Server data, fetched and adapted in `app/(app)/reports/page.tsx`, the one
+ * route this screen has. The screen owns only UI state: the section (in the store,
  * driven by the rail), and the custom-report draft below.
  *
  * The range is NOT store state — it is the `?range=` search param, so a range
  * is shareable and changing it re-runs the server component.
  */
 export type ReportsProps = {
-  scope: 'tenant' | 'platform';
   /** `7d | 30d | 90d | 12m`, mirrored from `?range=`. */
   range: string;
   inviteTotal: number;
@@ -68,13 +67,11 @@ export type ReportsProps = {
   /** `GET /api/reports/fields` — the custom-report dimension catalogue. */
   customFields: string[];
   savedReports: { id: string; name: string; fields: string[] }[];
-  /** Set when the API cannot answer this screen in the requested scope. */
-  scopeNotice: string | null;
 };
 
 export default function Reports({
-  scope, range, inviteTotal, inviteSplit, tiles, recipientRows, recipientTotal,
-  docRows, tplRows, customFields, savedReports, scopeNotice,
+  range, inviteTotal, inviteSplit, tiles, recipientRows, recipientTotal,
+  docRows, tplRows, customFields, savedReports,
 }: ReportsProps) {
   const { set, flash, accent } = useSF();
   const router = useRouter();
@@ -259,7 +256,7 @@ export default function Reports({
             <tr><td colSpan={9} style={emptyCell}>No invites went out in this period.</td></tr>
           ) : recipientTableRows.map(r => (
             <tr key={r.key} style={r.rowStyle}>
-              <td style={td}><span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.label}</span></td>
+              <td style={td}><span style={{ fontFamily:'var(--font-sans)' }}>{r.label}</span></td>
               {r.cells.map((c, ci) => <td key={ci} style={td}>{c}</td>)}
             </tr>
           ))}
@@ -289,14 +286,6 @@ export default function Reports({
           </div>
         </div>
 
-        {scopeNotice ? (
-          <div
-            data-sf-scope={scope}
-            style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:'13px', padding:'12px 14px', fontSize:'.75rem', color:'#c2410c', lineHeight:1.6 }}
-          >
-            {scopeNotice}
-          </div>
-        ) : null}
 
         {rpAnalytics ? (
           <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
@@ -318,7 +307,7 @@ export default function Reports({
             <div style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0,1fr))', gap:'12px' }}>
               {tiles.map(t => (
                 <div key={t.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'6px' }}>
-                  <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{t.label}</span>
+                  <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{t.label}</span>
                   <span style={{ fontSize:'1.3125rem', fontWeight:700, letterSpacing:'-.7px' }}>{t.value}</span>
                   <span style={{ fontSize:'.6875rem', color:TEXT_MUTED }}>{t.meta}</span>
                 </div>
@@ -328,7 +317,7 @@ export default function Reports({
             <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
               <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
                 <span style={{ fontSize:'.84375rem', fontWeight:600 }}>Recipients who received invites</span>
-                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{recipientTotal} recipients</span>
+                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{recipientTotal} recipients</span>
               </div>
               {recipientTable}
             </div>
@@ -368,7 +357,7 @@ export default function Reports({
                       <td style={td}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
                           <span style={{ fontWeight:600 }}>{r.label}</span>
-                          <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.sub}</span>
+                          <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{r.sub}</span>
                         </div>
                       </td>
                       {r.cells.map((c, ci) => <td key={ci} style={td}>{c}</td>)}
@@ -401,7 +390,7 @@ export default function Reports({
                       <td style={td}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
                           <span style={{ fontWeight:600 }}>{r.label}</span>
-                          <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.sub}</span>
+                          <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{r.sub}</span>
                         </div>
                       </td>
                       {r.cells.map((c, ci) => <td key={ci} style={td}>{c}</td>)}

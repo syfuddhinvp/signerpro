@@ -25,13 +25,13 @@ import type {
 import { formatCents, formatRelative, tenantStatusLabel } from '@/lib/sf/adapters';
 import type { ImpersonationSessionResponse, TenantDetail } from '@/lib/api/types';
 
-const th: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
-const thRight: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, textAlign:'right', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
+const th: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:'var(--font-sans)' };
+const thRight: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, textAlign:'right', fontFamily:'var(--font-sans)' };
 const td: CSSProperties = { padding:'11px 14px', verticalAlign:'middle' };
 const tdRight: CSSProperties = { padding:'11px 14px', textAlign:'right', verticalAlign:'middle' };
 
 const superBannerStyle: CSSProperties = { background:'#0f172a', borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px' };
-const superChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background:'#f59e0b', color:'#3b1d00', fontSize:'.65625rem', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", letterSpacing:'.06em', whiteSpace:'nowrap', flex:'0 0 auto' };
+const superChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background:'#f59e0b', color:'#3b1d00', fontSize:'.65625rem', fontWeight:700, fontFamily:'var(--font-sans)', letterSpacing:'.06em', whiteSpace:'nowrap', flex:'0 0 auto' };
 const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
 
 const emptyCell: CSSProperties = { padding:'22px 14px', fontSize:'.78125rem', color:'#64748b' };
@@ -248,7 +248,7 @@ export default function Platform({
   /* ── stats / tabs ────────────────────────────────────────────────────── */
   const platformStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
-    metaStyle: { fontSize:'.6875rem', color: x.good ? '#047857' : '#c2410c', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties,
+    metaStyle: { fontSize:'.6875rem', color: x.good ? '#047857' : '#c2410c', fontFamily:'var(--font-sans)' } as CSSProperties,
   }));
 
   /* ── directory ───────────────────────────────────────────────────────── */
@@ -346,7 +346,7 @@ export default function Platform({
     dot: { width:'8px', height:'8px', borderRadius:'99px', marginTop:'5px', flex:'0 0 8px', background: i === 0 ? '#f59e0b' : '#334155' } as CSSProperties }));
 
   const certs = certifications.map(label => ({ label,
-    style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.71875rem', color:'#475569', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties }));
+    style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.71875rem', color:'#475569', fontFamily:'var(--font-sans)' } as CSSProperties }));
 
   const ptTenants = section === 'tenants';
   const ptUsers = section === 'users';
@@ -369,7 +369,7 @@ export default function Platform({
         <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px', flexWrap:'wrap' }}>
           <div style={{ display:'flex', flexDirection:'column', gap:'3px', minWidth:0 }}>
             <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#9a3412' }}>Impersonating {session.organization_name} as {session.impersonated_user_email}</span>
-            <span style={{ fontSize:'.6875rem', color:'#c2410c', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all' }}>
+            <span style={{ fontSize:'.6875rem', color:'#c2410c', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>
               session {session.id} · expires {expiresIn(session.expires_at)} · {session.justification}
               {session.scopes.length ? ' · scopes ' + session.scopes.join(', ') : ''}
             </span>
@@ -381,7 +381,7 @@ export default function Platform({
       <div style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0,1fr))', gap:'12px' }}>
         {platformStats.map(st => (
           <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'7px' }}>
-            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{st.label}</span>
+            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{st.label}</span>
             <span style={{ fontSize:'1.5rem', fontWeight:700, letterSpacing:'-.8px' }}>{st.value}</span>
             <span style={st.metaStyle}>{st.meta}</span>
           </div>
@@ -427,19 +427,19 @@ export default function Platform({
                         <span style={t.avatar}>{t.initials}</span>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
                           <button type="button" onClick={t.onOpen} style={{ background:'none', border:'none', padding:0, cursor:'pointer', textAlign:'left', fontSize:'.84375rem', fontWeight:600, color:'#0f172a' }}>{t.name}</button>
-                          <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{t.slug} · owner {t.owner}</span>
+                          <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{t.slug} · owner {t.owner}</span>
                         </div>
                       </div>
                     </td>
                     <td style={td}><span style={t.planPill}>{t.plan}</span></td>
                     <td style={td}>
                       <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
-                        <span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.75rem' }}>{t.seatLabel}</span>
+                        <span style={{ fontFamily:'var(--font-sans)', fontSize:'.75rem' }}>{t.seatLabel}</span>
                         <div style={{ width:'78px', height:'4px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={t.seatBar}></div></div>
                       </div>
                     </td>
-                    <td style={td}><span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.75rem' }}>{t.volume}</span></td>
-                    <td style={td}><span style={{ color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.71875rem' }}>{t.region}</span></td>
+                    <td style={td}><span style={{ fontFamily:'var(--font-sans)', fontSize:'.75rem' }}>{t.volume}</span></td>
+                    <td style={td}><span style={{ color:'#64748b', fontFamily:'var(--font-sans)', fontSize:'.71875rem' }}>{t.region}</span></td>
                     <td style={td}><span style={t.statusPill}>{t.status}</span></td>
                     <td style={tdRight}>
                       <div style={{ display:'inline-flex', gap:'6px' }}>
@@ -475,7 +475,7 @@ export default function Platform({
                   const value = overrideFor(f.key);
                   return (
                     <div key={f.key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', padding:'8px 10px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fff' }}>
-                      <span style={{ fontSize:'.75rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", minWidth:0, wordBreak:'break-all' }}>{f.key}</span>
+                      <span style={{ fontSize:'.75rem', fontFamily:'var(--font-sans)', minWidth:0, wordBreak:'break-all' }}>{f.key}</span>
                       <select value={value === null ? 'inherit' : value ? 'on' : 'off'}
                         onChange={e => setOverride(f.key, e.target.value === 'inherit' ? null : e.target.value === 'on')}
                         aria-label={'Override ' + f.key} style={selectStyle}>
@@ -492,7 +492,7 @@ export default function Platform({
                     {tenantDetail.admins.map(a => (
                       <div key={a.id} style={{ display:'flex', justifyContent:'space-between', gap:'10px', fontSize:'.75rem', padding:'6px 0', borderTop:'1px solid #f2f4f8' }}>
                         <span style={{ color:'#334155' }}>{a.name}</span>
-                        <span style={{ color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all' }}>{a.email}</span>
+                        <span style={{ color:'#64748b', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{a.email}</span>
                       </div>
                     ))}
                   </>
@@ -526,7 +526,7 @@ export default function Platform({
                 <span style={u.avatar}>{u.initials}</span>
                 <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:'1 1 180px', minWidth:'170px' }}>
                   <span style={{ fontSize:'.8125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.name}</span>
-                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.email} · {u.tenant}</span>
+                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.email} · {u.tenant}</span>
                 </div>
                 <select value={u.role} onChange={u.onRole} aria-label="Role" style={u.selectStyle}>
                   <option value="super">Super admin</option>
@@ -535,7 +535,7 @@ export default function Platform({
                   <option value="viewer">Viewer</option>
                 </select>
                 <span style={u.mfaPill}>{u.mfa}</span>
-                <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", width:'82px', textAlign:'right' }}>{u.lastActive}</span>
+                <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)', width:'82px', textAlign:'right' }}>{u.lastActive}</span>
               </div>
             )) : (
               <div style={emptyCell}>No users match these filters.</div>
@@ -553,7 +553,7 @@ export default function Platform({
                 </div>
               </div>
             )) : (<span style={emptyNote}>Permission matrix unavailable.</span>)}
-            <div style={{ display:'flex', justifyContent:'flex-end', gap:'6px', fontSize:'.625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{matrix.columnAbbrev.join(' · ')}</div>
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:'6px', fontSize:'.625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{matrix.columnAbbrev.join(' · ')}</div>
           </div>
         </div>
       ) : null}
@@ -566,20 +566,20 @@ export default function Platform({
               <select value={filters.flagEnvironment} onChange={e => pushQuery({ flagEnv: e.target.value })} aria-label="Filter by environment" style={selectStyle}>
                 {FLAG_ENV_OPTIONS.map(([id, label]) => (<option key={id} value={id}>{label}</option>))}
               </select>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>edge config · propagates in ~15s</span>
+              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>edge config · propagates in ~15s</span>
             </div>
           </div>
           {flagRows.length ? flagRows.map(f => (
             <div key={f.key} style={f.rowStyle}>
               <div style={{ display:'flex', flexDirection:'column', gap:'3px', flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
-                  <span style={{ fontSize:'.78125rem', fontWeight:600, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{f.key}</span>
+                  <span style={{ fontSize:'.78125rem', fontWeight:600, fontFamily:'var(--font-sans)' }}>{f.key}</span>
                   <span style={f.envPill}>{f.env}</span>
                 </div>
                 <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{f.desc}</span>
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:'9px' }}>
-                <span style={{ fontSize:'.6875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#475569', width:'64px', textAlign:'right' }}>{f.rolloutLabel}</span>
+                <span style={{ fontSize:'.6875rem', fontFamily:'var(--font-sans)', color:'#475569', width:'64px', textAlign:'right' }}>{f.rolloutLabel}</span>
                 <input type="range" min="0" max="100" step="5" value={f.rollout} onChange={f.onRollout} aria-label="Rollout percentage" style={{ width:'120px', accentColor:'#4f46e5' }} />
                 <button type="button" role="switch" aria-checked={f.onStr === 'true'} aria-label={f.aria} onClick={f.onToggle} style={f.switch}><span style={f.knob}></span></button>
               </div>
@@ -603,12 +603,12 @@ export default function Platform({
               <div style={{ display:'flex', flexDirection:'column', gap:'7px', borderTop:'1px solid #eef1f6', paddingTop:'11px' }}>
                 {p.lines.map(l => (
                   <div key={l.k} style={{ display:'flex', justifyContent:'space-between', fontSize:'.75rem', gap:'10px' }}>
-                    <span style={{ color:'#64748b' }}>{l.k}</span><span style={{ fontWeight:500, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{l.v}</span>
+                    <span style={{ color:'#64748b' }}>{l.k}</span><span style={{ fontWeight:500, fontFamily:'var(--font-sans)' }}>{l.v}</span>
                   </div>
                 ))}
               </div>
               <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.71875rem', color:'#475569', borderTop:'1px solid #eef1f6', paddingTop:'11px' }}>
-                <span>{p.tenantsLabel}</span><span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontWeight:600 }}>{p.mrr} MRR</span>
+                <span>{p.tenantsLabel}</span><span style={{ fontFamily:'var(--font-sans)', fontWeight:600 }}>{p.mrr} MRR</span>
               </div>
             </div>
           ))}
@@ -639,7 +639,7 @@ export default function Platform({
               <div key={r.key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', padding:'10px 11px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fbfcfd' }}>
                 <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
                   <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{r.label}</span>
-                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{r.meta}</span>
+                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{r.meta}</span>
                 </div>
                 {r.implemented ? (
                   <button type="button" role="switch" aria-checked={r.onStr === 'true'} aria-label={r.label} onClick={r.onToggle} style={r.switch}><span style={r.knob}></span></button>
@@ -651,13 +651,13 @@ export default function Platform({
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
             <div style={{ background:'#0f172a', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
-              <div style={{ fontSize:'.6875rem', letterSpacing:'.08em', color:TEXT_MUTED_ON_DARK, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>PLATFORM AUDIT STREAM</div>
+              <div style={{ fontSize:'.6875rem', letterSpacing:'.08em', color:TEXT_MUTED_ON_DARK, fontFamily:'var(--font-sans)' }}>PLATFORM AUDIT STREAM</div>
               {auditRows.length ? auditRows.map(a => (
                 <div key={a.key} style={{ display:'flex', gap:'10px', alignItems:'flex-start' }}>
                   <span style={a.dot}></span>
                   <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
                     <span style={{ fontSize:'.78125rem', color:'#e2e8f0', fontWeight:500 }}>{a.label}</span>
-                    <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all' }}>{a.meta}</span>
+                    <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{a.meta}</span>
                   </div>
                 </div>
               )) : (<span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.6 }}>No administrative actions recorded yet.</span>)}
@@ -687,14 +687,14 @@ export default function Platform({
                   : 'A short-lived token is issued for the tenant owner. The justification and the session are recorded before the token exists.'}
               </span>
             </div>
-            <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
+            <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
               {dialog.kind === 'suspend' ? 'Reason (min 3 characters)' : 'Justification (min 5 characters)'}
               <input value={reason} onChange={e => setReason(e.target.value)} autoFocus
                 placeholder={dialog.kind === 'suspend' ? 'non-payment · dunning step 4' : 'INC-4471 · signer cannot complete envelope'}
                 style={inputStyle} />
             </label>
             {dialog.kind === 'impersonate' ? (
-              <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
+              <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
                 Session lifetime
                 <select value={ttl} onChange={e => setTtl(e.target.value)} style={Object.assign({}, inputStyle, { width:'100%' })}>
                   <option value="300">5 minutes</option>

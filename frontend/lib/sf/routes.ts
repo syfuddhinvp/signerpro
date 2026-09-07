@@ -11,7 +11,7 @@ export type ScreenKey =
   | 'contacts' | 'reports' | 'billing' | 'invoices'
   | 'api' | 'sandbox' | 'guides' | 'logs' | 'support'
   | 'platformHome' | 'platform' | 'revenue'
-  | 'account';
+  | 'account' | 'notifications';
 
 export type AreaKey =
   | 'home' | 'documents' | 'contacts' | 'reports' | 'developer' | 'support'
@@ -28,7 +28,8 @@ export const SCREEN_PATH: Record<ScreenKey, string> = {
   contacts: '/contacts',
   reports: '/reports',
   billing: '/account/billing',
-  invoices: '/account/invoices',
+  /* Platform-only: the tenant's own invoices live on `/account/billing`. */
+  invoices: '/platform/invoices',
   api: '/developer/api',
   sandbox: '/developer/sandbox',
   guides: '/developer/guides',
@@ -40,15 +41,17 @@ export const SCREEN_PATH: Record<ScreenKey, string> = {
   /* The account area's landing section. Its other sections are `/account/<id>`
      and resolve to this screen key — see `screenForPath`. */
   account: '/account/profile',
+  /* Everything the header bell only shows the most recent of. Personal, like
+     the account area, and not per-tenant — a row already carries the
+     organization it was raised in. */
+  notifications: '/notifications',
 };
 
 /** Platform workspace serves some shared screens from its own subtree. */
 export const PLATFORM_ALIAS: Partial<Record<ScreenKey, string>> = {
-  invoices: '/platform/invoices',
   support: '/platform/support',
   logs: '/platform/logs',
   api: '/platform/developer',
-  reports: '/platform/reports',
 };
 
 export function pathFor(screen: ScreenKey, workspace: Workspace = 'tenant'): string {
@@ -124,13 +127,12 @@ const BY_PATH: Record<string, ScreenKey> = (() => {
 export function screenForPath(pathname: string): ScreenKey {
   const parsed = parseDocumentPath(pathname);
   if (parsed) return parsed.screen;
-  /* Exact table hits first: `/account/billing` and `/account/invoices` are
-     account sections that are their own screens, so the catch-all below must
-     not swallow them. */
+  /* Exact table hits first: `/account/billing` is an account section that is
+     its own screen, so the catch-all below must not swallow it. */
   if (BY_PATH[pathname]) return BY_PATH[pathname];
   /* Every other `/account/<section>` is the one account screen. Prefix
      matching cannot do this on its own: the table's entry is
-     `/account/profile`, which is not a prefix of `/account/teams`. */
+     `/account/profile`, which is not a prefix of `/account/organization`. */
   if (pathname === '/account' || pathname.startsWith('/account/')) return 'account';
   const hit = Object.keys(BY_PATH)
     .filter((p) => pathname === p || pathname.startsWith(p + '/'))
@@ -145,9 +147,9 @@ export function workspaceForPath(pathname: string): Workspace {
 /**
  * Which sidebar area owns each screen, per workspace.
  *
- * Two maps, not one, because five screens are shared: `invoices`, `support`,
- * `logs`, `api` and `reports` exist in both workspaces and belong to a
- * different area in each. The single map this replaced filed the platform
+ * Two maps, not one, because four screens are shared: `invoices`, `support`,
+ * `logs` and `api` exist in both workspaces and belong to a different area in
+ * each. The single map this replaced filed the platform
  * copies under `platform`, which is why Revenue, Invoices, Support and Logs
  * were each reachable from two areas with both highlighted.
  */
@@ -155,11 +157,14 @@ const TENANT_AREA: Record<ScreenKey, AreaKey> = {
   tenantHome: 'home',
   dashboard: 'documents', builder: 'documents', routing: 'documents', sign: 'documents', audit: 'documents',
   contacts: 'contacts', reports: 'reports',
-  /* Billing and invoices are account sections — see ACCOUNT_SECTIONS. */
-  billing: 'account', invoices: 'account',
+  /* Billing is an account section — see ACCOUNT_SECTIONS. */
+  billing: 'account',
+  /* Not reachable in the tenant workspace: a tenant reads its own invoices on
+     `/account/billing`. Mapped so the record is total. */
+  invoices: 'platformRevenue',
   api: 'developer', logs: 'developer', sandbox: 'developer', guides: 'developer',
   support: 'support',
-  account: 'account',
+  account: 'account', notifications: 'account',
   /* Not reachable in the tenant workspace; mapped so the record is total. */
   platformHome: 'platform', platform: 'platform', revenue: 'platformRevenue',
 };
@@ -167,12 +172,14 @@ const TENANT_AREA: Record<ScreenKey, AreaKey> = {
 const PLATFORM_AREA: Record<ScreenKey, AreaKey> = {
   platformHome: 'home', platform: 'platform',
   revenue: 'platformRevenue', invoices: 'platformRevenue', billing: 'platformRevenue',
-  reports: 'reports', support: 'support',
+  support: 'support',
   api: 'developer', logs: 'developer', sandbox: 'developer', guides: 'developer',
-  account: 'account',
-  /* Tenant-only screens, mapped so the record is total. */
+  account: 'account', notifications: 'account',
+  /* Tenant-only screens, mapped so the record is total. `reports` is one of
+     them: `/api/reports/*` is scoped to the caller's own organization and has
+     no platform aggregate, so there is no platform Reports area. */
   tenantHome: 'home', dashboard: 'documents', builder: 'documents', routing: 'documents',
-  sign: 'documents', audit: 'documents', contacts: 'contacts',
+  sign: 'documents', audit: 'documents', contacts: 'contacts', reports: 'reports',
 };
 
 export function areaForScreen(screen: ScreenKey, workspace: Workspace): AreaKey {
@@ -227,28 +234,63 @@ export function sectionPath(screen: ScreenKey, workspace: Workspace, section: st
   return base + '?' + SECTION_PARAM + '=' + encodeURIComponent(section);
 }
 
-/** `/account/teams` → `teams`; the landing section for anything else. */
+/** `/account/organization` → `organization`; `''` for a path outside the
+ *  account area. Retired section ids resolve to whatever replaced them, so a
+ *  stale URL still highlights the right sidebar row.
+ *
+ *  Paths that are not under `/account` get no section at all. Falling back to
+ *  `profile` for them lit the User profile row on every other screen in the
+ *  area — `/notifications` showed two rows active at once — which makes the
+ *  sidebar a worse answer to "where am I" than no highlight would be. Bare
+ *  `/account` keeps the landing section, because that is where it sends you. */
 export function accountSectionForPath(pathname: string): string {
+  if (pathname !== '/account' && !pathname.startsWith('/account/')) return '';
   const hit = /^\/account\/([^/]+)/.exec(pathname);
   const section = hit ? hit[1] : '';
-  return (ACCOUNT_SECTIONS as readonly string[]).indexOf(section) > -1 ? section : 'profile';
+  if ((ACCOUNT_SECTIONS as readonly string[]).indexOf(section) > -1) return section;
+  return LEGACY_ACCOUNT_SECTIONS[section] ?? 'profile';
 }
 
 export const ACCOUNT_SECTIONS = [
-  'profile', 'billing', 'invoices', 'security',
-  'notifications', 'email', 'integrations', 'cloud', 'teams', 'orgs', 'audit',
+  'profile', 'billing', 'security',
+  'notifications', 'integrations', 'organization', 'audit',
 ] as const;
 export type AccountSection = (typeof ACCOUNT_SECTIONS)[number];
 
 /**
- * The sections `AccountArea` itself renders. Billing and invoices are account
- * sections in the sidebar and in the URL, but they are full screens of their
- * own with their own server pages at `/account/billing` and
- * `/account/invoices`, so the `[section]` route must not claim them.
+ * Sections that used to exist and now resolve elsewhere.
+ *
+ * `teams` and `orgs` were two sections showing two halves of the same thing:
+ * the organization you belong to, and the teams inside it. Managing a member
+ * meant knowing which of the two owned the answer. They are one section now,
+ * and the old URLs — bookmarked, or linked from an invitation email — keep
+ * working by resolving to it.
  */
-export const ACCOUNT_AREA_SECTIONS = ACCOUNT_SECTIONS
-  .filter((s) => s !== 'billing' && s !== 'invoices');
-export type AccountAreaSection = Exclude<AccountSection, 'billing' | 'invoices'>;
+export const LEGACY_ACCOUNT_SECTIONS: Record<string, AccountSection> = {
+  teams: 'organization',
+  orgs: 'organization',
+  /* Invoices were a section of their own; they are the invoice list on the
+     billing section now, so the bookmarked URL lands on it. */
+  invoices: 'billing',
+  /* Notification switches and the email recipients they are delivered to were
+     two sections asking the same question in two places. They are one section
+     now, and the old URL resolves to it. */
+  email: 'notifications',
+  /* Cloud storage was a section listing the same connectors as Integrations,
+     one asking whether they are connected and the other where they export to.
+     Each connector now answers both on the Integrations section, and the old
+     URL resolves to it. */
+  cloud: 'integrations',
+};
+
+/**
+ * The sections `AccountArea` itself renders. Billing is an account section in
+ * the sidebar and in the URL, but it is a full screen of its own with its own
+ * server page at `/account/billing`, so the `[section]` route must not claim
+ * it.
+ */
+export const ACCOUNT_AREA_SECTIONS = ACCOUNT_SECTIONS.filter((s) => s !== 'billing');
+export type AccountAreaSection = Exclude<AccountSection, 'billing'>;
 
 export const AUTH_PATHS = {
   signin: '/login',

@@ -53,7 +53,7 @@ describe('errorForStatus', () => {
 
   it('falls back to human copy when there is no detail', () => {
     expect(errorForStatus(401, null).message).toBe('Your session has expired.');
-    expect(errorForStatus(500, null).message).toBe('The SignForge API returned an error.');
+    expect(errorForStatus(500, null).message).toBe('The SignerPro API returned an error.');
   });
 });
 
@@ -114,7 +114,7 @@ describe('requestJson transport', () => {
     const res = await requestJson('http://api/api/documents');
     if (res.ok) throw new Error('unreachable');
     expect(res.error.kind).toBe('network');
-    expect(res.error.message).toBe('The SignForge API did not respond in time.');
+    expect(res.error.message).toBe('The SignerPro API did not respond in time.');
   });
 
   it('attaches the bearer token and a JSON content-type on writes', async () => {

@@ -1,4 +1,4 @@
-/* SignForge shared style atoms — ported from the prototype app.js.
+/* SignerPro shared style atoms — ported from the prototype app.js.
  *
  * Two accessibility rules hold here, and `lib/sf/ui.a11y.test.ts` enforces them:
  *
@@ -53,8 +53,8 @@ export function pill(s: Tone): CSSProperties {
 
 /* ── shared inline styles from renderVals() ── */
 export const inputStyle: CSSProperties = { height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'.78125rem', background:'#fff', outline:'none', width:'100%', color:'#0f172a' };
-export const lbl: CSSProperties = { display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
-export const railHead: CSSProperties = { fontSize:'.6875rem', letterSpacing:'.08em', textTransform:'uppercase', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontWeight:500 };
+export const lbl: CSSProperties = { display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' };
+export const railHead: CSSProperties = { fontSize:'.6875rem', letterSpacing:'.08em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)', fontWeight:500 };
 
 export const authInput: CSSProperties = { height:'38px', border:'1px solid #dfe4ec', borderRadius:'10px', padding:'0 12px', fontSize:'.8125rem', background:'#fbfcfd', outline:'none', width:'100%', color:'#0f172a' };
 export function authPrimary(A: string): CSSProperties {
@@ -65,12 +65,12 @@ export function linkBtn(A: string): CSSProperties {
 }
 
 export const jsonBoxStyle: CSSProperties = { margin:0, padding:'12px 13px', borderRadius:'11px', background:'#0f172a', color:'#a5b4fc',
-  fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.6875rem', lineHeight:1.7, whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', maxHeight:'260px' };
+  fontFamily:'var(--font-sans)', fontSize:'.6875rem', lineHeight:1.7, whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', maxHeight:'260px' };
 
 /* recurring card / panel / table atoms */
 export const cardStyle: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' };
 export const panelStyle: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' };
-export const monoStyle: CSSProperties = { fontFamily:"'Inter', 'Google Sans Flex', sans-serif" };
+export const monoStyle: CSSProperties = { fontFamily:'var(--font-sans)' };
 export const rowDivider: CSSProperties = { borderTop:'1px solid #eef1f6' };
 export const rowDividerLight: CSSProperties = { borderTop:'1px solid #f2f4f8' };
 export const selectStyle: CSSProperties = { height:'30px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.75rem', background:'#fff', color:'#334155', outline:'none' };
@@ -113,7 +113,8 @@ export function TITLES(fieldCount: number, isPlat: boolean): { [k: string]: [str
       support: [isPlat ? 'Support queue' : 'Support', isPlat ? 'All tenant tickets · SLA, priority, assignment and internal notes' : 'Your tickets and conversations with support'],
       logs: [isPlat ? 'Platform logs' : 'Activity logs', isPlat ? 'API, webhook, auth, billing and admin events across tenants' : 'API, webhook, auth and signing events'],
       audit: ['Audit trail & certificate', 'Event log for this document'],
-      account: ['My account', 'Profile, security, notifications, teams and organizations']
+      account: ['My account', 'Profile, security, notifications, teams and organizations'],
+      notifications: ['Notifications', 'Everything raised on your envelopes, billing and support']
   };
 }
 

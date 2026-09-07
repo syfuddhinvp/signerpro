@@ -10,9 +10,9 @@ import { isSealedStatus } from './sealed';
 import { sidebarGroups, type NavContext } from './navigation';
 
 const ctx = (sealed: boolean): NavContext => ({
-  workspace: 'tenant', area: 'documents', screen: 'audit', section: '', folder: 'documents',
+  workspace: 'tenant', area: 'documents', screen: 'audit', role: 'admin', section: '', folder: 'documents',
   documentId: 'doc-1', accountSection: '', documentSealed: sealed,
-  counts: { quick: null, folders: null, invoices: null, logs: null, tickets: null },
+  counts: { quick: null, folders: null, invoices: null, logs: null, tickets: null, notifications: null },
   folders: [],
 });
 

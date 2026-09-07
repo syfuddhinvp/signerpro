@@ -133,7 +133,7 @@ FEATURE_FLAG_DEFAULTS: list[dict[str, Any]] = [
     {
         "key": "api.bulk_send_v3",
         "environment": "staging",
-        "description": "Bulk send endpoint accepting 10k-row CSV merges with per-row merge tags.",
+        "description": "Bulk send endpoint accepting a 10k-row CSV, one envelope per row.",
         "enabled": False,
         "rollout_pct": 10,
     },

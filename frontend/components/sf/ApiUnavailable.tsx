@@ -45,7 +45,7 @@ export default function ApiUnavailable({ what, detail, onRetry }: ApiUnavailable
   return (
     <div role="alert" style={bannerStyle}>
       <span>
-        <strong>Can&rsquo;t reach the SignForge API.</strong>{' '}
+        <strong>Can&rsquo;t reach the SignerPro API.</strong>{' '}
         {what} could not be loaded, so anything shown below is stale or blank — not a measurement.
         {detail ? <span style={{ color: TEXT_SUBTLE }}> ({detail})</span> : null}
       </span>

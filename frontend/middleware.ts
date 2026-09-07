@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, mayActAsPlatformAdmin, readEdgeSession, type EdgeSession } from '@/lib/auth/edge';
 import { sessionCookieOptions } from '@/lib/auth/cookie';
 import { refreshSession } from '@/lib/auth/refresh';
+import { pathAllowed } from '@/lib/auth/access';
 
 /**
  * Route protection and access-token rotation.
@@ -63,6 +64,13 @@ export async function middleware(request: NextRequest) {
   }
 
   if ((pathname === '/platform' || pathname.startsWith('/platform/')) && !mayActAsPlatformAdmin(current)) {
+    return NextResponse.redirect(new URL('/overview', request.url));
+  }
+
+  // A sender's tree is smaller than an admin's (see `lib/auth/access.ts`).
+  // The sidebar hides what they may not use; this is what makes a typed-in
+  // `/reports` or `/account/billing` bounce instead of render.
+  if (!pathAllowed(pathname, current.envelope.u.role)) {
     return NextResponse.redirect(new URL('/overview', request.url));
   }
 

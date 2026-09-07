@@ -33,7 +33,6 @@ class FieldCreate(BaseModel):
     validation: ValidationKind = "none"
     validation_pattern: str | None = PydanticField(default=None, max_length=255)
     condition: FieldCondition | None = None
-    merge_tag: str | None = PydanticField(default=None, max_length=120)
     read_only: bool = False
 
     @field_validator("x", "y", "width", "height")
@@ -59,7 +58,6 @@ class FieldUpdate(BaseModel):
     validation: ValidationKind | None = None
     validation_pattern: str | None = PydanticField(default=None, max_length=255)
     condition: FieldCondition | None = None
-    merge_tag: str | None = PydanticField(default=None, max_length=120)
     read_only: bool | None = None
 
     @field_validator("x", "y", "width", "height")
@@ -92,7 +90,6 @@ class FieldResponse(BaseModel):
     validation: str
     validation_pattern: str | None
     condition: dict[str, Any] | None
-    merge_tag: str | None
     read_only: bool
     created_at: datetime
     updated_at: datetime

@@ -88,7 +88,7 @@ async function forward(request: Request, segments: string[]): Promise<Response> 
     upstream = await fetch(target, { method, headers, body, cache: 'no-store' });
   } catch {
     return NextResponse.json(
-      { detail: `Cannot reach the SignForge API at ${target}.` },
+      { detail: `Cannot reach the SignerPro API at ${target}.` },
       { status: 503, headers: { [REQUEST_ID_HEADER]: requestId } },
     );
   }

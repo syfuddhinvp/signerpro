@@ -27,7 +27,7 @@ import {
 } from '@/lib/sf/adapters';
 import type { PlatformOverview } from '@/lib/api/types';
 
-export const metadata: Metadata = { title: 'Platform · SignForge' };
+export const metadata: Metadata = { title: 'Platform · SignerPro' };
 
 const EMPTY_OVERVIEW: PlatformOverview = {
   tenants: { total: 0, trial: 0, suspended: 0, active: 0 },

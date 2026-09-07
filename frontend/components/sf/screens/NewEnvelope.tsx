@@ -38,7 +38,7 @@ export default function NewEnvelope({ draftId }: { draftId: string | null }) {
           recipients and fields to — nothing is sent until you send it.
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
-          <UploadDocument label="Choose a PDF" />
+          <UploadDocument label="Choose a file" />
           <Link href={folderHref('templates')} style={linkStyle}>Start from a template</Link>
         </div>
       </div>

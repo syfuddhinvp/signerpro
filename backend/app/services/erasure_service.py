@@ -48,6 +48,7 @@ from app.models.recipient import Recipient
 from app.models.saved_signature import SavedSignature
 from app.models.user import User
 from app.models.user_session import UserSession
+from app.services.account_service import account_service
 
 #: Documents whose recipient rows are still editable. Anything else is a record
 #: of something that actually happened and is retained.
@@ -113,6 +114,12 @@ class ErasureService:
         user.name = REDACTED_NAME
         user.email = _tombstone_email(user.id)
         user.avatar_url = None
+        # A face is personal data: the uploaded photo goes with the record.
+        # The object is dropped directly rather than through
+        # `AccountService.clear_avatar`, which would commit mid-erasure.
+        if user.avatar_path:
+            account_service._discard_avatar_object(user.avatar_path)
+            user.avatar_path = None
         user.mfa_secret = None
         user.mfa_recovery_codes = None
         user.status = "erased"

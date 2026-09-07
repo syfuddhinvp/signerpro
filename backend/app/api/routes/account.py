@@ -4,7 +4,10 @@ Paths follow INTEGRATION_PLAN.md: ``/api/me/*`` for per-user settings and
 ``/api/integrations/*`` for the organization's connected apps.
 """
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_org_admin
@@ -12,8 +15,11 @@ from app.core.database import get_db
 from app.models.user import User
 from app.schemas.account import (
     AccountAuditFeed,
+    AvatarUpdate,
     CloudTargetItem,
     CloudTargetsUpdate,
+    FieldFavoritesResponse,
+    FieldFavoritesUpdate,
     IntegrationConnectRequest,
     IntegrationResponse,
     NotificationPreferenceResponse,
@@ -46,6 +52,35 @@ def update_me(
     return auth_service.update_profile(db, user=user, payload=payload)
 
 
+@router.put("/api/me/avatar", response_model=CurrentUserResponse)
+def upload_avatar(
+    payload: AvatarUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CurrentUserResponse:
+    account_service.set_avatar(db, user=user, image_base64=payload.image_base64)
+    return auth_service.current_user_payload(db, user)
+
+
+@router.delete("/api/me/avatar", response_model=CurrentUserResponse)
+def delete_avatar(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> CurrentUserResponse:
+    account_service.clear_avatar(db, user=user)
+    return auth_service.current_user_payload(db, user)
+
+
+@router.get("/api/me/avatar")
+def read_avatar_image(user: User = Depends(get_current_user)) -> StreamingResponse:
+    """Stream the signed-in user's uploaded photo (see `read_signature_image`)."""
+    stream, media_type = account_service.open_avatar_image(user=user)
+    return StreamingResponse(
+        stream,
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
 # --- saved signatures (SIGN-3) ----------------------------------------------
 
 
@@ -63,6 +98,39 @@ def create_signature(
     user: User = Depends(get_current_user),
 ) -> SavedSignatureResponse:
     return account_service.create_signature(db, user=user, payload=payload)
+
+
+@router.get("/api/me/signatures/{signature_id}/image")
+def read_signature_image(
+    signature_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Stream a drawn or uploaded signature's image.
+
+    Served through the API rather than as a presigned object URL: a signature
+    image is the visual form of someone's name, and a presigned URL is a
+    bearer credential that works for anyone who gets hold of it. This route
+    checks ownership on every request and works the same on either storage
+    backend.
+    """
+    stream, media_type = account_service.open_signature_image(db, user=user, signature_id=signature_id)
+    return StreamingResponse(
+        stream,
+        media_type=media_type,
+        # Private: a shared cache must never hand one account's signature to
+        # another. Revalidating keeps a re-adopted signature from sticking.
+        headers={"Cache-Control": "private, no-cache"},
+    )
+
+
+@router.post("/api/me/signatures/{signature_id}/default", response_model=list[SavedSignatureResponse])
+def set_default_signature(
+    signature_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[SavedSignatureResponse]:
+    return account_service.set_default_signature(db, user=user, signature_id=signature_id)
 
 
 @router.delete("/api/me/signatures/{signature_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -94,6 +162,25 @@ def update_notification_preferences(
     return account_service.update_notification_preferences(db, user=user, payload=payload)
 
 
+# --- builder palette favourites ---------------------------------------------
+
+
+@router.get("/api/me/field-favorites", response_model=FieldFavoritesResponse)
+def read_field_favorites(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> FieldFavoritesResponse:
+    return account_service.list_field_favorites(db, user=user)
+
+
+@router.put("/api/me/field-favorites", response_model=FieldFavoritesResponse)
+def write_field_favorites(
+    payload: FieldFavoritesUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FieldFavoritesResponse:
+    return account_service.update_field_favorites(db, user=user, payload=payload)
+
+
 # --- account audit trail -----------------------------------------------------
 
 
@@ -101,10 +188,29 @@ def update_notification_preferences(
 def account_audit_trail(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None, max_length=200),
+    event_type: str | None = Query(default=None, max_length=80),
+    actor: str | None = Query(default=None, max_length=320),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    sort_by: str = Query(default="time", pattern="^(time|action|document|actor)$"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> AccountAuditFeed:
-    return account_service.audit_feed(db, user=user, limit=limit, offset=offset)
+    return account_service.audit_feed(
+        db,
+        user=user,
+        limit=limit,
+        offset=offset,
+        search=search,
+        event_type=event_type,
+        actor=actor,
+        date_from=date_from,
+        date_to=date_to,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
 
 
 # --- integrations (PREF-3) ---------------------------------------------------

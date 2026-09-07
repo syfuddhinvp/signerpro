@@ -67,7 +67,7 @@ def describe() -> str:
     return LEVEL_PADES if is_configured() else LEVEL_NONE
 
 
-def seal(pdf_bytes: bytes, *, field_name: str = "SignForgeSeal") -> SealResult:
+def seal(pdf_bytes: bytes, *, field_name: str = "SignerProSeal") -> SealResult:
     """Apply a PAdES signature if one is configured; otherwise pass through.
 
     Never raises on a signing failure at completion time. A signer finishing a

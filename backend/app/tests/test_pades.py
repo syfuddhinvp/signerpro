@@ -21,7 +21,7 @@ def self_signed_p12(tmp_path: Path) -> Path:
     bundle = tmp_path / "bundle.p12"
     subprocess.run(
         ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", str(key),
-         "-out", str(cert), "-days", "1", "-nodes", "-subj", "/CN=SignForge Test"],
+         "-out", str(cert), "-days", "1", "-nodes", "-subj", "/CN=SignerPro Test"],
         check=True, capture_output=True,
     )
     subprocess.run(
@@ -74,7 +74,7 @@ def test_with_a_certificate_the_pdf_carries_a_real_signature(monkeypatch, self_s
     reader = PdfFileReader(BytesIO(result.pdf))
     assert len(reader.embedded_signatures) == 1
     embedded = reader.embedded_signatures[0]
-    assert embedded.field_name == "SignForgeSeal"
+    assert embedded.field_name == "SignerProSeal"
     # The signature covers the document: tampering must be detectable, which is
     # the only reason to apply one at all.
     assert embedded.signed_data is not None

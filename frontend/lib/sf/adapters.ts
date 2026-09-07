@@ -1,7 +1,7 @@
 /**
  * API shape → prototype shape.
  *
- * The ported SignForge components must NOT change, so every difference between
+ * The ported SignerPro components must NOT change, so every difference between
  * the FastAPI response and what a component already reads is absorbed here.
  * These are pure functions: no React, no fetching, no `lib/api/client` import
  * (so they are safe in both server and client bundles).
@@ -407,8 +407,11 @@ export type LibraryFilters = {
   status: string;
   /** `s.libType` — `all | agreement | nda | order | hr`. */
   type: string;
-  /** `s.libTime` — `all | 7 | 30 | 90`. */
+  /** `s.libTime` — `all | 7 | 30 | 90 | custom`. `custom` reads `from`/`to`. */
   time: string;
+  /** Inclusive `YYYY-MM-DD` bounds, honoured only when `time` is `custom`. */
+  from: string;
+  to: string;
   /** `s.libOwner` — `all | me | team | shared`. */
   owner: string;
   /** `s.query` — the search box. */
@@ -418,12 +421,14 @@ export type LibraryFilters = {
 };
 
 export const LIBRARY_FILTER_DEFAULTS: LibraryFilters = {
-  folder: 'documents', status: 'all', type: 'all', time: 'all', owner: 'all', q: '', sort: 'recent',
+  folder: 'documents', status: 'all', type: 'all', time: 'all', from: '', to: '',
+  owner: 'all', q: '', sort: 'recent',
 };
 
 /** The URL query key each filter is carried on. Short, and stable. */
 export const LIBRARY_QUERY_KEYS: Record<keyof LibraryFilters, string> = {
-  folder: 'folder', status: 'status', type: 'type', time: 'time', owner: 'owner', q: 'q', sort: 'sort',
+  folder: 'folder', status: 'status', type: 'type', time: 'time', from: 'from', to: 'to',
+  owner: 'owner', q: 'q', sort: 'sort',
 };
 
 /** `?folder=archive&status=draft…` → `LibraryFilters`, defaults filled in. */
@@ -490,6 +495,13 @@ export function libStatusToApiStatus(bucket: string): DocumentStatus | undefined
   return LIB_STATUS_TO_API[bucket];
 }
 
+/** A `YYYY-MM-DD` the API will accept — the date inputs can hold a partial value. */
+function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value + 'T00:00:00Z');
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 /** `LibraryFilters` → `GET /api/documents/library` params. */
 export function toLibraryParams(filters: LibraryFilters, limit: number, offset = 0): DocumentLibraryParams {
   const folder = filters.folder || 'documents';
@@ -502,8 +514,15 @@ export function toLibraryParams(filters: LibraryFilters, limit: number, offset =
   const status = libStatusToApiStatus(filters.status);
   if (status) params.status = status;
   if (filters.type && filters.type !== 'all') params.doc_type = filters.type;
-  const sinceDays = Number(filters.time);
-  if (Number.isFinite(sinceDays) && sinceDays > 0) params.since_days = sinceDays;
+  /* A custom range and a rolling window are the same question asked two ways,
+     so only one of them is ever sent. */
+  if (filters.time === 'custom') {
+    if (isIsoDate(filters.from)) params.updated_from = filters.from;
+    if (isIsoDate(filters.to)) params.updated_to = filters.to;
+  } else {
+    const sinceDays = Number(filters.time);
+    if (Number.isFinite(sinceDays) && sinceDays > 0) params.since_days = sinceDays;
+  }
   if (filters.owner && filters.owner !== 'all') params.owner = filters.owner;
   const needle = (filters.q || '').trim();
   if (needle) params.q = needle;
@@ -592,9 +611,9 @@ const ptFromPx = (px: number): number => Number(Number(px).toFixed(4));
  * The prototype's palette (`TYPES` in data.ts) and the backend's `FieldType`
  * enum, in both directions.
  *
- * `stamp`, `attachment`, `formula` and `datetime` used to be flattened to
- * `text`/`date` here even though the API models all four (audit §4, field-type
- * matrix). That flattening is what kept `attachment` fields unreachable: the
+ * `stamp`, `attachment` and `datetime` used to be flattened to `text`/`date`
+ * here even though the API models all three (audit §4, field-type matrix).
+ * That flattening is what kept `attachment` fields unreachable: the
  * signing surface picks the upload control off the stored type, so a field
  * saved as `text` could never offer one. `toBuilderField`
  * remembers the row's real API type in the extras record below, so a field the
@@ -616,8 +635,9 @@ const API_FIELD_TYPE: Dict<ApiFieldType> = {
   currency: 'currency',
   stamp: 'stamp',
   attachment: 'attachment',
-  formula: 'formula',
   datetime: 'datetime',
+  textbox: 'textbox',
+  drawing: 'drawing',
 };
 
 const BUILDER_FIELD_TYPE: Record<ApiFieldType, string> = {
@@ -638,8 +658,9 @@ const BUILDER_FIELD_TYPE: Record<ApiFieldType, string> = {
   radio: 'radio',
   stamp: 'stamp',
   attachment: 'attachment',
-  formula: 'formula',
   datetime: 'datetime',
+  textbox: 'textbox',
+  drawing: 'drawing',
 };
 
 export function builderFieldType(apiType: string): string {
@@ -706,7 +727,6 @@ export function toBuilderField(api: FieldResponse): SFField {
     cond: condition && condition.field_id
       ? { field: condition.field_id, op: condition.op || 'checked', value: condition.value == null ? '' : String(condition.value) }
       : null,
-    merge: api.merge_tag ?? '',
   };
 }
 
@@ -760,7 +780,6 @@ export function toFieldBulkItem(
       ? (extras && extras.validationPattern ? extras.validationPattern : DEFAULT_CUSTOM_PATTERN)
       : null,
     condition,
-    merge_tag: field.merge ? field.merge : null,
     read_only: field.readOnly === true,
   };
   if (opts && opts.includeId) item.id = field.id;
@@ -1099,7 +1118,6 @@ export function toSignerField(api: FieldResponse): SignerField {
     placeholder: api.placeholder ?? '',
     validation: api.validation || 'none',
     cond: fieldCondition(api.condition),
-    merge: api.merge_tag ?? '',
     apiType: api.type,
     options: fieldOptions(api.options),
     savedValue: api.value,
@@ -1318,7 +1336,7 @@ export type SupportTicketRow = {
 export function toSupportMessages(items: TicketMessageResponse[]): SupportMessageRow[] {
   return items.map(message => ({
     author: message.author_name,
-    role: message.is_staff ? 'Support engineer · SignForge' : 'Requester',
+    role: message.is_staff ? 'Support engineer · SignerPro' : 'Requester',
     ts: formatDateTimeShort(message.created_at),
     internal: message.is_internal === true,
     side: message.is_staff ? 'agent' : 'customer',
@@ -1721,8 +1739,8 @@ export function attentionHref(screen: string): string {
     reports: '/reports',
     billing: '/account/billing',
     'settings/billing': '/account/billing',
-    invoices: '/account/invoices',
-    'billing/invoices': '/account/invoices',
+    invoices: '/account/billing',
+    'billing/invoices': '/account/billing',
     support: '/support',
     'settings/team': '/account/billing',
     'settings/security': '/account/billing',

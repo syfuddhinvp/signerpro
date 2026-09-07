@@ -1,4 +1,6 @@
-/* SignForge design data — ported verbatim from the prototype app.js. */
+/* SignerPro design data — ported verbatim from the prototype app.js. */
+import { pathAllowed } from '@/lib/auth/access';
+import { pathFor, type ScreenKey } from './routes';
 
 export type Dict<T = any> = { [k: string]: T };
 export type Tone = { bg: string; fg: string; bd: string };
@@ -13,11 +15,7 @@ export const ACCENT_DEFAULT = '#4f46e5';
  * `note` is a warning the inspector renders for a type the product does not
  * fully implement yet. Nothing carries one today.
  *
- * `formula` and `currency` were withdrawn for a while because neither did what
- * its label promised. Both are back, and both now mean it: a formula is
- * evaluated server-side from the other fields' merge tags
- * (`backend/app/services/formula_service.py`), and currency is parsed and
- * normalised to two decimal places, rejecting anything that is not an amount.
+ * `currency` is not offered here — see `RETIRED_TYPES`.
  */
 export const TYPES: { id: string; label: string; icon: string; w: number; h: number; note?: string }[] =[
     { id:'signature', label:'Signature', icon:'S', w:200, h:56 },
@@ -32,9 +30,12 @@ export const TYPES: { id: string; label: string; icon: string; w: number; h: num
     { id:'stamp', label:'Stamp', icon:'✦', w:112, h:112 },
     { id:'attachment', label:'Attachment', icon:'⇪', w:196, h:64 },
     { id:'number', label:'Number', icon:'#', w:140, h:40 },
-    { id:'currency', label:'Currency', icon:'$', w:160, h:40 },
-    { id:'formula', label:'Calculated', icon:'fx', w:176, h:40 },
-    { id:'datetime', label:'Date and Time', icon:'D+', w:196, h:40 }
+    { id:'datetime', label:'Date and Time', icon:'D+', w:196, h:40 },
+    // ANN-1: the sender's own marks. Unlike every entry above, these are not
+    // something a recipient fills in — they are drawn onto the page and burned
+    // into the final PDF. `lib/sf/annotations.ts` holds what they carry.
+    { id:'textbox', label:'Text Box', icon:'Tx', w:220, h:44 },
+    { id:'drawing', label:'Pen Drawing', icon:'✎', w:220, h:120 }
   ];
 
 /**
@@ -43,13 +44,13 @@ export const TYPES: { id: string; label: string; icon: string; w: number; h: num
  * field keeps its own label and default size instead of silently resolving to
  * `TYPES[0]` and describing itself as a Signature.
  *
- * Empty today: `formula` and `currency` were the only two, and both have been
- * implemented and returned to the palette. Kept as a mechanism because it is
- * the honest way to withdraw a type without stranding fields already authored
- * as it — `metaOf` resolves from here so a legacy field keeps its own label and
- * size instead of silently describing itself as a Signature.
+ * `currency` lives here: it remains implemented end to end (parsed and
+ * normalised to two decimal places by
+ * `backend/app/services/currency_service.py`), so documents already authored
+ * with it keep working — it is simply no longer offered to new authors.
  */
 export const RETIRED_TYPES: { id: string; label: string; icon: string; w: number; h: number; note?: string }[] = [
+  { id:'currency', label:'Currency', icon:'$', w:160, h:40 }
 ];
 
 export const RECIPIENTS: { id: string; name: string; email: string; role: string; color: string; order: number; status: string }[] =[
@@ -106,7 +107,29 @@ export type TourStep = {
    * back to the active screen root, then to a docked card with no spotlight.
    */
   target: string | null;
+  /**
+   * Steps about the super-admin workspace. Only platform admins can reach
+   * `/platform` — everyone else is redirected to `/overview` by the route's
+   * own guard — so for a tenant user the step would never arrive, and its
+   * copy would describe a screen they are not allowed to see.
+   */
+  platformOnly?: boolean;
 };
+
+/**
+ * The steps this session can actually walk. Filtering here rather than in the
+ * component is what keeps "Step n of m" and the dots honest: a tenant user is
+ * told the tour is eleven steps long because for them it is.
+ */
+export function tourSteps(isPlatformAdmin: boolean, role?: string): TourStep[] {
+  return TOUR.filter(step => {
+    if (step.platformOnly && !isPlatformAdmin) return false;
+    /* Same reason as `platformOnly`, for the tenant roles: a sender is
+       redirected away from Reports, Billing and Developer, so a step that
+       navigates there would land them back on Home mid-tour. */
+    return pathAllowed(pathFor(step.screen as ScreenKey, step.ws), role);
+  });
+}
 
 export const TOUR: TourStep[] = [
     { title:'One sidebar, one tree', body:'Everything lives in a single sidebar. The top level is your product areas — Home, Documents, Contacts, Reports, Billing, Developer and Support — and each owns its own screens, so nothing is reachable from two places at once.',
@@ -132,13 +155,13 @@ export const TOUR: TourStep[] = [
     { title:'Support, both sides', body:'Tenants raise tickets with SLA-aware priorities; the platform queue adds assignment, escalation and internal notes that stay invisible to the customer.',
       ws:'tenant', screen:'support', target:null },
     { title:'The platform workspace', body:'Switch to super admin for tenants, impersonation, roles, feature flags, revenue and Stripe payouts, cross-tenant invoices, logs and security posture.',
-      ws:'platform', screen:'platformHome', target:'[data-tour="workspace"]' }
+      ws:'platform', screen:'platformHome', target:'[data-tour="workspace"]', platformOnly:true }
   ];
 
 export const DOCS_PAGES: Dict<{ title: string; lede: string; sections: { h: string; p?: string; code?: string; items?: string[] }[] }> ={
     quickstart: { title:'Quickstart guide', lede:'Send your first envelope in about ten minutes — create a key, upload a document, place fields, invite a signer.',
       sections:[
-        { h:'1 · Create an API key', p:'Keys are scoped per environment. Test keys never send real email and never charge a card.', code:'curl https://api.signforge.com/v1/keys \\\n  -H "Authorization: Bearer sk_test_…" \\\n  -d label="Quickstart" -d mode=test' },
+        { h:'1 · Create an API key', p:'Keys are scoped per environment. Test keys never send real email and never charge a card.', code:'curl https://api.signerpro.com/v1/keys \\\n  -H "Authorization: Bearer sk_test_…" \\\n  -d label="Quickstart" -d mode=test' },
         { h:'2 · Upload a document', p:'Upload a PDF or reference a template. The response returns page dimensions you need for field placement.', code:'POST /v1/documents\n{\n  "title": "Master Services Agreement",\n  "file_url": "https://files.acme.io/msa.pdf",\n  "external_id": "hostcrm:deal_8842"\n}' },
         { h:'3 · Place fields', p:'Coordinates are in points from the top-left of each page. Snap to an 8-point grid to match the builder.', code:'POST /v1/documents/{id}/fields\n{\n  "fields": [\n    { "type": "signature", "page": 1, "x": 96, "y": 600, "w": 200, "h": 56, "recipient": "ct1", "required": true },\n    { "type": "date", "page": 1, "x": 328, "y": 600, "w": 152, "h": 40, "recipient": "ct1" }\n  ]\n}' },
         { h:'4 · Invite signers', p:'Sequential routing notifies recipient 2 only after recipient 1 completes. Parallel notifies everyone at once.', code:'POST /v1/documents/{id}/invite\n{\n  "routing": "sequential",\n  "recipients": [\n    { "contact_id": "ct1", "role": "sign", "order": 1 },\n    { "contact_id": "ct2", "role": "approve", "order": 2 }\n  ],\n  "reminders": "48h",\n  "expires_in_days": 14\n}' },
@@ -146,27 +169,27 @@ export const DOCS_PAGES: Dict<{ title: string; lede: string; sections: { h: stri
       ] },
     reference: { title:'API reference', lede:'REST over HTTPS, JSON in and out, cursor pagination, idempotency keys on every write.',
       sections:[
-        { h:'Base URL and auth', p:'All requests require a bearer key. Keys carry scopes; a 403 lists the scope you are missing.', code:'https://api.signforge.com/v1\nAuthorization: Bearer sk_live_…\nIdempotency-Key: 8f2c41ab' },
+        { h:'Base URL and auth', p:'All requests require a bearer key. Keys carry scopes; a 403 lists the scope you are missing.', code:'https://api.signerpro.com/v1\nAuthorization: Bearer sk_live_…\nIdempotency-Key: 8f2c41ab' },
         { h:'Resources', items:['GET /v1/users — tenant users with role and MFA state','GET /v1/contacts — address book, writable with contacts:write','GET /v1/documents — envelopes with recipients and progress','POST /v1/documents/{id}/invite — start routing','GET /v1/documents/{id}/audit — tamper-evident log','GET /v1/documents/{id}/certificate — sealed PDF','POST /v1/embed/sessions — origin-locked embed token','GET /v1/templates — template inventory'] },
         { h:'Pagination', p:'Cursor based. Pass the last id as starting_after; has_more tells you when to stop.', code:'GET /v1/documents?limit=50&starting_after=ENV-2291-KD' },
-        { h:'Errors', p:'Errors return a stable code plus a human message. 429 includes retry_after in seconds.', code:'{\n  "error": {\n    "code": "merge_unresolved",\n    "message": "Merge tag {{client.name}} has no value",\n    "field": "f3"\n  }\n}' }
+        { h:'Errors', p:'Errors return a stable code plus a human message. 429 includes retry_after in seconds.', code:'{\n  "error": {\n    "code": "field_required",\n    "message": "Field \'Printed name\' has no value",\n    "field": "f3"\n  }\n}' }
       ] },
-    embed: { title:'Embedding SignForge', lede:'Run preparation and signing inside your own application with an origin-locked session.',
+    embed: { title:'Embedding SignerPro', lede:'Run preparation and signing inside your own application with an origin-locked session.',
       sections:[
         { h:'Mint a session server-side', p:'Never expose a secret key to the browser. Create the session on your server and pass only the session id to the client.', code:'POST /v1/embed/sessions\n{\n  "landing": "builder",\n  "document": { "template_id": "TPL-014", "external_id": "hostcrm:deal_8842" },\n  "contacts": ["ct1", "ct2"],\n  "return_url": "https://app.hostcrm.com/deals/8842"\n}' },
-        { h:'Mount the iframe', p:'The helper handles resizing, focus and postMessage events for you.', code:'SignForge.mount("#agreement", {\n  session: "es_example",\n  onComplete: (envelope) => host.save(envelope.id),\n  onCancel: () => host.close()\n});' },
+        { h:'Mount the iframe', p:'The helper handles resizing, focus and postMessage events for you.', code:'SignerPro.mount("#agreement", {\n  session: "es_example",\n  onComplete: (envelope) => host.save(envelope.id),\n  onCancel: () => host.close()\n});' },
         { h:'Allowed origins', p:'Sessions are rejected unless the parent frame origin is on the allow-list configured under Apps & keys.' }
       ] },
     webhooks: { title:'Webhooks', lede:'Signed, retried, replayable event delivery.',
       sections:[
-        { h:'Verify the signature', p:'Compute an HMAC of the raw body with your endpoint secret and compare in constant time.', code:'const sig = req.headers["signforge-signature"];\nconst expected = hmacSha256(rawBody, endpointSecret);\nif (!timingSafeEqual(sig, expected)) return res.status(400).end();' },
+        { h:'Verify the signature', p:'Compute an HMAC of the raw body with your endpoint secret and compare in constant time.', code:'const sig = req.headers["signerpro-signature"];\nconst expected = hmacSha256(rawBody, endpointSecret);\nif (!timingSafeEqual(sig, expected)) return res.status(400).end();' },
         { h:'Retry schedule', items:['Immediately','+30 seconds','+5 minutes','+1 hour','+6 hours, then the endpoint is marked failing'] },
         { h:'Idempotency', p:'Every delivery carries a stable event id. Store processed ids — retries repeat the same id.' }
       ] },
     sdks: { title:'SDKs & sample apps', lede:'Official clients for TypeScript, Python, PHP, Go and Java, plus runnable examples.',
       sections:[
-        { h:'Install', code:'npm i @signforge/node\npip install signforge\ncomposer require signforge/signforge-php' },
-        { h:'TypeScript', code:'import { SignForge } from "@signforge/node";\n\nconst sf = new SignForge(process.env.SIGNFORGE_KEY);\nconst env = await sf.documents.create({\n  title: "MSA — Acme",\n  templateId: "TPL-014"\n});\nawait sf.documents.invite(env.id, { recipients: [{ contactId: "ct1", role: "sign" }] });' },
+        { h:'Install', code:'npm i @signerpro/node\npip install signerpro\ncomposer require signerpro/signerpro-php' },
+        { h:'TypeScript', code:'import { SignerPro } from "@signerpro/node";\n\nconst sf = new SignerPro(process.env.SIGNERPRO_KEY);\nconst env = await sf.documents.create({\n  title: "MSA — Acme",\n  templateId: "TPL-014"\n});\nawait sf.documents.invite(env.id, { recipients: [{ contactId: "ct1", role: "sign" }] });' },
         { h:'Sample apps', items:['Next.js — embedded builder with App Router server actions','Laravel — queue-driven bulk send from CSV','NestJS — webhook receiver with signature verification','Postman collection — every endpoint with environment variables'] }
       ] },
     migration: { title:'Migration guide', lede:'Move templates, contacts and completed archives from another provider.',
@@ -180,7 +203,6 @@ export const DOCS_PAGES: Dict<{ title: string; lede: string; sections: { h: stri
 /* ── field inspector ── */
 
 export const VALIDATION_REGEX_MAP: Dict<string> ={ none:'— no pattern enforced —', email:'^[^@\\s]+@[^@\\s]+\\.[a-z]{2,}$', date:'^(0[1-9]|1[0-2])/(0[1-9]|[12]\\d|3[01])/\\d{4}$', numeric:'^-?\\d+(\\.\\d+)?$', custom:'^[A-Z]{3}-\\d{4}$' };
-export const MERGE_SUGGESTIONS: string[] = ['{{client.name}}','{{client.email}}','{{contract.amount}}','{{contract.signedAt}}'];
 export const ROLE_WORDS: Dict<string> = { sign:'Needs to sign', approve:'Approver', copy:'Receives a copy', inperson:'In-person signer' };
 
 /* ── dashboard / library ── */
@@ -203,7 +225,7 @@ export const LIB_FOLDERS: [string, string, string][] = [
 export const LIB_FILTER_DEFS: [string, [string, string][]][] = [
   ['libStatus', [['all','All statuses'],['action','Action required'],['waiting','Waiting for others'],['completed','Completed'],['draft','Drafts'],['voided','Voided']]],
   ['libType', [['all','All types'],['agreement','Agreements'],['nda','NDAs'],['order','Order forms'],['hr','HR documents']]],
-  ['libTime', [['all','All time'],['7','Last 7 days'],['30','Last 30 days'],['90','Last quarter']]],
+  ['libTime', [['all','All time'],['7','Last 7 days'],['30','Last 30 days'],['90','Last quarter'],['custom','Custom range…']]],
   ['libOwner', [['all','All owners'],['me','Owned by me'],['team','My team'],['shared','Shared with me']]]
 ];
 export const LIB_SORT_OPTIONS: [string, string][] = [['recent','Recent'],['name','Name'],['status','Status'],['owner','Owner']];
@@ -224,7 +246,7 @@ export const PLATFORM_TABS: [string, string][] = [['tenants','Tenants'],['users'
 export const FLAG_META: Dict<[string, string]> ={
       'signing.passkey_reuse': ['prod', 'One-click re-use of a device-bound signature for authenticated signers.'],
       'builder.conditional_logic_v2': ['prod', 'Nested conditional rules with multi-trigger AND/OR groups in the field inspector.'],
-      'api.bulk_send_v3': ['staging', 'Bulk send endpoint accepting 10k-row CSV merges with per-row merge tags.'],
+      'api.bulk_send_v3': ['staging', 'Bulk send endpoint accepting a 10k-row CSV, one envelope per row.'],
       'audit.ledger_anchoring': ['prod', 'Hourly anchoring of document hashes to the append-only verification ledger.'],
       'signing.ai_clause_summary': ['canary', 'Plain-language clause summary shown to signers before execution.']
     };
@@ -269,7 +291,7 @@ export const CONTACT_PALETTE: string[] = ['#10b981','#6366f1','#f59e0b','#0ea5e9
    it as their own directory. */
 export const API_DEFS: Dict<{ method: string; path: string; desc: string; params: [string, string, string][]; sample: string }> ={
       users: { method:'GET', path:'/v1/users?limit=25&status=active',
-        desc:'Returns every user in the authenticated tenant with role, MFA state and last activity. Use this to map host-application accounts to SignForge identities before launching an embed session.',
+        desc:'Returns every user in the authenticated tenant with role, MFA state and last activity. Use this to map host-application accounts to SignerPro identities before launching an embed session.',
         params:[['limit','integer','Page size, 1–100. Defaults to 25.'],['status','enum','active | invited | deprovisioned'],['role','enum','super | orgadmin | sender | viewer'],['updated_after','ISO 8601','Incremental sync cursor.']],
         sample:'{\n  "object": "list",\n  "has_more": false,\n  "data": [\n    {\n      "id": "usr_8f2c41ab",\n      "name": "Ada Example",\n      "email": "ada@example.com",\n      "role": "orgadmin",\n      "tenant": "acme",\n      "mfa": "totp",\n      "status": "active",\n      "last_active_at": "2026-08-28T11:47:03Z"\n    },\n    {\n      "id": "usr_91bd7c02",\n      "name": "Blake Example",\n      "email": "blake@example.com",\n      "role": "sender",\n      "tenant": "acme",\n      "mfa": "totp",\n      "status": "active",\n      "last_active_at": "2026-08-28T08:12:44Z"\n    }\n  ]\n}' },
       contacts: { method:'GET', path:'/v1/contacts?group=customers',
@@ -281,16 +303,16 @@ export const API_DEFS: Dict<{ method: string; path: string; desc: string; params
         params:[['status','enum','draft | sent | action_required | completed | voided'],['contact_id','string','Filter by a contact appearing as recipient.'],['include','array','fields, recipients, audit'],['created_after','ISO 8601','Range filter.']],
         sample:'{\n  "object": "list",\n  "has_more": true,\n  "data": [\n    {\n      "id": "env_example_0001",\n      "title": "Master Services Agreement — Example Industries",\n      "status": "action_required",\n      "page_count": 3,\n      "field_count": 9,\n      "recipients": [\n        { "contact_id": "ct1", "role": "sign", "routing_order": 1, "status": "viewed" },\n        { "contact_id": "ct2", "role": "approve", "routing_order": 2, "status": "sent" }\n      ],\n      "expires_at": "2026-09-11T00:00:00Z",\n      "hash": "sha256:9f2b7c41a0e5…"\n    }\n  ]\n}' },
       embed: { method:'POST', path:'/v1/embed/sessions',
-        desc:'Mints a short-lived, origin-locked session token. The host app opens the returned url in an iframe and SignForge lands directly on the preparation surface with the document and contacts you passed in.',
+        desc:'Mints a short-lived, origin-locked session token. The host app opens the returned url in an iframe and SignerPro lands directly on the preparation surface with the document and contacts you passed in.',
         params:[['document','object','title, file_url or template_id, external_id'],['contacts','array','Contact ids or inline {name, email, role}'],['landing','enum','builder | routing | signing'],['return_url','string','Where the “Return to host app” action navigates.']],
-        sample:'{\n  "object": "embed_session",\n  "id": "es_example",\n  "url": "https://embed.signforge.example/s/es_example",\n  "expires_at": "2026-08-28T12:34:00Z",\n  "landing": "builder",\n  "document": {\n    "title": "Master Services Agreement — Example Industries",\n    "external_id": "hostcrm:deal_8842",\n    "page_count": 3\n  },\n  "contacts": [\n    { "id": "ct1", "role": "sign", "routing_order": 1 },\n    { "id": "ct2", "role": "approve", "routing_order": 2 }\n  ]\n}' }
+        sample:'{\n  "object": "embed_session",\n  "id": "es_example",\n  "url": "https://embed.signerpro.example/s/es_example",\n  "expires_at": "2026-08-28T12:34:00Z",\n  "landing": "builder",\n  "document": {\n    "title": "Master Services Agreement — Example Industries",\n    "external_id": "hostcrm:deal_8842",\n    "page_count": 3\n  },\n  "contacts": [\n    { "id": "ct1", "role": "sign", "routing_order": 1 },\n    { "id": "ct2", "role": "approve", "routing_order": 2 }\n  ]\n}' }
     };
 
 export const API_TABS: [string, string][] = [['users','Users'],['contacts','Contacts'],['documents','Documents'],['embed','Embed session']];
 export const EMBED_SNIPPET: string =
   '<!-- host application -->\n' +
-  '<' + 'script' + ' src="https://embed.signforge.com/v1.js">' + '<' + '/script>' + '\n' +
-  '<' + 'script' + '>\n  SignForge.mount("#agreement", {\n    session: "es_example",      // POST /v1/embed/sessions\n    landing: "builder",\n    metadata: {\n      document: { external_id: "hostcrm:deal_8842" },\n      contacts: ["ct1", "ct2"]\n    },\n    onComplete: (envelope) => host.save(envelope.id)\n  });\n' +
+  '<' + 'script' + ' src="https://embed.signerpro.com/v1.js">' + '<' + '/script>' + '\n' +
+  '<' + 'script' + '>\n  SignerPro.mount("#agreement", {\n    session: "es_example",      // POST /v1/embed/sessions\n    landing: "builder",\n    metadata: {\n      document: { external_id: "hostcrm:deal_8842" },\n      contacts: ["ct1", "ct2"]\n    },\n    onComplete: (envelope) => host.save(envelope.id)\n  });\n' +
   '<' + '/script>';
 
 /* ── support ── */
@@ -316,7 +338,7 @@ export const AUTH_TABS: [string, string][] = [['signin','Sign in'],['signup','Cr
    the scope of the sign-in instead. */
 
 export const AUTH_TITLES: Dict<[string, string]> ={
-      signin: ['Sign in to SignForge', 'Use your work account. Enterprise tenants may be redirected to their identity provider.'],
+      signin: ['Sign in to SignerPro', 'Use your work account. Enterprise tenants may be redirected to their identity provider.'],
       signup: ['Create your workspace', 'Start a 14-day Business trial — no card required, 25 envelopes per seat.'],
       mfa: ['Two-factor verification', 'Enter the 6-digit code from your authenticator app.'],
       forgot: ['Reset your password', 'We will email a single-use reset link valid for 30 minutes.']
@@ -324,7 +346,7 @@ export const AUTH_TITLES: Dict<[string, string]> ={
 
 /* ── signing / modals ── */
 export const SIG_TABS: [string, string][] = [['draw','Draw'],['type','Type'],['upload','Upload'],['saved','Saved / Passkey']];
-export const TYPE_FACES: string[] = ['Caveat','Dancing Script','Great Vibes','Google Sans Flex'];
+export const TYPE_FACES: string[] = ['Caveat','Dancing Script','Great Vibes','Geist'];
 
 export const INKS: [string, string][] = [['#0f172a','Black ink'],['#1d4ed8','Blue ink']];
 export const CADENCES: string[] = ['24h','48h','7 days','none'];
@@ -370,24 +392,20 @@ export const CUSTOM_REPORT_FIELDS: string[] = ['Envelope status','Recipient','Se
 
 export const ACCOUNT_NAV: [string, string][] =[
       ['profile','User profile'],
-      ['billing','Billing & plan'], ['invoices','Invoices'],
+      ['billing','Billing & plan'],
       ['security','Settings · login & security'],
-      ['notifications','Notification settings'], ['email','Email notifications'],
-      ['integrations','Integrations'], ['cloud','Cloud storage'], ['teams','My teams'],
-      ['orgs','My organizations'], ['audit','Audit trail']
+      ['notifications','Notifications & email'],
+      ['integrations','Integrations'],
+      ['organization','Organization & teams'], ['audit','Audit trail']
 ];
 
 export const ACCOUNT_TITLES: Dict<[string, string]> ={
       profile:['User profile','Name, photo, locale and signature defaults'],
-      billing:['Billing & plan','Plan, seats, renewal, payment methods and the upcoming invoice'],
-      invoices:['Invoices','Issued invoices, receipts and payment state'],
+      billing:['Billing & plan','Plan, seats, renewal, payment methods, and every issued invoice'],
       security:['Settings · login and security','Email, password, two-factor and authenticated devices'],
-      notifications:['Notification settings','Which events notify you, and how'],
-      email:['Email notifications','Account email preferences and additional recipients'],
-      integrations:['Integrations','CRM, storage and workflow connectors'],
-      cloud:['Cloud storage','Automatic export of completed documents'],
-      teams:['My teams','Shared folders, members and team templates'],
-      orgs:['My organizations','Organizations you belong to and their admins'],
+      notifications:['Notifications & email','Which events notify you, where they are delivered, and who else is copied'],
+      integrations:['Integrations','Storage connectors and automatic export of completed documents'],
+      organization:['Organization & teams','Your organization, everyone in it, and the teams they work in'],
       audit:['Audit trail','Account-level security and administrative events']
     };
 

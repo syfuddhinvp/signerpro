@@ -41,9 +41,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     WEB_CONCURRENCY=4
 
 # curl is for the HEALTHCHECK only. Migrations talk to Postgres through psycopg
-# from the venv, so no postgresql-client is needed.
+# from the venv, so no postgresql-client is needed. libreoffice-core plus the
+# writer/calc/impress filters convert uploaded Office documents to PDF
+# (conversion_service); without them those uploads are refused at upload time
+# rather than failing later.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        libreoffice-writer \
+        libreoffice-calc \
+        libreoffice-impress \
+        fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 1001 signforge \
     && useradd --system --uid 1001 --gid signforge --create-home signforge

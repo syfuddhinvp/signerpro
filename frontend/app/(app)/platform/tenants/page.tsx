@@ -39,7 +39,7 @@ import {
 import type { ComplianceResponse, PlatformOverview } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Tenants · SignForge Platform' };
+export const metadata: Metadata = { title: 'Tenants · SignerPro Platform' };
 
 const EMPTY_OVERVIEW: PlatformOverview = {
   tenants: { total: 0, trial: 0, suspended: 0, active: 0 },

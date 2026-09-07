@@ -1,5 +1,5 @@
 'use client';
-/* SignForge — Developer API screen. Markup ported verbatim from the prototype
+/* SignerPro — Developer API screen. Markup ported verbatim from the prototype
    (template 1562–1756); the data now comes from the API. */
 import React from 'react';
 import type { CSSProperties } from 'react';
@@ -132,7 +132,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
   const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn: CSSProperties = btn(A, '#fff', A);
   const superBtn: CSSProperties = Object.assign(btn('transparent', '#e2e8f0', '#334155'), { flex: '0 0 auto' });
-  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily: "'Inter', 'Google Sans Flex', sans-serif", fontSize: '.71875rem' });
+  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily: 'var(--font-sans)', fontSize: '.71875rem' });
 
   const addonBannerStyle: CSSProperties = { background:'#0f172a', borderRadius:'14px', padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'16px', flexWrap:'wrap' };
 
@@ -165,7 +165,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
     label: x.label,
     value: x.value,
     meta: x.meta,
-    metaStyle: { fontSize:'.6875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: x.good ? '#047857' : '#c2410c' } as CSSProperties
+    metaStyle: { fontSize:'.6875rem', fontFamily:'var(--font-sans)', color: x.good ? '#047857' : '#c2410c' } as CSSProperties
   }));
 
   const apiOverview = section === 'overview';
@@ -253,12 +253,12 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
   });
 
   const ep = API_DEFS[s.apiTab];
-  const apiMethodStyle: CSSProperties = { padding:'4px 9px', borderRadius:'7px', fontSize:'.65625rem', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif",
+  const apiMethodStyle: CSSProperties = { padding:'4px 9px', borderRadius:'7px', fontSize:'.65625rem', fontWeight:700, fontFamily:'var(--font-sans)',
     background: ep.method === 'GET' ? '#ecfdf5' : '#eef2ff', color: ep.method === 'GET' ? '#047857' : '#3730a3',
     border:'1px solid ' + (ep.method === 'GET' ? '#a7f3d0' : '#c7d2fe'), flex:'0 0 auto' };
   const apiParams = ep.params.map(([name, type, desc]) => ({ name, type, desc,
-    typeStyle: { fontSize:'.65625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:TEXT_MUTED, width:'66px', flex:'0 0 66px' } as CSSProperties }));
-  const copyEndpoint = () => flash('https://api.signforge.com' + ep.path + ' copied');
+    typeStyle: { fontSize:'.65625rem', fontFamily:'var(--font-sans)', color:TEXT_MUTED, width:'66px', flex:'0 0 66px' } as CSSProperties }));
+  const copyEndpoint = () => flash('https://api.signerpro.com' + ep.path + ' copied');
 
   /* The one-time secret. It is shown once and never again: there is no reveal
      endpoint, so a listed key can only ever display its `masked` form. */
@@ -349,7 +349,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
           router.refresh();
         });
       },
-      style: { padding:'5px 10px', borderRadius:'99px', cursor:'pointer', fontSize:'.6875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif",
+      style: { padding:'5px 10px', borderRadius:'99px', cursor:'pointer', fontSize:'.6875rem', fontFamily:'var(--font-sans)',
         border:'1px solid ' + (on ? '#a7f3d0' : '#e3e7ee'), background: on ? '#ecfdf5' : '#fbfcfd', color: on ? '#047857' : TEXT_MUTED } as CSSProperties };
   });
 
@@ -360,7 +360,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
 
       <div style={addonBannerStyle}>
         <div style={{ display:'flex', flexDirection:'column', gap:'5px', minWidth:0 }}>
-          <span style={{ fontSize:'.875rem', fontWeight:700, letterSpacing:'-.2px', color:'#f8fafc' }}>SignForge as an add-on</span>
+          <span style={{ fontSize:'.875rem', fontWeight:700, letterSpacing:'-.2px', color:'#f8fafc' }}>SignerPro as an add-on</span>
           <span style={{ fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6, maxWidth:'620px' }}>Expose users, contacts and documents to your host application over REST, then launch the preparation surface in place with an embed session that carries document and contact metadata.</span>
         </div>
         <div style={{ display:'flex', gap:'8px', flex:'0 0 auto' }}>
@@ -371,7 +371,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0,1fr))', gap:'12px' }}>
         {apiStats.map(st => (
           <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'6px' }}>
-            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{st.label}</span>
+            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{st.label}</span>
             <span style={{ fontSize:'1.375rem', fontWeight:700, letterSpacing:'-.7px' }}>{st.value}</span>
             <span style={st.metaStyle}>{st.meta}</span>
           </div>
@@ -398,7 +398,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
           {webhookSecret ? (
             <div style={{ border:'1px solid #c7d2fe', background:'#eef2ff', borderRadius:'12px', padding:'11px', display:'flex', flexDirection:'column', gap:'5px' }}>
               <span style={{ fontSize:'.75rem', fontWeight:600 }}>Signing secret for {webhookSecret.url}</span>
-              <span style={{ fontSize:'.71875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all', color:'#3730a3' }}>{webhookSecret.secret}</span>
+              <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', wordBreak:'break-all', color:'#3730a3' }}>{webhookSecret.secret}</span>
               <button type="button" onClick={() => setWebhookSecret(null)} style={ghostBtn}>Dismiss</button>
             </div>
           ) : null}
@@ -411,7 +411,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
             <div key={w.id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'11px', border:'1px solid #eef1f6', borderRadius:'12px', background:'#fbfcfd', flexWrap:'wrap' }}>
               <div style={{ display:'flex', flexDirection:'column', gap:'3px', minWidth:0, flex:1 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
-                  <span style={{ fontSize:'.75rem', fontWeight:600, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all' }}>{w.url}</span>
+                  <span style={{ fontSize:'.75rem', fontWeight:600, fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{w.url}</span>
                   <span style={w.pill}>{w.pillLabel}</span>
                 </div>
                 <span style={{ fontSize:'.6875rem', color:'#64748b' }}>{w.meta}</span>
@@ -438,7 +438,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
             <div key={u.key} style={{ display:'flex', alignItems:'center', gap:'12px' }}>
               <span style={{ width:'160px', fontSize:'.78125rem', color:'#334155', flex:'0 0 160px' }}>{u.label}</span>
               <div style={{ flex:1, height:'7px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={u.bar}></div></div>
-              <span style={{ width:'150px', textAlign:'right', fontSize:'.71875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 150px' }}>{u.meta}</span>
+              <span style={{ width:'150px', textAlign:'right', fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)', flex:'0 0 150px' }}>{u.meta}</span>
             </div>
           ))}
         </div>
@@ -468,7 +468,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
           <div style={{ padding:'15px', display:'flex', flexDirection:'column', gap:'12px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:'9px', flexWrap:'wrap' }}>
               <span style={apiMethodStyle}>{ep.method}</span>
-              <span style={{ fontSize:'.78125rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#0f172a', wordBreak:'break-all' }}>{ep.path}</span>
+              <span style={{ fontSize:'.78125rem', fontFamily:'var(--font-sans)', color:'#0f172a', wordBreak:'break-all' }}>{ep.path}</span>
               <button type="button" onClick={copyEndpoint} style={ghostBtn}>Copy</button>
             </div>
             <span style={{ fontSize:'.75rem', color:'#475569', lineHeight:1.6 }}>{ep.desc}</span>
@@ -476,7 +476,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
               <span style={railHead}>Parameters</span>
               {apiParams.map(p => (
                 <div key={p.name} style={{ display:'flex', gap:'10px', alignItems:'flex-start', padding:'7px 0', borderTop:'1px solid #f2f4f8' }}>
-                  <span style={{ fontSize:'.71875rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#0f172a', width:'118px', flex:'0 0 118px' }}>{p.name}</span>
+                  <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', color:'#0f172a', width:'118px', flex:'0 0 118px' }}>{p.name}</span>
                   <span style={p.typeStyle}>{p.type}</span>
                   <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5, flex:1, minWidth:0 }}>{p.desc}</span>
                 </div>
@@ -512,7 +512,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
                     <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{k.label}</span>
                     <span style={k.modePill}>{k.mode}</span>
                   </div>
-                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", wordBreak:'break-all' }}>{k.secret}</span>
+                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{k.secret}</span>
                   <span style={{ fontSize:'.65625rem', color:TEXT_MUTED }}>{k.meta}</span>
                 </div>
                 <div style={{ display:'flex', gap:'5px', flex:'0 0 auto' }}>

@@ -5,7 +5,7 @@ import { toInvoiceRows } from '@/lib/sf/adapters';
 import type { PlatformInvoiceResponse } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
-export const metadata: Metadata = { title: 'Invoices · SignForge Platform' };
+export const metadata: Metadata = { title: 'Invoices · SignerPro Platform' };
 
 /** The design's four chips; anything else in the URL falls back to `all`. */
 const FILTERS = ['all', 'open', 'paid', 'past_due'];

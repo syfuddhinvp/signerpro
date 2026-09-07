@@ -109,7 +109,7 @@ function ContactDetail({ ct, groupLabels, draftDocumentId, onClose }: {
     { k:'Company', v:ct.company, mono:false }, { k:'Default role', v:ROLE_WORDS[ct.role], mono:false },
     { k:'Group', v:groupLabels[ct.group] ?? ct.group, mono:false }, { k:'Source', v:ct.source, mono:true },
     { k:'Envelopes', v:String(ct.envelopes), mono:true }, { k:'Last signed', v:ct.lastSigned, mono:true },
-  ]).map(f => ({ k:f.k, v:f.v, style: { fontWeight:500, textAlign:'right', wordBreak:'break-all', fontFamily: f.mono ? "'Inter', 'Google Sans Flex', sans-serif" : 'inherit' } as CSSProperties }));
+  ]).map(f => ({ k:f.k, v:f.v, style: { fontWeight:500, textAlign:'right', wordBreak:'break-all', fontFamily: f.mono ? 'var(--font-mono)' : 'inherit' } as CSSProperties }));
 
   const ctHistory = (history ?? []).map(h => {
     const done = h.status === 'completed';
@@ -127,7 +127,7 @@ function ContactDetail({ ct, groupLabels, draftDocumentId, onClose }: {
 
   const ctTags = ct.tags.concat([ct.source]).map(label => ({
     label,
-    style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties,
+    style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', fontFamily:'var(--font-sans)' } as CSSProperties,
   }));
 
   const ctAvatar: CSSProperties = { width:'40px', height:'40px', borderRadius:'99px', background:ct.color, color:'#fff', display:'grid', placeItems:'center', fontSize:'.875rem', fontWeight:700, flex:'0 0 40px' };
@@ -251,7 +251,7 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts, d
         onClick: () => set({ contactGroup: id }),
         style: { height:'26px', padding:'0 9px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500, display:'inline-flex', alignItems:'center', gap:'5px',
           background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties,
-        badge: { fontSize:'.625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: on ? '#64748b' : TEXT_MUTED } as CSSProperties,
+        badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: on ? '#64748b' : TEXT_MUTED } as CSSProperties,
       };
     });
 

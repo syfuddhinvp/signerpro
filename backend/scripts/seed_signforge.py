@@ -1,6 +1,6 @@
-"""Seed the SignForge design dataset into a real database.
+"""Seed the SignerPro design dataset into a real database.
 
-The frontend is a faithful port of the "SignForge" design prototype, whose demo
+The frontend is a faithful port of the "SignerPro" design prototype, whose demo
 dataset lives verbatim in ``frontend/lib/sf/data.ts`` and ``frontend/lib/sf/state.tsx``.
 This script writes that dataset as real rows so a fresh install renders the
 design without any frontend mocks.
@@ -43,7 +43,7 @@ if str(ROOT) not in sys.path:
 # --------------------------------------------------------------------------
 
 #: Every seeded human gets the same local-development password.
-SEED_PASSWORD = "SignForge!2026"
+SEED_PASSWORD = "SignerPro!2026"
 
 #: Plaintext API keys, printed once. Only the SHA-256 hash is ever stored.
 SEED_API_KEYS: dict[str, str] = {
@@ -53,7 +53,7 @@ SEED_API_KEYS: dict[str, str] = {
 }
 
 PLATFORM_ORG_SLUG = "signforge"
-PLATFORM_ORG_NAME = "SignForge (internal)"
+PLATFORM_ORG_NAME = "SignerPro (internal)"
 SUPER_ADMIN_EMAIL = "jordan.mehta@signforge.com"
 PRIMARY_TENANT_SLUG = "acme"
 
@@ -236,32 +236,32 @@ TEMPLATES: list[dict[str, Any]] = [
 PROTO_FIELDS: list[dict[str, Any]] = [
     {"key": "f1", "page": 1, "type": "signature", "x": 96, "y": 600, "w": 200, "h": 56,
      "to": "r1", "required": True, "read_only": False, "label": "Client signature",
-     "placeholder": "", "validation": "none", "cond": None, "merge": ""},
+     "placeholder": "", "validation": "none", "cond": None},
     {"key": "f2", "page": 1, "type": "date", "x": 328, "y": 600, "w": 152, "h": 40,
      "to": "r1", "required": True, "read_only": False, "label": "Date signed",
-     "placeholder": "MM/DD/YYYY", "validation": "date", "cond": None, "merge": "{{contract.signedAt}}"},
+     "placeholder": "MM/DD/YYYY", "validation": "date", "cond": None},
     {"key": "f3", "page": 1, "type": "name", "x": 96, "y": 672, "w": 196, "h": 40,
      "to": "r1", "required": True, "read_only": False, "label": "Printed name",
-     "placeholder": "Full legal name", "validation": "none", "cond": None, "merge": "{{client.name}}"},
+     "placeholder": "Full legal name", "validation": "none", "cond": None},
     {"key": "f4", "page": 1, "type": "email", "x": 328, "y": 672, "w": 216, "h": 40,
      "to": "r1", "required": False, "read_only": False, "label": "Billing email",
-     "placeholder": "name@company.com", "validation": "email", "cond": None, "merge": "{{client.email}}"},
+     "placeholder": "name@company.com", "validation": "email", "cond": None},
     {"key": "f5", "page": 1, "type": "checkbox", "x": 96, "y": 744, "w": 32, "h": 32,
      "to": "r1", "required": True, "read_only": False, "label": "Accept terms",
-     "placeholder": "", "validation": "none", "cond": None, "merge": ""},
+     "placeholder": "", "validation": "none", "cond": None},
     {"key": "f6", "page": 1, "type": "dropdown", "x": 328, "y": 744, "w": 196, "h": 40,
      "to": "r2", "required": False, "read_only": False, "label": "Payment terms",
      "placeholder": "", "validation": "none",
-     "cond": {"field": "f5", "op": "checked", "value": ""}, "merge": "{{contract.terms}}"},
+     "cond": {"field": "f5", "op": "checked", "value": ""}},
     {"key": "f7", "page": 1, "type": "initials", "x": 592, "y": 600, "w": 88, "h": 48,
      "to": "r2", "required": True, "read_only": False, "label": "Counsel initials",
-     "placeholder": "", "validation": "none", "cond": None, "merge": ""},
+     "placeholder": "", "validation": "none", "cond": None},
     {"key": "f8", "page": 2, "type": "signature", "x": 120, "y": 520, "w": 200, "h": 56,
      "to": "r2", "required": True, "read_only": False, "label": "Approver signature",
-     "placeholder": "", "validation": "none", "cond": None, "merge": ""},
+     "placeholder": "", "validation": "none", "cond": None},
     {"key": "f9", "page": 2, "type": "stamp", "x": 400, "y": 496, "w": 112, "h": 112,
      "to": "r3", "required": False, "read_only": True, "label": "Corporate seal",
-     "placeholder": "", "validation": "none", "cond": None, "merge": ""},
+     "placeholder": "", "validation": "none", "cond": None},
 ]
 
 #: prototype palette name -> FieldType value.
@@ -271,7 +271,7 @@ FIELD_TYPE_MAP: dict[str, str] = {
     "checkbox": "checkbox", "dropdown": "dropdown", "stamp": "stamp",
     "title": "title", "company": "company", "address": "address",
     "currency": "currency", "number": "number", "radio": "radio",
-    "attachment": "attachment", "formula": "formula", "datetime": "datetime",
+    "attachment": "attachment", "datetime": "datetime",
 }
 
 # data.ts :: AUDIT — the ENV-2291-KD trail. ``minutes_after`` is measured from
@@ -312,13 +312,18 @@ AUDIT: list[dict[str, Any]] = [
 FOLDERS: list[str] = ["Agreements", "Renewals 2026", "HR", "Procurement", "Archive"]
 
 # data.ts :: TEAMS
+#
+# ``description`` is prose, not figures: member and document counts are
+# computed from the real rows (``team_service``) and rendered beside it, so a
+# description carrying its own numbers would contradict them on screen. Roles
+# are ``lead``/``member`` — the only two ``TeamMemberAdd`` accepts.
 TEAMS: list[dict[str, Any]] = [
-    {"name": "Global Legal", "description": "12 members · 214 documents · 7 templates",
-     "members": [("jordan.mehta@northwind.com", "owner"), ("priya@acme.io", "admin")]},
-    {"name": "Sales — Americas", "description": "34 members · 118 documents · 4 templates",
-     "members": [("priya@acme.io", "admin"), ("alex.rivera@acme.io", "member")]},
-    {"name": "Procurement", "description": "9 members · 46 documents · 2 templates",
-     "members": [("m.bell@acme.io", "member")]},
+    {"name": "Global Legal", "description": "Contract review and counter-signature for every region",
+     "members": [("jordan.mehta@northwind.com", "lead"), ("priya@acme.io", "member")]},
+    {"name": "Sales — Americas", "description": "Order forms, MSAs and renewals for AMER accounts",
+     "members": [("priya@acme.io", "lead"), ("alex.rivera@acme.io", "member")]},
+    {"name": "Procurement", "description": "Supplier agreements, NDAs and purchase approvals",
+     "members": [("m.bell@acme.io", "lead")]},
 ]
 
 # state.tsx :: INITIAL_STATE.tickets. ``created_hours_ago`` replaces the literal
@@ -356,7 +361,7 @@ TICKETS: list[dict[str, Any]] = [
         "messages": [
             {"author": "Tobias Krause", "email": "it@halden.de", "offset": 0,
              "staff": False, "internal": False,
-             "body": "We stopped receiving billing webhooks last week. Our endpoint is up — can you confirm what SignForge is seeing?"},
+             "body": "We stopped receiving billing webhooks last week. Our endpoint is up — can you confirm what SignerPro is seeing?"},
             {"author": "Amelia Chen", "email": "amelia.chen@signforge.com", "offset": 44,
              "staff": True, "internal": False,
              "body": "Our delivery log shows four attempts to https://halden.de/hooks/sf all returning 502 with a 30s timeout. Could you check the reverse proxy body-size limit? Our payloads can exceed 64 KB."},
@@ -372,7 +377,7 @@ TICKETS: list[dict[str, Any]] = [
         "messages": [
             {"author": "Security Team", "email": "security@kestrel.health", "offset": 0,
              "staff": False, "internal": False,
-             "body": "We need to send 4,000 onboarding agreements in one batch with per-row merge tags. Is the bulk endpoint available on our plan?"},
+             "body": "We need to send 4,000 onboarding agreements in one batch, one recipient per row. Is the bulk endpoint available on our plan?"},
         ],
     },
     {
@@ -586,9 +591,9 @@ LOGS: list[dict[str, Any]] = [
      "latency_ms": 96, "request_id": None, "actor": "sofia@vertex.dev", "ip": "203.0.113.145",
      "payload": {"policy": "require_mfa", "state": "grace"}},
     {"level": "error", "source": "api", "slug": "kestrel", "minutes_ago": 112,
-     "message": "POST /v1/envelopes 422 — merge tag {{client.name}} unresolved", "code": 422,
+     "message": "POST /v1/envelopes 422 — recipient 3 missing an email address", "code": 422,
      "latency_ms": 34, "request_id": "req_c0d41f7a", "actor": None, "ip": None,
-     "payload": {"errors": [{"field": "f3", "code": "merge_unresolved", "tag": "{{client.name}}"}]}},
+     "payload": {"errors": [{"field": "recipients.2.email", "code": "required"}]}},
     {"level": "info", "source": "admin", "slug": None, "minutes_ago": 100,
      "message": "Feature flag api.bulk_send_v3 rollout 5% → 10% (staging)", "code": None,
      "latency_ms": None, "request_id": None, "actor": SUPER_ADMIN_EMAIL, "ip": "198.51.100.24",
@@ -667,22 +672,14 @@ SECURITY_STATE: dict[str, bool] = {
 
 # data.ts :: INTEGRATIONS
 INTEGRATIONS: list[tuple[str, str, str, bool]] = [
-    ("salesforce", "Salesforce", "Connected · 2-way sync of opportunities", True),
-    ("hubspot", "HubSpot", "Not connected", False),
     ("google_drive", "Google Drive", "Connected · completed copies to /Agreements", True),
     ("dropbox", "Dropbox", "Not connected", False),
-    ("slack", "Slack", "Connected · #contracts channel", True),
-    ("zapier", "Zapier", "Connected · 4 zaps", True),
-    ("sharepoint", "SharePoint", "Not connected", False),
-    ("workday", "Workday", "Not connected", False),
 ]
 
 # data.ts :: CLOUD_TARGETS
 CLOUD_TARGETS: list[tuple[str, str, bool]] = [
     ("google_drive", "/Agreements/Signed", True),
     ("dropbox", "", False),
-    ("sharepoint", "", False),
-    ("s3", "s3://acme-agreements/signed", True),
 ]
 
 # data.ts :: NOTIF_PREFS
@@ -719,9 +716,9 @@ DEVICES: list[dict[str, Any]] = [
 # data.ts :: SAVED_SIGS
 SAVED_SIGNATURES: list[dict[str, Any]] = [
     {"label": "Adopted", "days_ago": 16, "type": "drawn", "face": "Caveat",
-     "passkey": True, "text": "Jordan Mehta"},
+     "passkey": True, "text": "Jordan Mehta", "default": True},
     {"label": "Adopted", "days_ago": 178, "type": "drawn", "face": "Great Vibes",
-     "passkey": False, "text": "Jordan Mehta"},
+     "passkey": False, "text": "Jordan Mehta", "default": False},
 ]
 
 # data.ts :: STRIPE_WEBHOOKS — provider events on the revenue screen.
@@ -1258,7 +1255,6 @@ def _seed_documents(s: Seeder) -> None:
                 "placeholder": spec["placeholder"] or None,
                 "validation": spec["validation"],
                 "condition": spec["cond"],
-                "merge_tag": spec["merge"] or None,
                 "read_only": spec["read_only"],
                 "options": ["Net 30", "Net 45", "Net 60"] if spec["type"] == "dropdown" else None,
             },
@@ -2021,6 +2017,7 @@ def _seed_account_area(s: Seeder) -> None:
                 "signature_type": spec["type"],
                 "signature_text": spec["text"],
                 "is_passkey_bound": spec["passkey"],
+                "is_default": spec["default"],
                 "adopted_at": adopted,
             },
         )
@@ -2058,7 +2055,7 @@ STEPS: list[tuple[str, Callable[[Seeder], None]]] = [
 
 
 def seed(db: Any, *, now: datetime | None = None) -> dict[str, Any]:
-    """Write the SignForge dataset into ``db``. Safe to run repeatedly.
+    """Write the SignerPro dataset into ``db``. Safe to run repeatedly.
 
     Returns a summary: ``created`` counts rows this run actually inserted (all
     zeros on a second run), ``counts`` the total the design expects.
@@ -2158,7 +2155,7 @@ def _report(summary: dict[str, Any], *, stream: Any = sys.stdout) -> None:
         for name in sorted(created):
             line(f"  {name:<24} {created[name]}")
     else:
-        line("Nothing to create — the database already holds the SignForge dataset.")
+        line("Nothing to create — the database already holds the SignerPro dataset.")
     line()
     line("─" * 62)
     line("Sign in (all seeded accounts share one password)")
@@ -2214,7 +2211,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     finally:
         db.close()
 
-    print(f"Seeded the SignForge dataset into {engine.url.render_as_string(hide_password=True)}")
+    print(f"Seeded the SignerPro dataset into {engine.url.render_as_string(hide_password=True)}")
     _report(summary)
     return 0
 

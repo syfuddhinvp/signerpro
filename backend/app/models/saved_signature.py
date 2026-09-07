@@ -25,4 +25,7 @@ class SavedSignature(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     type_face: Mapped[str | None] = mapped_column(String(60), nullable=True)
     image_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_passkey_bound: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # The signature offered first wherever one is needed. At most one per user;
+    # `AccountService` keeps that true on create, set-default and delete.
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     adopted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)

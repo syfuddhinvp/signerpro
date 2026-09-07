@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.core.annotations import is_annotation
 from app.core.config import get_settings
 from app.core.hashing import sha256_bytes
 from app.core.storage import storage
@@ -103,7 +104,11 @@ class SigningService:
         otp_required = recipient.otp_enabled and not recipient.otp_verified and not read_only
         consent_required = not recipient.consent_accepted and not read_only
 
-        own_fields = [field for field in document.fields if field.recipient_id == recipient.id]
+        own_fields = [
+            field
+            for field in document.fields
+            if field.recipient_id == recipient.id and not is_annotation(field.type)
+        ]
         required_fields = self._outstanding_required_fields(document, recipient)
         completed = sum(1 for field in required_fields if self._field_has_value(field))
 
@@ -116,8 +121,21 @@ class SigningService:
         # on the client to filter, which is not a control at all.
         gate_open = not otp_required and not consent_required
         fields = own_fields if gate_open else []
+        # An annotation is the sender's mark on the page, so it is neither this
+        # recipient's field nor somebody else's placement: it is content, and
+        # every recipient sees it drawn whoever it happens to be assigned to.
+        annotations = (
+            [field for field in document.fields if is_annotation(field.type)] if gate_open else []
+        )
+        annotation_ids = {field.id for field in annotations}
         other_placements = (
-            [field for field in document.fields if field.recipient_id != recipient.id] if gate_open else []
+            [
+                field
+                for field in document.fields
+                if field.recipient_id != recipient.id and field.id not in annotation_ids
+            ]
+            if gate_open
+            else []
         )
         pdf_url = f"/api/sign/{raw_token}/pdf" if gate_open else ""
 
@@ -138,6 +156,7 @@ class SigningService:
             current_recipient_id=recipient.id,
             fields=fields,
             other_field_placements=other_placements,
+            annotations=annotations,
             read_only=read_only,
             expires_at=signing_token.expires_at,
             pdf_url=pdf_url,
@@ -222,10 +241,6 @@ class SigningService:
         # enforced server-side, not just in the builder UI.
         field_service.validate_value(document, field, new_value)
         field.value = new_value
-        # Any formula that references this field is now stale. Recomputed here
-        # rather than at completion so the signer sees the real total as they
-        # fill the form in.
-        field_service.recompute_formulas(db, document)
         audit_service.log(
             db,
             document_id=document.id,
@@ -683,16 +698,12 @@ class SigningService:
 
         A field is skipped when its conditional rule is unmet — the signer is
         forbidden from writing to it, so it cannot be part of what they owe.
-        The same reasoning excludes ``formula`` fields: they are derived by the
-        server and ``validate_value`` refuses a posted value, so requiring one
-        would be the conditional deadlock all over again.
         """
         return [
             field
             for field in document.fields
             if field.recipient_id == recipient.id
             and field.required
-            and field.type != FieldType.formula
             and field_service.condition_is_met(document, field)
         ]
 

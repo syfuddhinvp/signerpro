@@ -4,7 +4,7 @@ import { serverCaller } from '@/lib/api/client';
 import { account as accountApi, logs as logsApi } from '@/lib/api/resources';
 import type { SystemLogPage } from '@/lib/api/types';
 
-export const metadata: Metadata = { title: 'API logs · SignForge' };
+export const metadata: Metadata = { title: 'API logs · SignerPro' };
 
 /** The retention window the footer advertises. */
 const SINCE_DAYS = 90;

@@ -91,7 +91,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
       onClick: () => set({ ticketFilter: id }),
       style: { height:'26px', padding:'0 9px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500, display:'inline-flex', alignItems:'center', gap:'5px',
         background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties,
-      badge: { fontSize:'.625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: on ? '#64748b' : TEXT_MUTED } as CSSProperties
+      badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: on ? '#64748b' : TEXT_MUTED } as CSSProperties
     };
   });
 
@@ -147,21 +147,21 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
 
   const ticketStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
-    metaStyle: { fontSize:'.65625rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color: x.good ? '#047857' : '#c2410c' } as CSSProperties
+    metaStyle: { fontSize:'.65625rem', fontFamily:'var(--font-sans)', color: x.good ? '#047857' : '#c2410c' } as CSSProperties
   }));
 
   const ticketScopeLabel = isPlat ? 'Queue · ' + tkPage.total + ' tickets' : 'Your tickets · ' + tkPage.total;
   const openNewTicket = () => set({ modal: 'ticket' });
 
-  const slaBoxStyle: CSSProperties = { height:'32px', display:'flex', alignItems:'center', padding:'0 10px', borderRadius:'9px', fontSize:'.75rem', fontFamily:"'Inter', 'Google Sans Flex', sans-serif",
+  const slaBoxStyle: CSSProperties = { height:'32px', display:'flex', alignItems:'center', padding:'0 10px', borderRadius:'9px', fontSize:'.75rem', fontFamily:'var(--font-sans)',
     border:'1px solid ' + (tk && tk.status === 'resolved' ? '#a7f3d0' : '#fed7aa'), background: tk && tk.status === 'resolved' ? '#ecfdf5' : '#fff7ed',
     color: tk && tk.status === 'resolved' ? '#047857' : '#c2410c' };
 
   const tkTags = tk ? tk.tags.concat([tk.category]).map(label => ({
     label,
-    style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" } as CSSProperties
+    style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', fontFamily:'var(--font-sans)' } as CSSProperties
   })) : [];
-  const tkEnvelopeStyle: CSSProperties = { padding:'4px 9px', borderRadius:'99px', border:'1px solid #c7d2fe', background:'#eef2ff', fontSize:'.65625rem', color:'#3730a3', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", cursor:'pointer' };
+  const tkEnvelopeStyle: CSSProperties = { padding:'4px 9px', borderRadius:'99px', border:'1px solid #c7d2fe', background:'#eef2ff', fontSize:'.65625rem', color:'#3730a3', fontFamily:'var(--font-sans)', cursor:'pointer' };
 
   const internalRow: CSSProperties = { display:'inline-flex', alignItems:'center', gap:'9px', height:'30px', padding:'0 11px', borderRadius:'9px', cursor:'pointer',
     border:'1px solid ' + (s.replyInternal ? '#fde68a' : '#e3e7ee'), background: s.replyInternal ? '#fffbeb' : '#fff' };
@@ -185,7 +185,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
     const ticketId = tk.ticketId;
     const toWhom = replyInternal
       ? 'Internal note added — not visible to the customer'
-      : 'Reply sent to ' + (isPlat ? tk.requesterEmail : 'SignForge support');
+      : 'Reply sent to ' + (isPlat ? tk.requesterEmail : 'SignerPro support');
     flash(toWhom);
     set({ replyDraft: '' });
     mutate(() => supportApi.reply(apiCall, ticketId, { body, internal: replyInternal }), 'Could not send the reply');
@@ -224,7 +224,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'10px' }}>
           {ticketStats.map(st => (
             <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'13px', padding:'12px 13px', display:'flex', flexDirection:'column', gap:'5px' }}>
-              <span style={{ fontSize:'.625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{st.label}</span>
+              <span style={{ fontSize:'.625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{st.label}</span>
               <span style={{ fontSize:'1.25rem', fontWeight:700, letterSpacing:'-.6px' }}>{st.value}</span>
               <span style={st.metaStyle}>{st.meta}</span>
             </div>
@@ -250,7 +250,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
               <span style={t.priorityBar}></span>
               <span style={{ display:'flex', flexDirection:'column', gap:'4px', flex:1, minWidth:0, textAlign:'left' }}>
                 <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.subject}</span>
-                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.meta}</span>
+                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.meta}</span>
                 <span style={{ display:'flex', gap:'5px', flexWrap:'wrap' }}>
                   <span style={t.statusPill}>{t.statusLabel}</span>
                   <span style={t.priorityPill}>{t.priorityLabel}</span>
@@ -272,7 +272,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
             <div style={{ display:'flex', flexDirection:'column', gap:'4px', minWidth:0 }}>
               <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.2px' }}>{tk.subject}</span>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>
+              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>
                 {tk.id + ' · ' + tk.tenant + ' · ' + tk.requesterEmail + ' · opened ' + tk.created}
               </span>
             </div>
@@ -328,7 +328,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
                 <span style={m.chip}>{m.initials}</span>
                 <div style={{ display:'flex', flexDirection:'column', gap:'1px', minWidth:0 }}>
                   <span style={{ fontSize:'.75rem', fontWeight:600, color:'#0f172a' }}>{m.author}</span>
-                  <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{m.role} · {m.ts}</span>
+                  <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{m.role} · {m.ts}</span>
                 </div>
                 {m.internal ? (<span style={m.internalPill}>Internal note</span>) : null}
               </div>

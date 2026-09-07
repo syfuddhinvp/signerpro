@@ -48,7 +48,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn = btn(A, '#fff', A);
   const input = inputStyle;
-  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:"'Inter', 'Google Sans Flex', sans-serif", fontSize:'.71875rem' });
+  const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:'var(--font-sans)', fontSize:'.71875rem' });
 
   /* Draft values for the billing-details form; the server owns the truth. */
   const [autopay, setAutopay] = useState(settings.autopay);
@@ -79,7 +79,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
     return {
       id: p.id, brand: p.brand, label: p.label, meta: p.meta, isDefault: def, notDefault: !def,
       rowStyle: { display:'flex', alignItems:'center', gap:'12px', padding:'11px', border:'1px solid ' + (def ? '#c7d2fe' : '#eef1f6'), borderRadius:'12px', background: def ? '#f8faff' : '#fbfcfd' } as CSSProperties,
-      brandStyle: { width:'46px', height:'30px', borderRadius:'7px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'.59375rem', fontWeight:700, fontFamily:"'Inter', 'Google Sans Flex', sans-serif", flex:'0 0 46px' } as CSSProperties,
+      brandStyle: { width:'46px', height:'30px', borderRadius:'7px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'.59375rem', fontWeight:700, fontFamily:'var(--font-sans)', flex:'0 0 46px' } as CSSProperties,
       defaultPill: pill({ bg:'#eef2ff', fg:'#3730a3', bd:'#c7d2fe' }),
       onDefault: () => {
         flash(p.label + ' set as default payment method');
@@ -118,7 +118,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
   const emptyNote: CSSProperties = { fontSize:'.78125rem', color:'#64748b' };
 
   return (
-    <section data-screen-label="Billing" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.5fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
+    <section data-screen-label="Billing" style={{ padding:'22px 22px 40px', maxWidth:'1180px', margin:'0 auto', width:'100%', display:'grid', gridTemplateColumns:'minmax(0,1.5fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
       {/* Stripe redirects back to /billing?session_id=… ; this confirms the
           session with the provider before anything is claimed. `useSearchParams`
           needs a Suspense boundary to keep the page statically renderable. */}
@@ -132,7 +132,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
                 <span style={{ fontSize:'1.375rem', fontWeight:700, letterSpacing:'-.5px' }}>{sub.planName}</span>
                 <span style={subPill}>{subStatus}</span>
               </div>
-              <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{sub.metaLine}</span>
+              <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{sub.metaLine}</span>
             </div>
             <div style={{ display:'flex', gap:'8px', flex:'0 0 auto' }}>
               <button type="button" onClick={openPlanChange} style={ghostBtn}>Change plan</button>
@@ -142,7 +142,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'11px' }}>
             {subTiles.map(t => (
               <div key={t.label} style={{ border:'1px solid #eef1f6', borderRadius:'12px', padding:'12px', background:'#fbfcfd', display:'flex', flexDirection:'column', gap:'5px' }}>
-                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", letterSpacing:'.05em' }}>{t.label}</span>
+                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)', letterSpacing:'.05em' }}>{t.label}</span>
                 <span style={{ fontSize:'1.0625rem', fontWeight:700, letterSpacing:'-.4px' }}>{t.value}</span>
                 <span style={{ fontSize:'.6875rem', color:'#64748b' }}>{t.meta}</span>
               </div>
@@ -162,7 +162,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
               <span style={p.brandStyle}>{p.brand}</span>
               <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
                 <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{p.label}</span>
-                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{p.meta}</span>
+                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{p.meta}</span>
               </div>
               {p.isDefault ? (<span style={p.defaultPill}>Default</span>) : null}
               {p.notDefault ? (
@@ -187,11 +187,11 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
           {upcomingLines.map(l => (
             <div key={l.d} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.78125rem', padding:'7px 0', borderTop:'1px solid #f2f4f8' }}>
               <span style={{ color:'#334155' }}>{l.d}</span>
-              <span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif", color:'#0f172a', flex:'0 0 auto' }}>{l.amt}</span>
+              <span style={{ fontFamily:'var(--font-sans)', color:'#0f172a', flex:'0 0 auto' }}>{l.amt}</span>
             </div>
           ))}
           <div style={{ display:'flex', justifyContent:'space-between', borderTop:'1px solid #e3e7ee', paddingTop:'11px', fontSize:'.875rem', fontWeight:700 }}>
-            <span>{upcomingTotalLabel(upcoming)}</span><span style={{ fontFamily:"'Inter', 'Google Sans Flex', sans-serif" }}>{formatCents(upcoming.total_cents, upcoming.currency)}</span>
+            <span>{upcomingTotalLabel(upcoming)}</span><span style={{ fontFamily:'var(--font-sans)' }}>{formatCents(upcoming.total_cents, upcoming.currency)}</span>
           </div>
         </div>
       </div>
@@ -225,7 +225,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
               <option value="annual">Annual (save 12%)</option>
             </select>
           </label>
-          <div style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>Invoices are issued from SignForge Inc., 400 Market St, San Francisco. Reverse-charge applies for EU VAT-registered entities.</div>
+          <div style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>Invoices are issued from SignerPro Inc., 400 Market St, San Francisco. Reverse-charge applies for EU VAT-registered entities.</div>
         </div>
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Recent charges</div>
@@ -237,7 +237,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
               <span style={c.dot}></span>
               <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
                 <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{c.amount}</span>
-                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:"'Inter', 'Google Sans Flex', sans-serif", whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.meta}</span>
+                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.meta}</span>
               </div>
               <span style={c.pill}>{c.status}</span>
             </div>

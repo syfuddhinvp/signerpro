@@ -105,7 +105,7 @@ describe('failure paths', () => {
     await signIn(user);
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(/cannot reach the signforge api/i);
+    expect(alert).toHaveTextContent(/cannot reach the signerpro api/i);
     expect(router.replace).not.toHaveBeenCalled();
   });
 

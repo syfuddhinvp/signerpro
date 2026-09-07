@@ -253,7 +253,7 @@ export default function Routing({ documentId, title, recipients, routing }: Rout
               <span style={r.orderStyle}>{r.order}</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, flex: 1 }}>
                 <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>{r.name}</span>
-                <span style={{ fontSize: '.71875rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{r.email}</span>
+                <span style={{ fontSize: '.71875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{r.email}</span>
               </div>
               <select value={r.role} onChange={r.onRole} aria-label="Role" style={r.selectStyle}>
                 <option value="sign">Needs to sign</option>
@@ -315,13 +315,13 @@ export default function Routing({ documentId, title, recipients, routing }: Rout
           <button type="button" onClick={send} disabled={sending} style={primaryBtnWide}>Send envelope &amp; preview signer view</button>
         </div>
         <div style={{ background: '#0f172a', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ fontSize: '.6875rem', letterSpacing: '.08em', color: TEXT_MUTED_ON_DARK, fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>DELIVERY SIMULATION</div>
+          <div style={{ fontSize: '.6875rem', letterSpacing: '.08em', color: TEXT_MUTED_ON_DARK, fontFamily: 'var(--font-sans)' }}>DELIVERY SIMULATION</div>
           {timeline.map(t => (
             <div key={t.label} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
               <span style={t.dot}></span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
                 <span style={{ fontSize: '.78125rem', color: '#e2e8f0', fontWeight: 500 }}>{t.label}</span>
-                <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: "'Inter', 'Google Sans Flex', sans-serif" }}>{t.meta}</span>
+                <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{t.meta}</span>
               </div>
             </div>
           ))}
