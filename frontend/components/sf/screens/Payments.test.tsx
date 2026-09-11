@@ -75,13 +75,30 @@ describe('Payments · not connected', () => {
     Object.defineProperty(window, 'location', { value: { ...window.location, href: '', origin: 'https://app.example.com' }, writable: true });
 
     mount({ account: null });
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: 'US' } });
     fireEvent.click(screen.getByRole('button', { name: /connect stripe/i }));
 
     await waitFor(() => expect(apiCall).toHaveBeenCalledWith('/api/payments/account/link', expect.objectContaining({
-      body: expect.objectContaining({ return_url: expect.any(String), refresh_url: expect.any(String) }),
+      body: expect.objectContaining({
+        return_url: expect.any(String),
+        refresh_url: expect.any(String),
+        country: 'US',
+        entity_type: 'company',
+      }),
     })));
     await waitFor(() => expect(window.location.href).toBe('https://connect.stripe.com/setup/abc'));
     void assign;
+  });
+
+  it('disables Connect Stripe until country and business type are both chosen', () => {
+    mount({ account: null });
+    const connectButton = screen.getByRole('button', { name: /connect stripe/i });
+    expect(connectButton).toBeDisabled();
+
+    // Business type already defaults to Company, so picking a country is
+    // enough to satisfy both fields.
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: 'GB' } });
+    expect(connectButton).not.toBeDisabled();
   });
 });
 
@@ -120,6 +137,11 @@ describe('Payments · connected', () => {
   it('shows no test-mode warning for a live account', () => {
     mount({ account: account({ livemode: true }) });
     expect(screen.queryByText(/test mode/i)).not.toBeInTheDocument();
+  });
+
+  it('does not ask for country or business type once an account already exists', () => {
+    mount({ account: account() });
+    expect(screen.queryByLabelText(/country/i)).not.toBeInTheDocument();
   });
 
   it('refreshes status against the API', async () => {
@@ -164,6 +186,7 @@ describe('Payments · errors', () => {
   it('surfaces a failed connect action', async () => {
     apiCall.mockResolvedValue(fail('Stripe is not reachable right now.'));
     mount({ account: null });
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: 'US' } });
     fireEvent.click(screen.getByRole('button', { name: /connect stripe/i }));
     await waitFor(() => expect(screen.getByText('Stripe is not reachable right now.')).toBeInTheDocument());
   });

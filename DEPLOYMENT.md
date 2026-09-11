@@ -274,9 +274,22 @@ optional and a tenant who never touches them should not block a deploy.
 
 ### Step 4 — A tenant connects their own account
 
-Each tenant connects separately, in-app, at **Settings → Payments** (`/account/payments`). This
-starts Stripe's hosted onboarding for the account created in Step 1 and returns them to the same page
-(`stripe_connect_service.create_onboarding_link`). The connection is not usable immediately: Stripe
+Each tenant connects separately, in-app, at **Settings → Payments** (`/account/payments`). Before
+the first connect the screen asks them for two things, and the Connect button stays disabled until
+both are chosen:
+
+| Field | Sent as | Why it is asked rather than defaulted |
+| --- | --- | --- |
+| Country | `identity.country` (lowercased ISO 3166-1 alpha-2) | Stripe **requires** it at creation whenever the `merchant` configuration is requested. Note its API reference marks the field *optional* — the runtime 400 is authoritative. Nothing in this app knows a tenant's country: `Organization.region` holds data-residency values like `eu-west-1`, not a country. |
+| Business type | `identity.entity_type` (`company`, `individual`, `non_profit`, `government_entity`) | Determines which identity requirements Stripe applies and how the account is validated. Guessing it hands the tenant an onboarding form fighting their actual situation. |
+
+Both are needed only on the call that creates the account. A reconnect or a resumed onboarding finds
+the existing `PaymentAccount` row and neither asks for nor requires them again. Both are validated
+server-side before any Stripe call, so a bad value is a 400 from us rather than a cryptic one from
+Stripe.
+
+Connecting then starts Stripe's hosted onboarding for that account and returns the tenant to the same
+page (`stripe_connect_service.create_onboarding_link`). The connection is not usable immediately: Stripe
 reports the `merchant` configuration's `card_payments` capability as inactive until the tenant
 finishes onboarding (identity, bank details, etc.), which this app still surfaces as
 `charges_enabled=false`, and `require_payable_account` refuses to let that tenant send a document

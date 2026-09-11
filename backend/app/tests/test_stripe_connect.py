@@ -104,7 +104,10 @@ def test_ensure_account_is_idempotent(client: TestClient, connect_service: Strip
 
     calls = _set_v2_account_transport(monkeypatch)
 
-    first = connect_service.ensure_account(db, organization=organization, user_email="owner@example.com")
+    first = connect_service.ensure_account(
+        db, organization=organization, user_email="owner@example.com", country="US", entity_type="company"
+    )
+    # A reconnect against an existing row must not require identity fields.
     second = connect_service.ensure_account(db, organization=organization)
 
     assert first.id == second.id
@@ -117,6 +120,10 @@ def test_ensure_account_is_idempotent(client: TestClient, connect_service: Strip
     # v2 is a JSON body, not `_flatten_form`'d -- a nested dict survives intact.
     assert params["configuration"]["merchant"]["capabilities"]["card_payments"]["requested"] is True
     assert params["contact_email"] == "owner@example.com"
+    # `identity.country` is sent lowercased, regardless of the case supplied.
+    assert params["identity"]["country"] == "us"
+    assert params["identity"]["entity_type"] == "company"
+    assert "identity" in params["include"]
     # `full`, not `express`: see the comment on `ensure_account` and
     # `test_stripe_connect_v2.py` -- Express alongside Stripe-held
     # negative-balance liability is preview-only.
@@ -151,6 +158,8 @@ def test_create_onboarding_link(client: TestClient, connect_service: StripeConne
         organization=organization,
         return_url="https://app.example.com/settings/payments?done=1",
         refresh_url="https://app.example.com/settings/payments",
+        country="GB",
+        entity_type="individual",
     )
     assert link.url == "https://connect.stripe.com/setup/abc"
     assert link.expires_at.year == 2026
@@ -164,7 +173,7 @@ def test_refresh_status_mirrors_flags_and_stamps_onboarded_at_once(
     organization, db = _organization(client, headers)
 
     _set_v2_account_transport(monkeypatch)
-    connect_service.ensure_account(db, organization=organization)
+    connect_service.ensure_account(db, organization=organization, country="US", entity_type="company")
 
     monkeypatch.setattr(
         StripeConnectService,
@@ -194,7 +203,7 @@ def test_require_payable_account_rejects_when_charges_disabled(
     organization, db = _organization(client, headers)
 
     _set_v2_account_transport(monkeypatch)
-    connect_service.ensure_account(db, organization=organization)
+    connect_service.ensure_account(db, organization=organization, country="US", entity_type="company")
 
     with pytest.raises(HTTPException) as excinfo:
         connect_service.require_payable_account(db, organization_id=organization.id)
@@ -208,7 +217,7 @@ def test_disconnect_drops_local_row_but_never_calls_stripe(
     organization, db = _organization(client, headers)
 
     _set_v2_account_transport(monkeypatch)
-    connect_service.ensure_account(db, organization=organization)
+    connect_service.ensure_account(db, organization=organization, country="US", entity_type="company")
     assert connect_service.get_account(db, organization.id) is not None
 
     def refuse(method, url, params, headers):
@@ -219,6 +228,32 @@ def test_disconnect_drops_local_row_but_never_calls_stripe(
 
     connect_service.disconnect(db, organization=organization)
     assert connect_service.get_account(db, organization.id) is None
+
+
+def test_ensure_account_rejects_invalid_country_before_calling_stripe(
+    client: TestClient, connect_service: StripeConnectService, monkeypatch
+):
+    headers = auth_headers(client)
+    organization, db = _organization(client, headers)
+    calls = _set_v2_account_transport(monkeypatch)
+
+    with pytest.raises(HTTPException) as excinfo:
+        connect_service.ensure_account(db, organization=organization, country="USA", entity_type="company")
+    assert excinfo.value.status_code == 400
+    assert calls == []
+
+
+def test_ensure_account_rejects_invalid_entity_type_before_calling_stripe(
+    client: TestClient, connect_service: StripeConnectService, monkeypatch
+):
+    headers = auth_headers(client)
+    organization, db = _organization(client, headers)
+    calls = _set_v2_account_transport(monkeypatch)
+
+    with pytest.raises(HTTPException) as excinfo:
+        connect_service.ensure_account(db, organization=organization, country="US", entity_type="business")
+    assert excinfo.value.status_code == 400
+    assert calls == []
 
 
 def test_verify_connect_webhook_rejects_bad_signature(connect_service: StripeConnectService):

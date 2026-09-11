@@ -55,7 +55,9 @@ def test_accounts_v2_access_blocked_gets_an_actionable_message(
     monkeypatch.setattr(StripeConnectService, "transport", staticmethod(fake))
 
     with pytest.raises(StripeApiError) as excinfo:
-        connect_service.ensure_account(db, organization=organization)
+        connect_service.ensure_account(
+            db, organization=organization, country="US", entity_type="company"
+        )
     # Not Stripe's raw string -- ours, naming the dashboard setting.
     assert "Dashboard" in str(excinfo.value)
     assert "Connect" in str(excinfo.value)
@@ -78,7 +80,12 @@ def test_stripe_400_surfaces_as_4xx_not_500(client: TestClient, monkeypatch) -> 
     base_url = get_settings().app_base_url.rstrip("/")
     response = client.post(
         "/api/payments/account/link",
-        json={"return_url": f"{base_url}/settings/payments", "refresh_url": f"{base_url}/settings/payments"},
+        json={
+            "return_url": f"{base_url}/settings/payments",
+            "refresh_url": f"{base_url}/settings/payments",
+            "country": "US",
+            "entity_type": "company",
+        },
         headers=headers,
     )
     assert 400 <= response.status_code < 500, response.text
@@ -101,7 +108,12 @@ def test_stripe_5xx_surfaces_as_502(client: TestClient, monkeypatch) -> None:
     base_url = get_settings().app_base_url.rstrip("/")
     response = client.post(
         "/api/payments/account/link",
-        json={"return_url": f"{base_url}/settings/payments", "refresh_url": f"{base_url}/settings/payments"},
+        json={
+            "return_url": f"{base_url}/settings/payments",
+            "refresh_url": f"{base_url}/settings/payments",
+            "country": "US",
+            "entity_type": "company",
+        },
         headers=headers,
     )
     assert response.status_code == 502, response.text
@@ -139,7 +151,7 @@ def test_v2_create_sends_the_required_responsibilities_defaults(
         }
 
     monkeypatch.setattr(StripeConnectService, "transport", staticmethod(fake))
-    connect_service.ensure_account(db, organization=organization)
+    connect_service.ensure_account(db, organization=organization, country="US", entity_type="company")
 
     assert sent["url"].endswith("/v2/core/accounts")
     responsibilities = sent["params"]["defaults"]["responsibilities"]

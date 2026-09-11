@@ -46,6 +46,10 @@ connect_webhook_router = APIRouter(prefix="/api/webhooks", tags=["payments"])
 class PaymentAccountLinkRequest(BaseModel):
     return_url: str = Field(min_length=1)
     refresh_url: str = Field(min_length=1)
+    #: Only required the first time an account is created; a reconnect
+    #: against an existing `PaymentAccount` row does not need them again.
+    country: str | None = Field(default=None, min_length=2, max_length=2)
+    entity_type: str | None = None
 
 
 class RefundRequest(BaseModel):
@@ -103,11 +107,24 @@ def create_account_link(
     _require_same_origin(payload.return_url, field="return_url")
     _require_same_origin(payload.refresh_url, field="refresh_url")
     organization = user.organization
+    if stripe_connect_service.get_account(db, organization.id) is None and (
+        not payload.country or not payload.entity_type
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "country and entity_type are required to create a Stripe account: "
+                "they determine what Stripe requires during onboarding and cannot be "
+                "changed afterwards without recreating the account."
+            ),
+        )
     return stripe_connect_service.create_onboarding_link(
         db,
         organization=organization,
         return_url=payload.return_url,
         refresh_url=payload.refresh_url,
+        country=payload.country,
+        entity_type=payload.entity_type,
     )
 
 

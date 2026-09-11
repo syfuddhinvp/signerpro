@@ -127,7 +127,12 @@ def test_account_endpoints_round_trip(client: TestClient, monkeypatch) -> None:
     base_url = get_settings().app_base_url.rstrip("/")
     response = client.post(
         "/api/payments/account/link",
-        json={"return_url": f"{base_url}/settings/payments", "refresh_url": f"{base_url}/settings/payments"},
+        json={
+            "return_url": f"{base_url}/settings/payments",
+            "refresh_url": f"{base_url}/settings/payments",
+            "country": "US",
+            "entity_type": "company",
+        },
         headers=headers,
     )
     assert response.status_code == 200, response.text
@@ -145,6 +150,60 @@ def test_account_endpoints_round_trip(client: TestClient, monkeypatch) -> None:
     deleted = client.delete("/api/payments/account", headers=headers)
     assert deleted.status_code == 204
     assert client.get("/api/payments/account", headers=headers).json() is None
+
+
+def test_account_link_requires_country_and_entity_type_first_time(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_fake")
+    headers = auth_headers(client)
+    fake = FakeStripe()
+    monkeypatch.setattr(type(stripe_connect_service), "transport", staticmethod(fake))
+
+    base_url = get_settings().app_base_url.rstrip("/")
+    response = client.post(
+        "/api/payments/account/link",
+        json={"return_url": f"{base_url}/settings/payments", "refresh_url": f"{base_url}/settings/payments"},
+        headers=headers,
+    )
+    assert response.status_code == 400, response.text
+    # Never reaches Stripe -- caught before any transport call.
+    assert not fake.calls
+
+
+def test_account_link_does_not_require_country_and_entity_type_on_reconnect(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_fake")
+    headers = auth_headers(client)
+    db = db_session(client)
+    account = PaymentAccount(
+        organization_id=_org_id(client, headers),
+        provider="stripe",
+        provider_account_id="acct_existing",
+        charges_enabled=False,
+        payouts_enabled=False,
+        details_submitted=False,
+    )
+    db.add(account)
+    db.commit()
+
+    fake = FakeStripe(
+        {
+            "POST /v2/core/account_links": (
+                200,
+                {"url": "https://connect.stripe.com/setup/resume", "expires_at": "2026-01-01T00:05:00Z"},
+            ),
+        }
+    )
+    monkeypatch.setattr(type(stripe_connect_service), "transport", staticmethod(fake))
+
+    base_url = get_settings().app_base_url.rstrip("/")
+    response = client.post(
+        "/api/payments/account/link",
+        json={"return_url": f"{base_url}/settings/payments", "refresh_url": f"{base_url}/settings/payments"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["url"] == "https://connect.stripe.com/setup/resume"
 
 
 def test_return_url_off_origin_is_rejected(client: TestClient, monkeypatch) -> None:

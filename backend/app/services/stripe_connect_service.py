@@ -64,6 +64,32 @@ STRIPE_API_VERSION_V2 = "2026-08-26.dahlia"
 #: something a request parameter can work around.
 _ACCOUNTS_V2_BLOCKED_CODE = "accounts_v2_access_blocked"
 
+#: `identity.entity_type` enum, exactly as Stripe's Accounts v2 reference
+#: defines it -- anything else must be rejected before it reaches Stripe.
+VALID_ENTITY_TYPES = {"company", "individual", "non_profit", "government_entity"}
+
+
+def _validate_identity_fields(country: str | None, entity_type: str | None) -> None:
+    """Reject a bad `country`/`entity_type` before any Stripe call is made.
+
+    Stripe's own reference marks `identity.country` as optional, but a real
+    account-creation call 400s without it whenever the `merchant`
+    configuration is requested -- the runtime error is authoritative here,
+    not the schema. `entity_type` was not named in that error but is
+    collected and validated for the same reason: guessing it produces a
+    wrong-shaped onboarding form the tenant then has to fight.
+    """
+    if country is None or len(country) != 2 or not country.isalpha() or not country.isascii():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="country must be a two-letter ISO 3166-1 alpha-2 code (e.g. 'US').",
+        )
+    if entity_type not in VALID_ENTITY_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"entity_type must be one of: {', '.join(sorted(VALID_ENTITY_TYPES))}.",
+        )
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -209,12 +235,24 @@ class StripeConnectService:
 
     # -------------------------------------------------------------- onboard
     def ensure_account(
-        self, db: Session, *, organization: Organization, user_email: str | None = None
+        self,
+        db: Session,
+        *,
+        organization: Organization,
+        user_email: str | None = None,
+        country: str | None = None,
+        entity_type: str | None = None,
     ) -> PaymentAccount:
-        """Create the tenant's connected account on first call; idempotent after."""
+        """Create the tenant's connected account on first call; idempotent after.
+
+        `country` and `entity_type` are only required the first time -- when
+        an account does not exist yet. A reconnect/resume against an
+        existing `PaymentAccount` row must not demand them again.
+        """
         existing = self.get_account(db, organization.id)
         if existing is not None:
             return existing
+        _validate_identity_fields(country, entity_type)
         params: dict[str, Any] = {
             "display_name": organization.name,
             # The tenant's own Stripe Dashboard, not the limited Express one.
@@ -258,10 +296,15 @@ class StripeConnectService:
             # Standard-equivalent shape, which Stripe's own guidance calls the
             # best default for a SaaS platform embedding payments.
             "defaults": {"responsibilities": {"fees_collector": "stripe", "losses_collector": "stripe"}},
-            # `identity` is deliberately omitted: hosted onboarding (the
-            # account link below) collects it. And per Stripe, v2 returns
-            # null for most properties unless their group is named here.
-            "include": ["configuration.merchant", "requirements", "defaults"],
+            # `identity.country` is required whenever `configuration.merchant`
+            # is requested -- Stripe's 400 here is authoritative even though
+            # its API reference marks the field optional. Sent lowercased
+            # ("us"); Stripe's responses come back uppercase ("US").
+            "identity": {"country": country.lower(), "entity_type": entity_type},
+            # `include` must name a group for v2 to report it back on the
+            # create response, per Stripe -- otherwise most properties come
+            # back null.
+            "include": ["configuration.merchant", "requirements", "defaults", "identity"],
         }
         if user_email:
             params["contact_email"] = user_email
@@ -310,10 +353,19 @@ class StripeConnectService:
         }
 
     def create_onboarding_link(
-        self, db: Session, *, organization: Organization, return_url: str, refresh_url: str
+        self,
+        db: Session,
+        *,
+        organization: Organization,
+        return_url: str,
+        refresh_url: str,
+        country: str | None = None,
+        entity_type: str | None = None,
     ) -> PaymentAccountLinkResponse:
         """A one-time hosted Stripe onboarding url for the tenant's account."""
-        account = self.ensure_account(db, organization=organization)
+        account = self.ensure_account(
+            db, organization=organization, country=country, entity_type=entity_type
+        )
         created = self._request_v2(
             "POST",
             "/v2/core/account_links",

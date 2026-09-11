@@ -581,8 +581,10 @@ export const payments = {
   account: (c: Caller) => get<T.PaymentAccountResponse | null>(c, '/api/payments/account'),
   /** A one-time hosted onboarding url. `return_url`/`refresh_url` are where
    *  Stripe sends the tenant back to, on completion and on retry respectively. */
-  accountLink: (c: Caller, body: { return_url: string; refresh_url: string }) =>
-    post<T.PaymentAccountLink>(c, '/api/payments/account/link', body),
+  accountLink: (
+    c: Caller,
+    body: { return_url: string; refresh_url: string; country?: string; entity_type?: string },
+  ) => post<T.PaymentAccountLink>(c, '/api/payments/account/link', body),
   /** Re-pulls the account's live state from Stripe. */
   refreshAccount: (c: Caller) => post<T.PaymentAccountResponse>(c, '/api/payments/account/refresh'),
   disconnectAccount: (c: Caller) => del<void>(c, '/api/payments/account'),

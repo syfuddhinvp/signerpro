@@ -39,24 +39,80 @@ const testModeStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', borderRadius: '10px',
   border: '1px solid #fcd34d', background: '#fffbeb', color: '#92400e', fontSize: '.78125rem', fontWeight: 600,
 };
+const fieldLabelStyle: CSSProperties = { fontSize: '.75rem', color: '#334155', fontWeight: 600 };
+const selectStyle: CSSProperties = {
+  padding: '7px 10px', borderRadius: '8px', border: '1px solid #dbe1ea', fontSize: '.8125rem', color: '#1f2937',
+  background: '#fff',
+};
+
+/**
+ * A curated subset of countries Stripe Connect is commonly available in —
+ * NOT a global ISO-3166 list. Extend this array as SignerPro's tenant base
+ * grows into more of Stripe's supported countries; see Stripe's own
+ * "Connect supported countries" page for the full set.
+ */
+const STRIPE_CONNECT_COUNTRIES: Array<{ code: string; label: string }> = [
+  { code: 'US', label: 'United States' },
+  { code: 'GB', label: 'United Kingdom' },
+  { code: 'CA', label: 'Canada' },
+  { code: 'AU', label: 'Australia' },
+  { code: 'NZ', label: 'New Zealand' },
+  { code: 'IE', label: 'Ireland' },
+  { code: 'DE', label: 'Germany' },
+  { code: 'FR', label: 'France' },
+  { code: 'ES', label: 'Spain' },
+  { code: 'IT', label: 'Italy' },
+  { code: 'NL', label: 'Netherlands' },
+  { code: 'BE', label: 'Belgium' },
+  { code: 'AT', label: 'Austria' },
+  { code: 'DK', label: 'Denmark' },
+  { code: 'SE', label: 'Sweden' },
+  { code: 'NO', label: 'Norway' },
+  { code: 'FI', label: 'Finland' },
+  { code: 'PT', label: 'Portugal' },
+  { code: 'PL', label: 'Poland' },
+  { code: 'CH', label: 'Switzerland' },
+  { code: 'SG', label: 'Singapore' },
+  { code: 'JP', label: 'Japan' },
+  { code: 'HK', label: 'Hong Kong' },
+  { code: 'MY', label: 'Malaysia' },
+  { code: 'IN', label: 'India' },
+  { code: 'AE', label: 'United Arab Emirates' },
+  { code: 'BR', label: 'Brazil' },
+  { code: 'MX', label: 'Mexico' },
+];
+
+const ENTITY_TYPES: Array<{ value: string; label: string }> = [
+  { value: 'company', label: 'Company' },
+  { value: 'individual', label: 'Individual / sole trader' },
+  { value: 'non_profit', label: 'Non-profit' },
+  { value: 'government_entity', label: 'Government entity' },
+];
 
 export default function Payments({ account, loadError = null }: PaymentsProps) {
   const router = useRouter();
   const { askConfirm } = useDialogs();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Only asked for the first time — they decide what Stripe requires during
+  // onboarding and cannot be changed afterwards without recreating the
+  // account, so we never ask again once `account` exists.
+  const [country, setCountry] = useState('');
+  const [entityType, setEntityType] = useState('company');
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn = btn('#635bff', '#fff', '#635bff');
   const dangerBtn = btn('#fff', '#b91c1c', '#fecaca');
 
   const connect = () => {
+    if (!account && (!country || !entityType)) return;
     setBusy(true);
     setActionError(null);
     const origin = window.location.origin;
     void paymentsApi.accountLink(apiCall, {
       return_url: origin + '/account/payments',
       refresh_url: origin + '/account/payments',
+      ...(account ? {} : { country, entity_type: entityType }),
     }).then(res => {
       if (!res.ok) { setBusy(false); setActionError(res.error.message); return; }
       window.location.href = res.data.url;
@@ -107,8 +163,40 @@ export default function Payments({ account, loadError = null }: PaymentsProps) {
             envelope. Signers pay you directly, on signing — the money goes straight into your
             Stripe account, and SignerPro takes no cut of it.
           </div>
+          <div style={noteStyle}>
+            Tell us your country and business type below. Stripe uses these to decide what it
+            requires during onboarding, and they cannot be changed afterwards without recreating
+            the account — so we ask once, up front.
+          </div>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={fieldLabelStyle}>Country</span>
+              <select
+                value={country}
+                onChange={e => setCountry(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="">Select a country…</option>
+                {STRIPE_CONNECT_COUNTRIES.map(c => (
+                  <option key={c.code} value={c.code}>{c.label}</option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={fieldLabelStyle}>Business type</span>
+              <select
+                value={entityType}
+                onChange={e => setEntityType(e.target.value)}
+                style={selectStyle}
+              >
+                {ENTITY_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div>
-            <button type="button" onClick={connect} disabled={busy} style={primaryBtn}>
+            <button type="button" onClick={connect} disabled={busy || !country || !entityType} style={primaryBtn}>
               {busy ? 'Opening Stripe…' : 'Connect Stripe'}
             </button>
           </div>
