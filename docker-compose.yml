@@ -43,6 +43,24 @@ services:
       postgres:
         condition: service_healthy
 
+  # Catches every email the app sends, locally, instead of delivering it.
+  # Signing invitations, reminders, OTPs and notifications all land in the web
+  # UI on http://localhost:8025 -- which is also the only way to get a signing
+  # link out of a dev stack, since the raw token is hashed and never stored.
+  #
+  # Unauthenticated on purpose: `core/email.py` only calls `starttls()`/`login()`
+  # when SMTP_USERNAME *and* SMTP_PASSWORD are both set, so leaving them unset
+  # below keeps the plain-SMTP path Mailpit expects.
+  #
+  # `:latest` diverges from this file's habit of pinning (see adminer). Pin it
+  # to a released tag if a Mailpit change ever surprises you.
+  mailcatcher:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+
   # Object storage for development, S3-compatible. The app talks to it exactly
   # as it will talk to S3 in production -- same code path, same presigned URLs
   # -- so switching over is a matter of environment, not of a second backend
@@ -125,6 +143,17 @@ services:
       # The entrypoint runs `alembic upgrade head` under an advisory lock before
       # starting, so a fresh `docker compose up` gets a migrated database.
       RUN_MIGRATIONS: "1"
+      # Local mail capture (the `mailcatcher` service above). Username and
+      # password are deliberately absent: `core/email.py` only negotiates
+      # STARTTLS and logs in when both are present, and Mailpit wants neither.
+      #
+      # RESEND_API_KEY is deliberately NOT passed through. `core/email.py`
+      # prefers Resend over SMTP whenever it is set, so forwarding a dev's
+      # exported key would send real mail to real people from a dev stack
+      # while this service sat empty.
+      SMTP_HOST: ${SMTP_HOST:-mailcatcher}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@signflow.local}
     ports:
       - "8000:8000"
     volumes:
@@ -139,6 +168,11 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      # Only `service_started`: a missing mail server is caught and logged by
+      # `core/email.py` rather than failing a request, so this is about the
+      # first invitation not vanishing, not about correctness.
+      mailcatcher:
+        condition: service_started
     # Readiness, not liveness: this exists so `frontend` waits for a backend
     # that has actually finished migrating, rather than racing it and serving
     # 500s for the first half-minute of every `up`. /api/health/ready checks the
