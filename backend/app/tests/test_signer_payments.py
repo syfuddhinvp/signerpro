@@ -205,6 +205,45 @@ def test_allocation_forces_fixed_mode_even_on_a_signer_entered_field(client: Tes
     assert field.options["amount_cents"] == 333
 
 
+def test_allocation_forces_required_true_even_on_a_field_authored_optional(
+    client: TestClient, pdf_bytes: bytes
+) -> None:
+    """THE HOLE: `outstanding_payment_fields` (the settlement gate) only
+    considers `required` fields. A payment field authored `required=False`
+    that is then handed an allocation by `sync_request` must have `required`
+    flipped to `True` -- an allocation is an obligation, and the obligation
+    and the gate must never be able to disagree.
+    """
+    headers = auth_headers(client)
+    document_id, alice, bob = setup_document(client, pdf_bytes, headers, second_recipient_role="copy")
+    field_id = add_field(
+        client, document_id, headers, alice, "payment", "Alice pay", 500,
+        required=False,
+        options={"amount_mode": "fixed", "amount_cents": 1500, "currency": "USD"},
+    )
+
+    db = db_session(client)
+    field = db.get(Field, field_id)
+    assert field.required is False  # authored optional
+
+    document = db.get(Document, document_id)
+    payload = PaymentRequestCreate(
+        total_cents=2000, split_mode="single",
+        allocations=[PaymentAllocationInput(recipient_id=alice, amount_cents=2000)],
+    )
+    signer_payment_service.sync_request(db, document=document, payload=payload)
+
+    db.refresh(field)
+    assert field.required is True, "an allocated field must be forced required, whatever it was authored as"
+
+    # And it must now genuinely appear in the settlement gate's own view of
+    # this recipient's outstanding payment fields.
+    db.refresh(document)
+    recipient = db.get(Recipient, alice)
+    outstanding_ids = {f.id for f in signer_payment_service.outstanding_payment_fields(document, recipient)}
+    assert field_id in outstanding_ids
+
+
 def test_allocation_requires_an_existing_payment_field(client: TestClient, pdf_bytes: bytes) -> None:
     headers = auth_headers(client)
     document_id, alice, bob = setup_document(client, pdf_bytes, headers)

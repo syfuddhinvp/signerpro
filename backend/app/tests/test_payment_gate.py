@@ -10,6 +10,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.models.document import Document
+from app.models.recipient import Recipient
+from app.schemas.payment import PaymentAllocationInput, PaymentRequestCreate
 from app.services.signer_payment_service import signer_payment_service
 from app.services.signing_service import signing_service
 from app.tests.conftest import auth_headers
@@ -19,6 +21,7 @@ from app.tests.test_signer_payments import (
     add_payment_field,
     connect_stripe,
     db_session,
+    setup_document,
 )
 from app.tests.test_signing_correctness import add_field, add_recipient, send
 
@@ -34,6 +37,105 @@ def _single_payment_document(client: TestClient, pdf_bytes: bytes, headers: dict
     if connect:
         connect_stripe(client, headers)
     return document_id, alice, field_id
+
+
+# --------------------------------------------------- THE HOLE: allocated-but-optional field
+
+
+def test_an_allocated_field_authored_optional_cannot_be_signed_without_paying(
+    client: TestClient, pdf_bytes: bytes
+) -> None:
+    """THE HOLE, end-to-end: the builder's one-click payment-field control used
+    to author fields `required=False`. `sync_request` then wrote a real
+    allocation onto one of them. Before the fix, `outstanding_payment_fields`
+    filtered on `required` alone, so the gate never saw the field, and
+    `complete()` let the signer through having paid nothing. This drives the
+    real HTTP `/complete` route, not the service helper directly, because
+    that HTTP route is what the signer's browser actually calls.
+    """
+    headers = auth_headers(client)
+    document_id, alice, bob = setup_document(client, pdf_bytes, headers, second_recipient_role="copy")
+    field_id = add_field(
+        client, document_id, headers, alice, "payment", "Deposit", 500,
+        required=False,
+        options={"amount_mode": "fixed", "amount_cents": 1500, "currency": "USD"},
+    )
+    add_field(client, document_id, headers, alice, "signature", "Alice signature", 400)
+    connect_stripe(client, headers)
+
+    db = db_session(client)
+    document = db.get(Document, document_id)
+    payload = PaymentRequestCreate(
+        total_cents=2000, split_mode="single",
+        allocations=[PaymentAllocationInput(recipient_id=alice, amount_cents=2000)],
+    )
+    signer_payment_service.sync_request(db, document=document, payload=payload)
+
+    tokens = send(client, document_id, headers)
+    raw_token = tokens["alice@example.com"]
+    assert client.post(f"/api/sign/{raw_token}/consent").status_code == 200
+
+    document = db.get(Document, document_id)
+    signature_field = next(f for f in document.fields if f.type.value == "signature")
+    assert client.post(
+        f"/api/sign/{raw_token}/fields/{signature_field.id}/signature",
+        json={"signature_type": "typed", "signature_text": "Alice"},
+    ).status_code == 200
+
+    response = client.post(f"/api/sign/{raw_token}/complete")
+    assert response.status_code == 402, (
+        "an allocated payment field authored optional must still block completion "
+        "-- before the fix this returned 200 with nothing paid"
+    )
+
+
+def test_allocated_optional_fields_counters_agree_with_the_gate(
+    client: TestClient, pdf_bytes: bytes
+) -> None:
+    """Same scenario, viewed through the session counters: an allocated field
+    must be reported outstanding by `required_total`/`required_completed`,
+    not just by the gate, or the submit button looks enabled right up to the
+    402.
+    """
+    headers = auth_headers(client)
+    document_id, alice, bob = setup_document(client, pdf_bytes, headers, second_recipient_role="copy")
+    field_id = add_field(
+        client, document_id, headers, alice, "payment", "Deposit", 500,
+        required=False,
+        options={"amount_mode": "fixed", "amount_cents": 1500, "currency": "USD"},
+    )
+    add_field(client, document_id, headers, alice, "signature", "Alice signature", 400)
+    connect_stripe(client, headers)
+
+    db = db_session(client)
+    document = db.get(Document, document_id)
+    payload = PaymentRequestCreate(
+        total_cents=2000, split_mode="single",
+        allocations=[PaymentAllocationInput(recipient_id=alice, amount_cents=2000)],
+    )
+    signer_payment_service.sync_request(db, document=document, payload=payload)
+
+    tokens = send(client, document_id, headers)
+    raw_token = tokens["alice@example.com"]
+    assert client.post(f"/api/sign/{raw_token}/consent").status_code == 200
+
+    document = db.get(Document, document_id)
+    signature_field = next(f for f in document.fields if f.type.value == "signature")
+    assert client.post(
+        f"/api/sign/{raw_token}/fields/{signature_field.id}/signature",
+        json={"signature_type": "typed", "signature_text": "Alice"},
+    ).status_code == 200
+
+    session = client.get(f"/api/sign/{raw_token}")
+    assert session.status_code == 200, session.text
+    payload_json = session.json()
+    # 2 required fields now (signature + the allocated payment field), only
+    # the signature is done.
+    assert payload_json["required_total"] == 2
+    assert payload_json["required_completed"] == 1
+
+    response = client.post(f"/api/sign/{raw_token}/complete")
+    assert response.status_code == 402
 
 
 # ------------------------------------------------------- complete() gate
@@ -245,6 +347,13 @@ def test_optional_unpaid_payment_field_agrees_between_gate_and_session_counters(
     # both should agree it is already "complete".
     assert counters_say_complete is True
     assert gate_says_complete is True
+
+    # Concretely, through the real HTTP route: a payment field that was never
+    # part of any payment request (no `payment_request_id`, authored
+    # `required=False`) is a genuinely optional field, not an allocation the
+    # fix should have swept up. `complete()` must let the signer through
+    # without it.
+    assert client.post(f"/api/sign/{raw_token}/complete").status_code == 200
 
 
 def test_session_progress_treats_an_unpaid_payment_field_as_incomplete(

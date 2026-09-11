@@ -306,6 +306,14 @@ class SignerPaymentService:
                 }
             )
             field.options = updated.model_dump()
+            # An allocated payment field is REQUIRED, whatever it was authored
+            # as. The settlement gate only considers required payment fields
+            # (see `outstanding_payment_fields`), so an optional one allocated
+            # a share of the total produces the worst possible outcome: the
+            # signer is shown a Pay button, is told they owe money, and can
+            # sign without paying it. Forcing it here means the obligation and
+            # the gate can never disagree.
+            field.required = True
             db.add(field)
 
         db.commit()

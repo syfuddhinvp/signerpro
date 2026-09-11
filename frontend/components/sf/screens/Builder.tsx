@@ -1334,6 +1334,32 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   const payableRecipients = R.filter(r => r.role !== 'copy');
   const paymentFieldFor = (recipientId: string): SFField | null =>
     F.find(f => f.type === 'payment' && f.to === recipientId) || null;
+  /** The panel's one-click way out of the dead end where a payer cannot be
+   *  selected because nobody has dragged a payment field onto the canvas yet.
+   *  This creates the exact same `SFField` shape `useBuilderInteractions`'s own
+   *  drop handler does — same type, same palette default size — so the result
+   *  is indistinguishable from a dragged field and is picked up by the same
+   *  autosave. Successive auto-placements are staggered so two payers never
+   *  land on top of one another. */
+  const placePaymentField = (recipientId: string) => {
+    const paymentType = TYPES.find(t => t.id === 'payment');
+    const w = paymentType ? paymentType.w : 160;
+    const h = paymentType ? paymentType.h : 48;
+    const already = F.filter(f => f.type === 'payment').length;
+    const stagger = (already % 6) * 24;
+    const id = 'f' + Date.now().toString().slice(-6) + already;
+    const nf: SFField = {
+      id, page: 1, type: 'payment', x: 40 + stagger, y: 40 + stagger, w, h,
+      // Required, not optional: the settlement gate only looks at required
+      // payment fields, so an optional one would let a signer who owes money
+      // sign without paying. `sync_request` also forces this server-side.
+      to: recipientId, required: true, readOnly: false,
+      label: paymentType ? paymentType.label : 'Payment', placeholder: '',
+      validation: 'none', cond: null,
+    };
+    set(prev => ({ fields: prev.fields.concat([nf]), selected: [id] }));
+    flash((recipIn(recipientId).name || 'Recipient') + '’s payment field added to page 1 — drag it in the builder to reposition');
+  };
   const paymentTotalCents = centsFromAmountInput(paymentDraft.total) ?? 0;
   const paymentEqualAmounts = splitEqualCents(paymentTotalCents, paymentDraft.payerIds.length);
   const paymentNoStripe = paymentAccount === null || (!!paymentAccount && !paymentAccount.charges_enabled);
@@ -2305,7 +2331,10 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                       />
                       <span style={{ fontSize:'.78125rem', flex:1 }}>{r.name}</span>
                       {!hasField ? (
-                        <span style={{ fontSize:'.65625rem', color:'#b45309' }}>No payment field placed</span>
+                        <button type="button" onClick={() => placePaymentField(r.id)}
+                          style={{ fontSize:'.65625rem', color:'#b45309', background:'none', border:'1px solid #fcd34d', borderRadius:'6px', padding:'3px 7px', cursor:'pointer' }}>
+                          No payment field placed · place one
+                        </button>
                       ) : null}
                       {paymentDraft.splitMode === 'equal' && checked ? (
                         <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>
