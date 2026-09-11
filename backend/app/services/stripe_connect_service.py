@@ -1,4 +1,4 @@
-"""Stripe Connect (Express) adapter: tenants connect their OWN Stripe account.
+"""Stripe Connect adapter: tenants connect their OWN Stripe account.
 
 This is deliberately separate from ``billing_service.StripePaymentProvider``,
 which charges *the platform's* Stripe account for a tenant's subscription.
@@ -102,7 +102,7 @@ def _stripe_http_transport_v1_or_v2(
 
 
 class StripeConnectService:
-    """Onboards, syncs, and gates a tenant's connected Stripe (Express) account."""
+    """Onboards, syncs, and gates a tenant's connected Stripe account."""
 
     #: Overridable seam, following ``StripePaymentProvider.transport`` exactly:
     #: production uses httpx, tests substitute a fake. Both v1 (form) and
@@ -211,18 +211,57 @@ class StripeConnectService:
     def ensure_account(
         self, db: Session, *, organization: Organization, user_email: str | None = None
     ) -> PaymentAccount:
-        """Create the tenant's Express account on first call; idempotent after."""
+        """Create the tenant's connected account on first call; idempotent after."""
         existing = self.get_account(db, organization.id)
         if existing is not None:
             return existing
         params: dict[str, Any] = {
             "display_name": organization.name,
-            "dashboard": "express",
+            # The tenant's own Stripe Dashboard, not the limited Express one.
+            #
+            # This is forced by the `losses_collector: "stripe"` below rather
+            # than freely chosen: Express-dashboard access *combined with*
+            # Stripe carrying negative balances is still only a public
+            # preview, reachable on the `2026-08-26.preview` API version, and
+            # asking for it on a GA version is what Stripe rejects with "This
+            # account configuration is not supported". The alternatives were
+            # to pin this integration to a preview version string, or to move
+            # negative-balance liability onto this platform. Neither is worth
+            # it for a limited dashboard.
+            #
+            # It also suits what the product actually promises -- "connect
+            # your own Stripe account" -- and hands the tenant real refunds,
+            # disputes, payouts and reporting UI that we would otherwise have
+            # to build.
+            #
+            # NOTE: a connected account's dashboard type is IMMUTABLE. Changing
+            # this later does not migrate existing accounts; each one has to be
+            # recreated.
+            "dashboard": "full",
             "configuration": {"merchant": {"capabilities": {"card_payments": {"requested": True}}}},
+            # Required by Stripe whenever the merchant configuration is
+            # requested -- omitting them is a 400, not a default.
+            #
+            # Both are `stripe` rather than `application`, and that is the
+            # whole commercial shape of this feature in two lines:
+            #   fees_collector  -- Stripe bills its processing fees straight
+            #     to the tenant's account. SignerPro never collects a fee on
+            #     a tenant's invoice, so there is no platform fee to plumb.
+            #   losses_collector -- Stripe, not this platform, carries a
+            #     negative balance when a tenant cannot cover a refund or a
+            #     lost dispute. `application` would make every tenant's
+            #     chargeback our liability, which is not a risk we take on
+            #     for a transaction we earn nothing from.
+            # Note this is NOT how v1 Express behaved: under Accounts v1 both
+            # Express and Custom made the *platform* liable for negative
+            # balances, and only Standard had Stripe carry them. This is the
+            # Standard-equivalent shape, which Stripe's own guidance calls the
+            # best default for a SaaS platform embedding payments.
+            "defaults": {"responsibilities": {"fees_collector": "stripe", "losses_collector": "stripe"}},
             # `identity` is deliberately omitted: hosted onboarding (the
             # account link below) collects it. And per Stripe, v2 returns
             # null for most properties unless their group is named here.
-            "include": ["configuration.merchant", "requirements"],
+            "include": ["configuration.merchant", "requirements", "defaults"],
         }
         if user_email:
             params["contact_email"] = user_email

@@ -182,9 +182,22 @@ Connected accounts here are created on **Accounts v2** (`POST /v2/core/accounts`
 `POST /v2/core/account_links`, `Stripe-Version: 2026-08-26.dahlia` — see `STRIPE_API_VERSION_V2` in
 `stripe_connect_service.py`), not v1: Stripe no longer accepts new connected accounts through
 `/v1/accounts` at all. Each account is created with the `merchant` configuration
-(`configuration.merchant.capabilities.card_payments.requested = true`) and `dashboard: "express"` —
-this is the v2 equivalent of what used to be called an "Express account", not a separate account
-type to pick in the Dashboard.
+(`configuration.merchant.capabilities.card_payments.requested = true`) and `dashboard: "full"`,
+which gives the tenant their own real Stripe Dashboard — the v2 shape closest to what used to be
+called a "Standard account". There is no account type to pick in the Dashboard; it is all in the
+create call.
+
+`dashboard: "full"` is not a free choice here. It is required by the `losses_collector: "stripe"`
+setting below: Express-dashboard access **combined with** Stripe carrying negative balances is
+still only a public preview, available on the `2026-08-26.preview` API version. Requesting that
+pair on a GA version fails with a flat `This account configuration is not supported`, which is a
+hard error to trace back to one word in the request. The alternatives are to pin this integration
+to a preview API version, or to take negative-balance liability onto the platform — neither being
+worth a more limited dashboard. As a bonus, the full Dashboard gives tenants refunds, disputes,
+payouts and reporting UI we would otherwise have to build.
+
+**A connected account's dashboard type is immutable.** Changing this value later does not migrate
+existing accounts — each one has to be recreated — so settle it before tenants start connecting.
 
 Most Connect platforms have Accounts v2 available already. If it is not, `_request_v2` surfaces
 Stripe's own `accounts_v2_access_blocked` error with the message "Accounts v2 is not enabled for
@@ -199,11 +212,21 @@ Status reads did **not** move to v2: `refresh_status` still polls `GET /v1/accou
 at the v1 read endpoint. Do not expect (or configure against) a v2 capability model on that sync
 path — only account *creation* and the onboarding *link* are v2.
 
-**Decide this knowingly before turning it on**: under this `merchant`/Express configuration, Stripe's
-own liability model puts the *platform* partly on the hook for disputes/chargebacks on charges made
-through connected accounts, alongside the tenant. This is a business decision about risk exposure,
-not just a Dashboard setting — make it before tenants start collecting money, not after the first
-chargeback.
+**Who pays and who is liable** is set explicitly at account creation, by
+`defaults.responsibilities` in `stripe_connect_service.ensure_account`. Stripe *requires* both
+values whenever the `merchant` configuration is requested — omitting them is a 400, not a default —
+and we send:
+
+| Field | Value | Effect |
+| --- | --- | --- |
+| `fees_collector` | `stripe` | Stripe bills its processing fees straight to the tenant's account. SignerPro collects nothing on a tenant's invoice, so there is no platform fee to account for or remit. |
+| `losses_collector` | `stripe` | Stripe — **not** this platform — carries a negative balance when a tenant cannot cover a refund or a lost dispute. |
+
+Setting either to `application` moves that burden onto the platform: `application` for
+`losses_collector` in particular makes every tenant's chargeback your liability, on a transaction
+you earn nothing from. Change these only as a deliberate commercial decision, and before tenants
+start collecting money rather than after the first dispute. `test_stripe_connect_v2.py` asserts
+both values, so a change here fails a test rather than surfacing as a surprise on a statement.
 
 ### Step 2 — Register the Connect webhook (separate from the billing one)
 
@@ -269,7 +292,7 @@ sender/tenant gets Stripe's own error message instead of a stack trace.
 
 1. Configure `STRIPE_SECRET_KEY`/`STRIPE_PUBLISHABLE_KEY` with test-mode keys and set
    `STRIPE_CONNECT_WEBHOOK_SECRET` (Step 2, `stripe listen` locally).
-2. As a tenant, go to Settings → Payments and complete Stripe's test-mode Express onboarding until
+2. As a tenant, go to Settings → Payments and complete Stripe's test-mode hosted onboarding until
    the screen reports charges enabled.
 3. Send an envelope with a payment field allocated to a signer.
 4. Open the signing link as that signer and pay with Stripe's standard test card, `4242 4242 4242

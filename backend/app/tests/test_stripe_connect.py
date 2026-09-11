@@ -117,7 +117,10 @@ def test_ensure_account_is_idempotent(client: TestClient, connect_service: Strip
     # v2 is a JSON body, not `_flatten_form`'d -- a nested dict survives intact.
     assert params["configuration"]["merchant"]["capabilities"]["card_payments"]["requested"] is True
     assert params["contact_email"] == "owner@example.com"
-    assert params["dashboard"] == "express"
+    # `full`, not `express`: see the comment on `ensure_account` and
+    # `test_stripe_connect_v2.py` -- Express alongside Stripe-held
+    # negative-balance liability is preview-only.
+    assert params["dashboard"] == "full"
     assert headers_sent["Stripe-Version"] == "2026-08-26.dahlia"
     assert headers_sent["Content-Type"] == "application/json"
 

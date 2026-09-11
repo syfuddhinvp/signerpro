@@ -106,3 +106,50 @@ def test_stripe_5xx_surfaces_as_502(client: TestClient, monkeypatch) -> None:
     )
     assert response.status_code == 502, response.text
     assert "sk_test_fake" not in response.text
+
+
+def test_v2_create_sends_the_required_responsibilities_defaults(
+    client: TestClient, connect_service: StripeConnectService, monkeypatch
+):
+    """`defaults.responsibilities` is required, and its values are a policy.
+
+    Stripe rejects a merchant-configured v2 account outright when
+    `fees_collector`/`losses_collector` are missing -- which is how this
+    shipped broken once: every test passed because none of them looked at
+    the request body.
+
+    The values are asserted, not just their presence. `stripe` for both
+    means Stripe bills its fees to the tenant and Stripe carries a negative
+    balance; flipping either to `application` would quietly move every
+    tenant's chargeback liability onto this platform, for a transaction it
+    takes no cut of.
+    """
+    headers = auth_headers(client)
+    organization, db = _organization(client, headers)
+    sent: dict = {}
+
+    def fake(method, url, params, headers):
+        sent["url"] = url
+        sent["params"] = params
+        return 200, {
+            "id": "acct_v2_resp",
+            "object": "v2.core.account",
+            "livemode": False,
+            "configuration": {"merchant": {"capabilities": {"card_payments": {"status": "active"}}}},
+        }
+
+    monkeypatch.setattr(StripeConnectService, "transport", staticmethod(fake))
+    connect_service.ensure_account(db, organization=organization)
+
+    assert sent["url"].endswith("/v2/core/accounts")
+    responsibilities = sent["params"]["defaults"]["responsibilities"]
+    assert responsibilities == {"fees_collector": "stripe", "losses_collector": "stripe"}
+    # Pinned together deliberately: `losses_collector: "stripe"` is only a
+    # GA combination alongside the full Stripe Dashboard. Paired with
+    # `dashboard: "express"` it needs the `2026-08-26.preview` API version,
+    # and on a GA version Stripe refuses the whole account with "This
+    # account configuration is not supported" -- which is not an obvious
+    # error to trace back to a one-word change here.
+    assert sent["params"]["dashboard"] == "full"
+    # Asked for back, or the created row cannot read its own defaults.
+    assert "defaults" in sent["params"]["include"]
