@@ -10,13 +10,26 @@ import { STATUS } from '@/lib/sf/data';
 import { btn, cardStyle, pill, railHead, BORDER_STRONG, TEXT_MUTED, TONE_BAD, TONE_GOOD, TONE_NEUTRAL, TONE_WARN } from '@/lib/sf/ui';
 import type { AttestationRow, AuditRow, CertificateCard } from '@/lib/sf/adapters';
 import { apiCall, apiDownload, saveBlob } from '@/lib/api/browser';
-import { audit as auditApi, documents as documentsApi, payments as paymentsApi } from '@/lib/api/resources';
+import { audit as auditApi, documents as documentsApi, payments as paymentsApi, recipients as recipientsApi } from '@/lib/api/resources';
 import { typeFaceStack } from '@/lib/sf/fonts';
 import { isSealedStatus } from '@/lib/sf/sealed';
 import type { PaymentRequestResponse, SignerPaymentResponse } from '@/lib/api/types';
 
-/** One payer this document's payment rows can be attributed to. */
-export type PayerRef = { id: string; name: string; email: string };
+/** One payer this document's payment rows can be attributed to.
+ *
+ *  `role`/`status` are optional so this stays a superset of the minimal shape
+ *  the payments panel needs; when a caller supplies them the "Signer
+ *  attestations" card uses them to decide whether a "Copy link" action makes
+ *  sense for that recipient (a copy-only role or a completed/declined signer
+ *  has no live signing link to hand out). */
+export type PayerRef = { id: string; name: string; email: string; role?: string; status?: string };
+
+/** Document states in which a signing link can still be minted (mirrors the
+ *  backend's `_LINK_ELIGIBLE_DOCUMENT_STATUSES`). */
+const LINK_ELIGIBLE_DOCUMENT_STATUSES = new Set(['sent', 'viewed', 'partially_completed']);
+
+/** Recipient states with no signing obligation left. */
+const LINK_INELIGIBLE_RECIPIENT_STATUSES = new Set(['completed', 'declined']);
 
 export type AuditProps = {
   /** The envelope whose certificate the download button fetches. */
@@ -115,6 +128,50 @@ export default function Audit({
 
   const [voiding, setVoiding] = useState(false);
   const [refundingId, setRefundingId] = useState<string>('');
+  const [mintingId, setMintingId] = useState<string>('');
+
+  /** Signing-link eligibility for one attestation row, matched to `payers` by
+   *  email (the id `payers` carries but attestations do not). Absent
+   *  role/status is treated as eligible — it just means the caller did not
+   *  supply enough to refuse locally, and the endpoint still enforces it. */
+  const payerForLink = (email: string) => payers.find(p => p.email === email);
+  const canCopyLinkFor = (email: string) => {
+    if (!documentId || !LINK_ELIGIBLE_DOCUMENT_STATUSES.has(documentStatus ?? '')) return false;
+    const payer = payerForLink(email);
+    if (!payer) return false;
+    if (payer.role === 'copy') return false;
+    if (payer.status && LINK_INELIGIBLE_RECIPIENT_STATUSES.has(payer.status)) return false;
+    return true;
+  };
+
+  const copySigningLink = async (email: string, name: string) => {
+    const payer = payerForLink(email);
+    if (!documentId || !payer || mintingId) return;
+    const ok = await askConfirm({
+      title: 'Copy ' + name + '’s signing link?',
+      message:
+        'This issues a brand-new signing link for ' + name + ' and immediately invalidates the link already emailed to them. ' +
+        'If they still have that email, it will stop working the moment you confirm.',
+      cta: 'Issue new link',
+      danger: true,
+    });
+    if (!ok) return;
+    setMintingId(payer.id);
+    const res = await recipientsApi.mintSigningLink(apiCall, documentId, payer.id);
+    setMintingId('');
+    if (!res.ok) { flash('No link · ' + res.error.message); return; }
+    const url = res.data.url;
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      await askText({ title: name + '’s signing link', message: 'Copy is unavailable here — select and copy the link below.', label: 'Signing link', defaultValue: url });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      flash(name + '’s signing link copied · their previous link no longer works');
+    } catch {
+      await askText({ title: name + '’s signing link', message: 'Could not copy automatically — select and copy the link below.', label: 'Signing link', defaultValue: url });
+    }
+  };
 
   const canVoid = Boolean(documentId) && !isSealedStatus(documentStatus) && (documentStatus ?? '') !== 'draft';
 
@@ -179,7 +236,7 @@ export default function Audit({
   const qrCells = useMemo(() => buildQrCells(verifyUrl), [verifyUrl]);
 
   const rail = attestations.map(r => ({
-    name: r.name, initials: initials(r.name), meta: r.meta,
+    name: r.name, email: r.email, initials: initials(r.name), meta: r.meta,
     chip: { width: '28px', height: '28px', borderRadius: '99px', background: r.color, color: '#fff', display: 'grid', placeItems: 'center', fontSize: '.6875rem', fontWeight: 700, flex: '0 0 28px' } as CSSProperties,
     sigStyle: { fontFamily: typeFaceStack('Caveat'), fontSize: '1.25rem', color: '#0f172a' } as CSSProperties,
   }));
@@ -389,6 +446,16 @@ export default function Audit({
                 <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{a.meta}</span>
               </div>
               <span style={a.sigStyle}>{a.name}</span>
+              {canCopyLinkFor(a.email) ? (
+                <button
+                  type="button"
+                  onClick={() => void copySigningLink(a.email, a.name)}
+                  disabled={mintingId === payerForLink(a.email)?.id}
+                  style={btn('#fff', '#475569', '#e3e7ee')}
+                >
+                  {mintingId === payerForLink(a.email)?.id ? 'Copying…' : 'Copy link'}
+                </button>
+              ) : null}
             </div>
           )) : (
             <span style={{ fontSize: '.71875rem', color: '#64748b', lineHeight: 1.6 }}>No recipients on this envelope yet.</span>

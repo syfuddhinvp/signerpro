@@ -79,3 +79,15 @@ class RecipientReorderRequest(BaseModel):
 class RecipientBulkRequest(BaseModel):
     recipients: list[RecipientCreate] = Field(default_factory=list, max_length=100)
     from_contact_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class SigningLinkResponse(BaseModel):
+    """A freshly minted signing URL for one recipient.
+
+    Minting revokes whatever link was live for that recipient (see
+    ``token_service.create_for_recipient``), so this is only ever returned
+    from an endpoint that mints on demand -- never cached or replayed.
+    """
+
+    url: str
+    expires_at: datetime

@@ -11,6 +11,7 @@ from app.schemas.recipient import (
     RecipientResponse,
     RecipientSetRequest,
     RecipientUpdate,
+    SigningLinkResponse,
 )
 from app.services.document_service import document_service
 from app.services.entitlement_service import entitlement_service
@@ -99,6 +100,23 @@ def delete_recipient(document_id: str, recipient_id: str, db: Session = Depends(
     recipient_service.delete(db, document=document, user=user, recipient_id=recipient_id)
 
 
+@router.post("/{recipient_id}/signing-link", response_model=SigningLinkResponse)
+def issue_signing_link(
+    document_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SigningLinkResponse:
+    """Mint a signing URL for one recipient so the sender can copy it out-of-band.
+
+    ``document_service.get_for_user`` already scopes the envelope to the
+    caller's organization (404s otherwise), matching every other route in this
+    file. Minting supersedes any link already emailed to this recipient.
+    """
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    return recipient_service.issue_signing_link(db, document=document, user=user, recipient_id=recipient_id)
+
+
 @router.post("/{recipient_id}/resend")
 def resend_recipient_link(
     document_id: str,
@@ -145,7 +163,7 @@ def resend_recipient_link(
         expires_at=document.expires_at,
     )
     if notify:
-        link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token)
+        link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token, db=db)
     else:
         link = signflow_email_service.signing_link_for(token=raw_token)
 

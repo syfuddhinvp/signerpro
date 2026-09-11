@@ -244,6 +244,11 @@ export const recipients = {
    *  email, which is what "copy link" needs. */
   signingLink: (c: Caller, documentId: string, recipientId: string) =>
     post<{ email: string; signing_link: string }>(c, `/api/documents/${documentId}/recipients/${recipientId}/resend?notify=false`),
+  /** `POST .../signing-link` — the audit page's "copy link" action. Mints a
+   *  fresh signing URL for one recipient and, as a side effect, invalidates
+   *  whatever link they were previously sent. */
+  mintSigningLink: (c: Caller, documentId: string, recipientId: string) =>
+    post<T.SigningLinkResponse>(c, `/api/documents/${documentId}/recipients/${recipientId}/signing-link`),
 };
 
 /* ── contacts ───────────────────────────────────────────────────────────── */

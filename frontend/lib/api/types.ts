@@ -444,6 +444,13 @@ export type RecipientResponse = {
   updated_at: IsoDateTime;
 };
 
+/** `POST .../recipients/{id}/signing-link` — a freshly minted signing URL.
+ *  Minting supersedes whatever link was live for that recipient. */
+export type SigningLinkResponse = {
+  url: string;
+  expires_at: IsoDateTime;
+};
+
 export type RecipientCreate = {
   name: string;
   email: string;

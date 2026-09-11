@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.contact import Contact
 from app.models.document import Document
-from app.models.enums import RecipientStatus
+from app.models.enums import DocumentStatus, RecipientStatus, is_signing_role
 from app.models.recipient import Recipient
 from app.models.user import User
 from app.schemas.recipient import (
@@ -12,9 +12,23 @@ from app.schemas.recipient import (
     RecipientCreate,
     RecipientSetRequest,
     RecipientUpdate,
+    SigningLinkResponse,
 )
 from app.services.audit_service import audit_service
 from app.services.document_service import document_service
+
+
+#: A signing link only makes sense once the envelope has actually gone out,
+#: and only while it is still in flight (mirrors ``resend_recipient_link``'s
+#: gate in app/api/routes/recipients.py).
+_LINK_ELIGIBLE_DOCUMENT_STATUSES = {
+    DocumentStatus.sent,
+    DocumentStatus.viewed,
+    DocumentStatus.partially_completed,
+}
+
+#: Recipient states with no signing obligation left: nothing to click through.
+_LINK_INELIGIBLE_RECIPIENT_STATUSES = {RecipientStatus.completed, RecipientStatus.declined}
 
 
 class RecipientService:
@@ -275,6 +289,55 @@ class RecipientService:
         )
         db.delete(recipient)
         db.commit()
+
+    def issue_signing_link(self, db: Session, *, document: Document, user: User, recipient_id: str) -> SigningLinkResponse:
+        """Mint a fresh signing URL for one recipient, for the sender to copy.
+
+        Reuses ``token_service.create_for_recipient`` exactly as the resend
+        flow does, which means the recipient's previously-issued link (if any)
+        is revoked as a side effect. That is the point, not a bug: at most one
+        live signing URL should exist per recipient. The audit trail records
+        who took it.
+        """
+        from app.services.email_service import signflow_email_service
+        from app.services.token_service import token_service
+
+        if document.status not in _LINK_ELIGIBLE_DOCUMENT_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot issue a signing link for a document that has not been sent.",
+            )
+        recipient = self.get(document, recipient_id)
+        if not is_signing_role(recipient.role):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This recipient is a copy-only recipient with no signing link.",
+            )
+        if recipient.status in _LINK_INELIGIBLE_RECIPIENT_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This recipient has already completed or declined; there is nothing left to sign.",
+            )
+        raw_token, signing_token = token_service.create_for_recipient(
+            db,
+            document_id=document.id,
+            recipient_id=recipient.id,
+            expires_at=document.expires_at,
+        )
+        url = signflow_email_service.signing_link_for(token=raw_token)
+        audit_service.log(
+            db,
+            document_id=document.id,
+            recipient_id=recipient.id,
+            user_id=user.id,
+            event_type="signing_link_issued",
+            event_message=(
+                f"Signing link copied by {user.email} for {recipient.email}; "
+                "any previously issued link for them was invalidated."
+            ),
+        )
+        db.commit()
+        return SigningLinkResponse(url=url, expires_at=signing_token.expires_at)
 
 
 recipient_service = RecipientService()

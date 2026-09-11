@@ -89,7 +89,11 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         verifyUrl={verifyUrl}
         paymentSummary={paymentSummary}
         payments={payments}
-        payers={recipientList.map(r => ({ id: r.id, name: r.name, email: r.email }))}
+        /* `role` and `status` are what let the Copy-link action hide itself for
+           a recipient the API would refuse anyway -- a CC recipient, or one who
+           has already completed or declined. Without them the row falls back to
+           permissive and offers a button that 4xxes on click. */
+        payers={recipientList.map(r => ({ id: r.id, name: r.name, email: r.email, role: r.role, status: r.status }))}
       />
     </>
   );
