@@ -191,3 +191,34 @@ describe('Payments · errors', () => {
     await waitFor(() => expect(screen.getByText('Stripe is not reachable right now.')).toBeInTheDocument());
   });
 });
+
+describe('resuming an unfinished onboarding', () => {
+  it('offers a way back into onboarding while the account cannot charge', () => {
+    mount({ account: account({ charges_enabled: false, details_submitted: true }) });
+    // A Stripe account link is single-use and expires in minutes, so without
+    // this the only route out of a half-finished or restricted account is
+    // Disconnect -- which abandons it and creates a second one.
+    expect(screen.getByRole('button', { name: 'Finish onboarding' })).toBeTruthy();
+  });
+
+  it('drops the resume button once the account can charge', () => {
+    mount({ account: account({ charges_enabled: true, payouts_enabled: true, details_submitted: true }) });
+    expect(screen.queryByRole('button', { name: 'Finish onboarding' })).toBeNull();
+  });
+
+  it('resumes without asking for country or business type again', async () => {
+    apiCall.mockResolvedValue(ok({ url: 'https://connect.stripe.test/resume', expires_at: '2026-01-01T00:00:00Z' }));
+    Object.defineProperty(window, 'location', { value: { ...window.location, href: '', origin: 'https://app.example.com' }, writable: true });
+    mount({ account: account({ charges_enabled: false, details_submitted: true }) });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish onboarding' }));
+
+    await waitFor(() => expect(apiCall).toHaveBeenCalled());
+    const body = apiCall.mock.calls[0][1].body as Record<string, unknown>;
+    // The account already exists; these only apply to the create call, and
+    // re-asking a tenant who has already submitted them would be a bug.
+    expect(body.country).toBeUndefined();
+    expect(body.entity_type).toBeUndefined();
+    await waitFor(() => expect(window.location.href).toBe('https://connect.stripe.test/resume'));
+  });
+});

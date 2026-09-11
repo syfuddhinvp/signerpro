@@ -206,6 +206,21 @@ export default function Payments({ account, loadError = null }: PaymentsProps) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
             <div style={railHead}>Stripe account</div>
             <div style={{ display: 'flex', gap: '8px' }}>
+              {/*
+                * Without this there is no way back into onboarding. A Stripe
+                * account link is single-use and expires in minutes, so a
+                * tenant who closes the tab half-way, or whose account comes
+                * back restricted, is stuck: the only other action here is
+                * Disconnect, which abandons the Stripe account and starts a
+                * brand new one. `connect` already reuses the existing
+                * account when there is one, so re-entering onboarding is
+                * just a fresh link -- no country/entity needed second time.
+                */}
+              {!account.charges_enabled ? (
+                <button type="button" onClick={connect} disabled={busy} style={primaryBtn}>
+                  {busy ? 'Opening Stripe…' : 'Finish onboarding'}
+                </button>
+              ) : null}
               <button type="button" onClick={refresh} disabled={busy} style={ghostBtn}>Refresh status</button>
               <button type="button" onClick={disconnect} disabled={busy} style={dangerBtn}>Disconnect</button>
             </div>
