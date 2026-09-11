@@ -290,18 +290,22 @@ def _signing_context(client, pdf_bytes, headers, *, amount_mode="fixed", amount_
     return document_id, field_id, raw_token
 
 
-def test_create_intent_409s_when_the_publishable_key_is_unset(
+def test_create_intent_succeeds_with_an_empty_publishable_key_when_the_server_has_none(
     client: TestClient, pdf_bytes: bytes, monkeypatch
 ) -> None:
-    """A signer must never be handed a modal that cannot mount Stripe
-    Elements: an unset `STRIPE_PUBLISHABLE_KEY` is a 409, not a blank form.
+    """The server cannot know whether the signer's browser already holds
+    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, so an unset server-side
+    `STRIPE_PUBLISHABLE_KEY` must NOT block the PaymentIntent from being
+    created. It returns with an empty `publishable_key`, leaving the client
+    free to fall back to its own copy of the (same) platform key.
+
     "Unset" has to mean unset in BOTH places the key can come from:
     `os.environ`, which `Settings.stripe_publishable_key` layers on top, and
     the declared `stripe_publishable_key_configured` field that pydantic
     resolved from the environment (or `.env`) when the cached `Settings` was
     built. Deleting only the env var left the field holding `conftest.py`'s
-    placeholder, so the key still resolved and no 409 was raised.
-    `monkeypatch` restores both after this test.
+    placeholder, so the key would still resolve. `monkeypatch` restores both
+    after this test.
     """
     headers = auth_headers(client)
     document_id, field_id, raw_token = _signing_context(client, pdf_bytes, headers, amount_mode="fixed", amount_cents=1500)
@@ -312,12 +316,25 @@ def test_create_intent_409s_when_the_publishable_key_is_unset(
     monkeypatch.setattr(get_settings(), "stripe_publishable_key_configured", None)
 
     db = db_session(client)
-    try:
-        signer_payment_service.create_intent(db, raw_token=raw_token, field_id=field_id)
-        assert False, "expected a 409 when the publishable key is unset"
-    except HTTPException as exc:
-        assert exc.status_code == 409
-        assert "STRIPE_PUBLISHABLE_KEY" in exc.detail
+    intent = signer_payment_service.create_intent(db, raw_token=raw_token, field_id=field_id)
+    assert intent.publishable_key == ""
+    assert intent.client_secret  # the intent itself is still valid
+
+
+def test_create_intent_returns_the_publishable_key_when_configured(
+    client: TestClient, pdf_bytes: bytes, monkeypatch
+) -> None:
+    headers = auth_headers(client)
+    document_id, field_id, raw_token = _signing_context(client, pdf_bytes, headers, amount_mode="fixed", amount_cents=1500)
+    fake = FakeStripe()
+    monkeypatch.setattr(type(signer_payment_service), "transport", staticmethod(fake))
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_fake")
+    monkeypatch.setenv("STRIPE_PUBLISHABLE_KEY", "pk_test_fake")
+    monkeypatch.setattr(get_settings(), "stripe_publishable_key_configured", "pk_test_fake")
+
+    db = db_session(client)
+    intent = signer_payment_service.create_intent(db, raw_token=raw_token, field_id=field_id)
+    assert intent.publishable_key == "pk_test_fake"
 
 
 def test_fixed_field_ignores_a_client_supplied_amount(client: TestClient, pdf_bytes: bytes, monkeypatch) -> None:

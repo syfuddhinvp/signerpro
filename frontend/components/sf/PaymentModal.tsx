@@ -23,6 +23,7 @@ import { useModalBehaviour } from './useModalBehaviour';
 import { btn, inputStyle, TEXT_MUTED } from '@/lib/sf/ui';
 import type { PaymentFieldConfig, PaymentIntentResponse, SignerPaymentResponse } from '@/lib/api/types';
 import Icon from '@/components/sf/Icon';
+import { STRIPE_PUBLISHABLE_KEY } from '@/components/sf/StripeCheckout';
 
 export type PaymentActionOutcome<T> = { ok: true; data: T } | { ok: false; message: string };
 
@@ -270,12 +271,27 @@ function PaymentElementPanel({
   onConfirmError: (message: string) => void;
   onCancel: () => void;
 }) {
+  // The server's copy is preferred, but it may have shipped an empty string
+  // if `STRIPE_PUBLISHABLE_KEY` is unset there — the server cannot know
+  // whether this browser already holds the same platform key under
+  // `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, so it defers to us. Both hold the
+  // same value; only fall through to "unavailable" if neither is set.
+  const publishableKey = intent.publishable_key || STRIPE_PUBLISHABLE_KEY;
   const stripePromise = useMemo(
-    () => stripeForAccount(intent.publishable_key, intent.connected_account_id),
-    [intent.publishable_key, intent.connected_account_id],
+    () => stripeForAccount(publishableKey, intent.connected_account_id),
+    [publishableKey, intent.connected_account_id],
   );
 
-  if (!intent.publishable_key || !intent.connected_account_id) {
+  if (!publishableKey || !intent.connected_account_id) {
+    if (!publishableKey) {
+      return (
+        <div role="status" style={noticeStyle}>
+          Payments are not available: neither the server&apos;s <code>STRIPE_PUBLISHABLE_KEY</code> nor
+          this browser&apos;s <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> is configured — they hold
+          the same platform publishable key, and at least one must be set.
+        </div>
+      );
+    }
     return (
       <div role="status" style={noticeStyle}>
         Payments are not available: the tenant has not finished connecting Stripe.

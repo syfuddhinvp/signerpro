@@ -17,6 +17,16 @@ import type { PaymentFieldConfig, PaymentIntentResponse, SignerPaymentResponse }
 
 vi.mock('next/navigation', async () => (await import('@/test/navigation')).navigationMock());
 
+// `STRIPE_PUBLISHABLE_KEY` is a module-level const derived from
+// `process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` at import time, so it
+// cannot be reassigned directly by a test. Mocking the module with a getter
+// backed by a hoisted, mutable holder lets each test simulate the browser
+// having (or not having) its own copy of the key.
+const stripeCheckoutState = vi.hoisted(() => ({ publishableKey: '' }));
+vi.mock('@/components/sf/StripeCheckout', () => ({
+  get STRIPE_PUBLISHABLE_KEY() { return stripeCheckoutState.publishableKey; },
+}));
+
 vi.mock('@/components/sf/pdf/LazyPdfPages', () => ({
   __esModule: true,
   default: ({ pages, renderOverlay }: {
@@ -142,6 +152,87 @@ describe('PaymentModal', () => {
   beforeEach(() => {
     createIntent.mockReset();
     refreshPayment.mockReset();
+    stripeCheckoutState.publishableKey = '';
+  });
+
+  it('mounts with the server-provided publishable key when the intent has one', async () => {
+    const { loadStripe } = await import('@stripe/stripe-js');
+    (loadStripe as ReturnType<typeof vi.fn>).mockClear();
+    stripeCheckoutState.publishableKey = 'pk_test_browser_copy';
+    createIntent.mockResolvedValue({
+      ok: true,
+      data: {
+        client_secret: 'pi_secret', publishable_key: 'pk_test_server_copy', connected_account_id: 'acct_1',
+        amount_cents: 5000, currency: 'usd', description: 'Security deposit',
+      } satisfies PaymentIntentResponse,
+    });
+
+    render(
+      <PaymentModal
+        fieldId="pay1"
+        label="Deposit"
+        config={FIXED_CONFIG}
+        onClose={vi.fn()}
+        onSettled={vi.fn()}
+        createIntent={createIntent}
+        refreshPayment={refreshPayment}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('stripe-payment-element-stub')).toBeTruthy());
+    expect(loadStripe).toHaveBeenCalledWith('pk_test_server_copy', { stripeAccount: 'acct_1' });
+  });
+
+  it('falls back to the browser NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY when the server returns an empty one', async () => {
+    const { loadStripe } = await import('@stripe/stripe-js');
+    (loadStripe as ReturnType<typeof vi.fn>).mockClear();
+    stripeCheckoutState.publishableKey = 'pk_test_browser_copy';
+    createIntent.mockResolvedValue({
+      ok: true,
+      data: {
+        client_secret: 'pi_secret', publishable_key: '', connected_account_id: 'acct_1',
+        amount_cents: 5000, currency: 'usd', description: 'Security deposit',
+      } satisfies PaymentIntentResponse,
+    });
+
+    render(
+      <PaymentModal
+        fieldId="pay1"
+        label="Deposit"
+        config={FIXED_CONFIG}
+        onClose={vi.fn()}
+        onSettled={vi.fn()}
+        createIntent={createIntent}
+        refreshPayment={refreshPayment}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('stripe-payment-element-stub')).toBeTruthy());
+    expect(loadStripe).toHaveBeenCalledWith('pk_test_browser_copy', { stripeAccount: 'acct_1' });
+  });
+
+  it('shows the unavailable state naming both env vars only when neither key exists', async () => {
+    stripeCheckoutState.publishableKey = '';
+    createIntent.mockResolvedValue({
+      ok: true,
+      data: {
+        client_secret: 'pi_secret', publishable_key: '', connected_account_id: 'acct_1',
+        amount_cents: 5000, currency: 'usd', description: 'Security deposit',
+      } satisfies PaymentIntentResponse,
+    });
+
+    render(
+      <PaymentModal
+        fieldId="pay1"
+        label="Deposit"
+        config={FIXED_CONFIG}
+        onClose={vi.fn()}
+        onSettled={vi.fn()}
+        createIntent={createIntent}
+        refreshPayment={refreshPayment}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText(/neither the server/)).toBeTruthy());
+    expect(screen.getByText('STRIPE_PUBLISHABLE_KEY')).toBeTruthy();
+    expect(screen.getByText('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY')).toBeTruthy();
   });
 
   it('validates a signer-entered amount against min/max before requesting an intent', async () => {

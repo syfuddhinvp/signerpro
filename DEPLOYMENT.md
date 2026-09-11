@@ -257,8 +257,14 @@ at which secret is wrong.
 | Variable | Required? | What it is |
 | --- | --- | --- |
 | `STRIPE_SECRET_KEY` | yes (already required by §2.3) | shared with billing; same test/live key |
-| `STRIPE_PUBLISHABLE_KEY` | yes, for signer payments | `pk_test_.../pk_live_...`, handed to the signing client over the API so it can mount Stripe Elements against the tenant's connected account. Safe in the browser by design — it can only tokenize a card, never charge or read anything. **Not** the same variable as the frontend's `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (that one is for the platform's own billing checkout and is baked into the frontend bundle at build time; this one is read server-side by the backend). |
+| `STRIPE_PUBLISHABLE_KEY` | preferred, not required, for signer payments | `pk_test_.../pk_live_...`, handed to the signing client over the API so it can mount Stripe Elements against the tenant's connected account. Safe in the browser by design — it can only tokenize a card, never charge or read anything. This is the **same value** as the frontend's `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (that one is for the platform's own billing checkout, baked into the frontend bundle at build time) — one platform publishable key, readable from two places. |
 | `STRIPE_CONNECT_WEBHOOK_SECRET` | yes, for signer payments | see Step 2 |
+
+If `STRIPE_PUBLISHABLE_KEY` is unset here, the signing client falls back to its own
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (`PaymentModal.tsx`) — so configuring only the frontend
+variable is enough to make signer payments work. `create_intent` still returns a valid
+PaymentIntent either way; the server-side key is preferred only because it does not need a
+frontend rebuild to change.
 
 **Test vs. live**: use `sk_test_.../pk_test_...` everywhere except a real production deployment. A
 live secret key (`sk_live_...`) is refused at boot unless `ENVIRONMENT=production`
@@ -268,9 +274,10 @@ machine can never accidentally charge a real card. This check covers `STRIPE_SEC
 sync.
 
 `STRIPE_PUBLISHABLE_KEY` and `STRIPE_CONNECT_WEBHOOK_SECRET` are not guarded at startup — leaving
-them unset does not crash the process, it makes the feature 409 on first use
-(`signer_payment_service._publishable_key`), which is deliberate: unlike billing, signer payments are
-optional and a tenant who never touches them should not block a deploy.
+them unset does not crash the process. Leaving `STRIPE_PUBLISHABLE_KEY` unset does not even block
+signer payments: `signer_payment_service._publishable_key` just returns `""` and logs a warning,
+and the signing client falls back to its own `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. Unlike billing,
+signer payments are optional and a tenant who never touches them should not block a deploy.
 
 ### Step 4 — A tenant connects their own account
 

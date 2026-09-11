@@ -67,6 +67,9 @@ from app.services.billing_service import (
 from app.services.field_service import field_service
 from app.services.signing_service import signing_service
 from app.services.stripe_connect_service import stripe_connect_service
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 #: Non-terminal `SignerPayment` states: an attempt that has not yet either
 #: succeeded or definitively failed/refunded. ``create_intent`` reuses a row
@@ -111,13 +114,25 @@ class SignerPaymentService:
         return secret_key
 
     def _publishable_key(self) -> str:
-        """The publishable key the signing client mounts Stripe Elements with.
+        """The publishable key the signing client mounts Stripe Elements with,
+        or ``""`` if this server has none configured.
 
         There is no ``Settings`` field for this (it is not a secret, but it is
         also not something any other part of the app has needed until now),
         so it is read straight out of the environment the same way
         ``_stripe_setting`` reads the secret key, without touching
         ``config.py``.
+
+        This USED to raise a 409 when unset, on the theory that a blank key
+        would hand the signer a modal that could never mount Stripe Elements.
+        That was wrong: this server cannot know what the *browser* holds. The
+        publishable key is the platform's own key in both places it lives --
+        this env var and the frontend's ``NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY``
+        -- and a signer client that already has its own copy could mount the
+        form perfectly well. Refusing here pre-empted that client and turned
+        a client-side non-issue into a hard failure. The PaymentIntent is
+        valid regardless of which copy of the key renders the form, so this
+        now only logs a warning and lets the caller fall back.
         """
         import os
 
@@ -126,13 +141,9 @@ class SignerPaymentService:
             getattr(settings, "stripe_publishable_key", None) or os.environ.get("STRIPE_PUBLISHABLE_KEY") or ""
         ).strip()
         if not key:
-            # Returning an empty key would hand the signer a modal that cannot
-            # mount Stripe Elements: a blank box with a Pay button that can
-            # never work. Failing here at least says why, and says it to the
-            # operator's logs rather than only to the signer's console.
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Stripe is not configured on this platform (STRIPE_PUBLISHABLE_KEY unset).",
+            logger.warning(
+                "STRIPE_PUBLISHABLE_KEY is unset on the server; the signing client will have to "
+                "fall back to its own NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to mount Stripe Elements."
             )
         return key
 
