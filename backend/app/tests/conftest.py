@@ -17,6 +17,33 @@ os.environ["JWT_SECRET"] = "test-secret-not-real-but-long-enough-for-hs256"
 os.environ["APP_BASE_URL"] = "http://localhost:3000"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["UPLOAD_DIR"] = "/tmp/signflow-test-uploads"
+# The suite must never reach the network. `backend/.env` sets
+# BILLING_PROVIDER=stripe with a real (test-mode) secret key, and pydantic
+# settings read that file, so without these three pins the billing tests
+# instantiated the live `StripePaymentProvider` and made real HTTPS calls to
+# api.stripe.com -- which is what made ~82 tests fail here and would fail
+# outright in CI or offline. The null provider keeps every billing path local;
+# the placeholder key exists only so a test that constructs the Stripe adapter
+# explicitly (with its `transport` faked) still passes the sk_test_ prefix
+# check in `verify_stripe_key_is_safe_here`.
+os.environ["BILLING_PROVIDER"] = "null"
+# Blanked rather than given a placeholder: `Settings` reads `.env` via
+# `SettingsConfigDict(env_file=".env")`, so a developer's real key would
+# otherwise still reach `_stripe_setting` and defeat the point. An empty value
+# is falsy there, which is also what lets
+# `test_stripe_requires_a_secret_key` observe a genuinely unconfigured
+# provider. Tests that need the Stripe adapter construct it with an explicit
+# key and a faked `transport`.
+os.environ["STRIPE_SECRET_KEY"] = ""
+os.environ["STRIPE_WEBHOOK_SECRET"] = ""
+os.environ["STRIPE_CONNECT_WEBHOOK_SECRET"] = ""
+# Unlike the three above, this one is given a value: it is a *publishable*
+# key (designed to be shipped to browsers, able only to tokenize), and
+# `signer_payment_service` now refuses to hand a signer a payment modal it
+# could never mount, so leaving it blank would 409 every payment test for a
+# reason unrelated to what those tests are checking. A test that wants the
+# unconfigured path deletes it with `monkeypatch.delenv`.
+os.environ["STRIPE_PUBLISHABLE_KEY"] = "pk_test_placeholder"
 
 from app import models  # noqa: E402,F401
 from app.core.database import Base, get_db

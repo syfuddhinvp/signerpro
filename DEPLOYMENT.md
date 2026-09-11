@@ -167,6 +167,120 @@ it up, and no long-lived key sits in the environment.
 `/api/health/ready` covers storage: on the S3 backend it does a `head_bucket`, so a bad bucket or
 bad credentials fail readiness instead of surfacing as a 500 on someone's first signature.
 
+## 4c. Enabling signer payments (Stripe Connect)
+
+This is a **separate, optional** feature from §2.3/§4 above (which bill *tenants* for their
+SignForge subscription). Here a *signer* pays the *tenant* directly during signing — a deposit, an
+invoice, a retainer — as a direct charge on the tenant's own Stripe account. The platform is never
+in the money path and takes no cut. Unset, the feature is simply unavailable (409s); nothing else
+breaks. It reuses `STRIPE_SECRET_KEY` from §2.3, so `BILLING_PROVIDER=stripe` must already be
+configured.
+
+### Step 1 — Activate Connect (Accounts v2) on the platform's Stripe account
+
+Connected accounts here are created on **Accounts v2** (`POST /v2/core/accounts`,
+`POST /v2/core/account_links`, `Stripe-Version: 2026-08-26.dahlia` — see `STRIPE_API_VERSION_V2` in
+`stripe_connect_service.py`), not v1: Stripe no longer accepts new connected accounts through
+`/v1/accounts` at all. Each account is created with the `merchant` configuration
+(`configuration.merchant.capabilities.card_payments.requested = true`) and `dashboard: "express"` —
+this is the v2 equivalent of what used to be called an "Express account", not a separate account
+type to pick in the Dashboard.
+
+Most Connect platforms have Accounts v2 available already. If it is not, `_request_v2` surfaces
+Stripe's own `accounts_v2_access_blocked` error with the message "Accounts v2 is not enabled for
+this Stripe account" — turn it on under the platform's Connect settings before connecting a tenant.
+Stripe also exposes a dashboard toggle, "Accounts v1 support"
+(`dashboard.stripe.com/settings/features/feat_accounts_v1_support`) — treat this as a **legacy
+stopgap only**, not the path to take: this integration is built against v2, and re-enabling v1
+support does not change what this code sends.
+
+Status reads did **not** move to v2: `refresh_status` still polls `GET /v1/accounts/{id}` and the
+`account.updated` webhook payload is still v1-shaped, because Stripe accepts a v2-created account id
+at the v1 read endpoint. Do not expect (or configure against) a v2 capability model on that sync
+path — only account *creation* and the onboarding *link* are v2.
+
+**Decide this knowingly before turning it on**: under this `merchant`/Express configuration, Stripe's
+own liability model puts the *platform* partly on the hook for disputes/chargebacks on charges made
+through connected accounts, alongside the tenant. This is a business decision about risk exposure,
+not just a Dashboard setting — make it before tenants start collecting money, not after the first
+chargeback.
+
+### Step 2 — Register the Connect webhook (separate from the billing one)
+
+Two independent webhook endpoints exist in this app, each with its own Stripe Dashboard entry and
+its own signing secret. Do not conflate them:
+
+| Endpoint | Purpose | Events | Secret |
+| --- | --- | --- | --- |
+| existing billing endpoint (§2.3) | platform bills the tenant | subscription/invoice events | `STRIPE_WEBHOOK_SECRET` |
+| `POST /api/webhooks/stripe/connect` | signer pays the tenant | `payment_intent.succeeded`, `payment_intent.payment_failed`, `account.updated` | `STRIPE_CONNECT_WEBHOOK_SECRET` |
+
+The three Connect events above are exactly what `app/api/routes/payments.py`'s
+`stripe_connect_webhook` dispatches on (`payment_intent.*` to `signer_payment_service`,
+`account.updated` to `stripe_connect_service`) — register no more and no less. In the Dashboard,
+create this as a second endpoint pointed at `<APP_BASE_URL>/api/webhooks/stripe/connect`, select
+those three events, and copy its own `whsec_...` signing secret into
+`STRIPE_CONNECT_WEBHOOK_SECRET`. Locally: `stripe listen --forward-to
+localhost:8000/api/webhooks/stripe/connect`.
+
+Getting `STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET` crossed is the most likely
+misconfiguration here: both are `whsec_...` strings that look identical at a glance, but each only
+verifies its own endpoint's deliveries. Cross them and every Connect webhook fails signature
+verification — Stripe shows the delivery as failed with no clue from this app's own logs pointing
+at which secret is wrong.
+
+### Step 3 — Environment variables
+
+| Variable | Required? | What it is |
+| --- | --- | --- |
+| `STRIPE_SECRET_KEY` | yes (already required by §2.3) | shared with billing; same test/live key |
+| `STRIPE_PUBLISHABLE_KEY` | yes, for signer payments | `pk_test_.../pk_live_...`, handed to the signing client over the API so it can mount Stripe Elements against the tenant's connected account. Safe in the browser by design — it can only tokenize a card, never charge or read anything. **Not** the same variable as the frontend's `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (that one is for the platform's own billing checkout and is baked into the frontend bundle at build time; this one is read server-side by the backend). |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | yes, for signer payments | see Step 2 |
+
+**Test vs. live**: use `sk_test_.../pk_test_...` everywhere except a real production deployment. A
+live secret key (`sk_live_...`) is refused at boot unless `ENVIRONMENT=production`
+(`verify_stripe_key_is_safe_here`, `LiveStripeKeyOutsideProduction`) — deliberately, so a developer's
+machine can never accidentally charge a real card. This check covers `STRIPE_SECRET_KEY`, which
+`stripe_connect_service` also uses for its own requests; there is no second secret key to keep in
+sync.
+
+`STRIPE_PUBLISHABLE_KEY` and `STRIPE_CONNECT_WEBHOOK_SECRET` are not guarded at startup — leaving
+them unset does not crash the process, it makes the feature 409 on first use
+(`signer_payment_service._publishable_key`), which is deliberate: unlike billing, signer payments are
+optional and a tenant who never touches them should not block a deploy.
+
+### Step 4 — A tenant connects their own account
+
+Each tenant connects separately, in-app, at **Settings → Payments** (`/account/payments`). This
+starts Stripe's hosted onboarding for the account created in Step 1 and returns them to the same page
+(`stripe_connect_service.create_onboarding_link`). The connection is not usable immediately: Stripe
+reports the `merchant` configuration's `card_payments` capability as inactive until the tenant
+finishes onboarding (identity, bank details, etc.), which this app still surfaces as
+`charges_enabled=false`, and `require_payable_account` refuses to let that tenant send a document
+carrying a payment field until `charges_enabled` is `true`. The Payments screen shows this status,
+and `account.updated` webhooks (Step 2) keep it in sync without the tenant needing to reload.
+
+A Stripe-side failure anywhere in this flow (a declined onboarding call, a malformed link request) no
+longer surfaces as a raw 500: `StripeApiError` has its own exception handler in `app/main.py` that
+maps a Stripe 4xx to the equivalent 4xx here and a Stripe 5xx/transport failure to a 502, so the
+sender/tenant gets Stripe's own error message instead of a stack trace.
+
+### Step 5 — Verify end to end, in Stripe test mode
+
+1. Configure `STRIPE_SECRET_KEY`/`STRIPE_PUBLISHABLE_KEY` with test-mode keys and set
+   `STRIPE_CONNECT_WEBHOOK_SECRET` (Step 2, `stripe listen` locally).
+2. As a tenant, go to Settings → Payments and complete Stripe's test-mode Express onboarding until
+   the screen reports charges enabled.
+3. Send an envelope with a payment field allocated to a signer.
+4. Open the signing link as that signer and pay with Stripe's standard test card, `4242 4242 4242
+   4242`, any future expiry, any CVC, any postal code.
+5. Confirm the signer's Pay button turns to "paid" and the signature can be submitted. If webhooks
+   are wired up, `payment_intent.succeeded` should also arrive at the Connect endpoint and settle the
+   payment even before the signer's own poll (`refresh_payment`) does.
+6. In the Stripe Dashboard, switch to the connected account (View test data → the tenant's
+   `acct_...`) and confirm the charge landed there, not on the platform account — proof this is a
+   direct charge with the tenant as merchant of record.
+
 ## 5. Known operational limits
 
 - `RATE_LIMIT_BACKEND=memory` is per-process. With more than one backend replica, the limits are

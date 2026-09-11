@@ -26,11 +26,12 @@ from app.core.pdf_geometry import page_geometry
 from app.core.storage import storage
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
-from app.models.enums import DocumentStatus, DocumentVersionType, FieldType, SignatureType, is_signing_role
+from app.models.enums import DocumentStatus, DocumentVersionType, FieldType, SignatureType, SignerPaymentStatus, is_signing_role
 from app.models.field import Field
 from app.models.field_attachment import FieldAttachment
 from app.models.recipient import Recipient
 from app.models.signature import Signature
+from app.models.signer_payment import SignerPayment
 from app.services import pades_service
 from app.services.audit_service import audit_service
 
@@ -56,6 +57,7 @@ class PdfService:
         writer = PdfWriter()
         signatures = self._latest_signatures(db, document.id)
         attachments = self._latest_attachments(db, document.id)
+        payments = self._latest_payments(db, document.id)
 
         for page_index, page in enumerate(reader.pages, start=1):
             # Visual size, matching the pdf.js viewport the fields were placed
@@ -68,6 +70,7 @@ class PdfService:
                 fields=[field for field in document.fields if field.page_number == page_index],
                 signatures=signatures,
                 attachments=attachments,
+                payments=payments,
                 # Every page of an executed contract carries the mark, not just
                 # the ones that happened to hold a field.
                 verified_note=self._verified_note(document),
@@ -243,6 +246,25 @@ class PdfService:
         ).all()
         return {row.field_id: row for row in rows}
 
+    def _latest_payments(self, db: Session, document_id: str) -> dict[str, SignerPayment]:
+        """The newest attempt per payment field.
+
+        A field is charged (and, on failure, retried) at most a handful of
+        times; the most recent attempt is the one whose status the overlay
+        and the certificate must show, exactly the way `_latest_signatures`
+        picks the most recent signature for a re-signed field.
+        """
+
+        rows = db.scalars(
+            select(SignerPayment)
+            .where(SignerPayment.document_id == document_id)
+            .order_by(SignerPayment.field_id, SignerPayment.created_at.desc())
+        ).all()
+        latest: dict[str, SignerPayment] = {}
+        for row in rows:
+            latest.setdefault(row.field_id, row)
+        return latest
+
     def _build_page_overlay(
         self,
         *,
@@ -251,6 +273,7 @@ class PdfService:
         fields: list[Field],
         signatures: dict[str, Signature],
         attachments: dict[str, FieldAttachment] | None = None,
+        payments: dict[str, SignerPayment] | None = None,
         verified_note: str | None = None,
     ) -> bytes | None:
         packet = BytesIO()
@@ -295,12 +318,36 @@ class PdfService:
                 if self._draw_textbox(pdf, field, x, y, width, height):
                     drew_anything = True
                 continue
+            if field.type == FieldType.payment:
+                # A payment field has no meaningful text value of its own --
+                # `Field.value` (when present) is the internal `paid:<intent>`
+                # marker the completion gate writes, never something fit to
+                # print -- so it always takes this branch, drawing a
+                # confirmation in place of the on-screen Pay button, or
+                # nothing at all when there is nothing settled to attest to.
+                payment = (payments or {}).get(field.id)
+                if self._draw_payment_confirmation(pdf, payment, x, y, width, height):
+                    drew_anything = True
+                continue
             if field.type == FieldType.checkbox:
                 if str(value).lower() == "true":
                     drew_anything = True
                     pdf.setFont("Helvetica-Bold", min(height * 0.8, 18))
                     pdf.drawCentredString(x + width / 2, y + height * 0.2, "X")
                 continue
+            if field.type == FieldType.radio:
+                # One button of a radio group is a *button*, not a line of text.
+                # Each member of the group carries the group's answer, so this
+                # button is filled when that answer is its own choice; the ring
+                # is drawn either way, because an unpicked button is part of the
+                # question the executed document has to keep showing.
+                choice = self._radio_choice(field)
+                if choice is not None:
+                    drew_anything = True
+                    self._draw_radio(pdf, x, y, width, height, filled=str(value).strip() == choice)
+                    continue
+                # Authored before groups existed: one box listing its choices,
+                # whose answer is a value -- drawn as text by the path below.
             if not value:
                 continue
             drew_anything = True
@@ -308,6 +355,71 @@ class PdfService:
             pdf.drawString(x + 3, y + max(height * 0.35, 4), str(value)[:160])
         pdf.save()
         return packet.getvalue() if drew_anything else None
+
+    @staticmethod
+    def _radio_choice(field: Field) -> str | None:
+        """The choice one radio button stands for, or None when the row is not
+        a member of a group (see ``frontend/lib/sf/radioGroups.ts``)."""
+        options = field.options
+        if not isinstance(options, dict):
+            return None
+        choice = options.get("choice")
+        group = options.get("group")
+        if not choice or not group:
+            return None
+        text = str(choice).strip()
+        return text or None
+
+    @staticmethod
+    def _draw_radio(
+        pdf: canvas.Canvas, x: float, y: float, width: float, height: float, *, filled: bool
+    ) -> None:
+        """One radio button: its ring, and its dot when it is the answer."""
+        radius = max(1.5, min(width, height) / 2 - 1)
+        cx, cy = x + width / 2, y + height / 2
+        pdf.saveState()
+        pdf.setLineWidth(max(0.5, radius * 0.14))
+        pdf.circle(cx, cy, radius, stroke=1, fill=0)
+        if filled:
+            pdf.circle(cx, cy, radius * 0.55, stroke=0, fill=1)
+        pdf.restoreState()
+
+    def _draw_payment_confirmation(
+        self, pdf: canvas.Canvas, payment: SignerPayment | None, x: float, y: float, width: float, height: float
+    ) -> bool:
+        """A settled payment field's confirmation, in place of the on-screen
+        Pay button: amount, the date paid, and a short reference.
+
+        Anything short of an actually-settled payment must never look like
+        one. `None` (no attempt at all, still `requires_payment`, mid-flight
+        `processing`, or `failed`) draws nothing, leaving the box blank
+        rather than mimicking money that never cleared. A refunded payment
+        DID clear once, so it still gets its own line -- but says "refunded",
+        never "paid".
+        """
+        if payment is None or payment.status not in (SignerPaymentStatus.succeeded, SignerPaymentStatus.refunded):
+            return False
+        amount = f"{payment.amount_cents / 100:,.2f} {payment.currency.upper()}"
+        if payment.status == SignerPaymentStatus.refunded:
+            lines = [f"Refunded {amount}", "This payment was refunded"]
+        else:
+            paid_at = payment.paid_at.strftime("%d %b %Y %H:%M UTC") if payment.paid_at else "date unknown"
+            lines = [f"Paid {amount}", f"Paid {paid_at}", f"Ref: {payment.provider_payment_intent_id or 'n/a'}"]
+        pdf.saveState()
+        if payment.status == SignerPaymentStatus.refunded:
+            pdf.setFillColorRGB(0.7, 0.35, 0.05)
+        else:
+            pdf.setFillColorRGB(0.02, 0.6, 0.41)
+        line_height = min(max(height / max(len(lines), 1), 8), 12)
+        pdf.setFont("Helvetica-Bold", min(max(line_height * 0.75, 7), 10))
+        text_y = y + height - line_height
+        for line in lines:
+            if text_y < y - 2:
+                break
+            pdf.drawString(x + 3, text_y, line[:80])
+            text_y -= line_height
+        pdf.restoreState()
+        return True
 
     def _draw_ink(
         self, pdf: canvas.Canvas, field: Field, x: float, y: float, width: float, height: float
@@ -692,6 +804,66 @@ class PdfService:
             cursor -= 33
 
         cursor -= 10
+
+        # Payments section -- ONLY when the envelope actually carries at
+        # least one payment attempt. An envelope with no payment fields has
+        # no `SignerPayment` rows at all, so this block is skipped entirely
+        # and the certificate is byte-identical to one built before PAY-1
+        # existed.
+        payments = self._latest_payments(db, document.id)
+        if payments:
+            recipients_by_id = {recipient.id: recipient for recipient in document.recipients}
+            check_page_break(40)
+            pdf.setFillColorRGB(0.08, 0.12, 0.28)
+            pdf.setFont("Helvetica-Bold", 11)
+            pdf.drawString(40, cursor, "Payments")
+            cursor -= 10
+
+            collected_cents = 0
+            currency = "USD"
+            for payment in sorted(payments.values(), key=lambda item: item.created_at):
+                check_page_break(28)
+                payer = recipients_by_id.get(payment.recipient_id)
+                payer_label = f"{payer.name} ({payer.email})" if payer else payment.recipient_id
+                amount_label = f"{payment.amount_cents / 100:,.2f} {payment.currency.upper()}"
+                currency = payment.currency.upper()
+
+                pdf.setStrokeColorRGB(0.88, 0.88, 0.9)
+                pdf.setLineWidth(0.75)
+                pdf.setFillColorRGB(0.99, 0.99, 1.0)
+                pdf.rect(40, cursor - 25, width - 80, 25, fill=1, stroke=1)
+
+                pdf.setFillColorRGB(0.1, 0.1, 0.1)
+                pdf.setFont("Helvetica-Bold", 8)
+                pdf.drawString(48, cursor - 10, payer_label[:60])
+
+                pdf.setFont("Helvetica", 7.5)
+                pdf.setFillColorRGB(0.4, 0.4, 0.4)
+                reference = payment.provider_payment_intent_id or "n/a"
+                pdf.drawString(48, cursor - 20, f"Amount: {amount_label}  |  Ref: {reference}")
+
+                status_text = payment.status.value.upper()
+                status_color = (
+                    (0.1, 0.55, 0.1)
+                    if payment.status == SignerPaymentStatus.succeeded
+                    else (0.7, 0.35, 0.05)
+                    if payment.status == SignerPaymentStatus.refunded
+                    else (0.6, 0.15, 0.15)
+                )
+                pdf.setFillColorRGB(*status_color)
+                pdf.setFont("Helvetica-Bold", 8)
+                pdf.drawRightString(width - 48, cursor - 10, status_text)
+
+                if payment.status in (SignerPaymentStatus.succeeded, SignerPaymentStatus.refunded):
+                    collected_cents += payment.amount_cents - payment.refunded_amount_cents
+
+                cursor -= 30
+
+            check_page_break(16)
+            pdf.setFillColorRGB(0.08, 0.12, 0.28)
+            pdf.setFont("Helvetica-Bold", 9)
+            pdf.drawString(40, cursor, f"Total collected: {collected_cents / 100:,.2f} {currency}")
+            cursor -= 16
 
         # Timeline Header
         check_page_break(40)

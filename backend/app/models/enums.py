@@ -65,6 +65,30 @@ class FieldType(StrEnum):
     # carry and the rules that keep them read-only.
     drawing = "drawing"
     textbox = "textbox"
+    # PAY-1: a signer-facing amount the recipient pays during signing (deposit
+    # or invoice). See `PaymentAccount` / `PaymentRequest` / `SignerPayment`.
+    payment = "payment"
+
+
+class PaymentSplitMode(StrEnum):
+    """How a `PaymentRequest`'s total is divided across recipients."""
+
+    #: One recipient pays the whole total.
+    single = "single"
+    #: The total is divided evenly across every allocation.
+    equal = "equal"
+    #: Each allocation carries its own amount, validated to sum to the total.
+    custom = "custom"
+
+
+class SignerPaymentStatus(StrEnum):
+    """Lifecycle of one `SignerPayment` attempt, mirroring a Stripe PaymentIntent."""
+
+    requires_payment = "requires_payment"
+    processing = "processing"
+    succeeded = "succeeded"
+    failed = "failed"
+    refunded = "refunded"
 
 
 class SignatureType(StrEnum):

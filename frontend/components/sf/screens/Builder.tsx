@@ -18,8 +18,20 @@ import {
   TEXTBOX_FONTS, TEXTBOX_SIZES, textboxFontStack, textboxOptions,
 } from '@/lib/sf/annotations';
 import { useFieldFavorites } from '@/lib/sf/fieldFavorites';
-import { fieldChoices, newBuilderRecipient, toBuilderFields, toBuilderRecipients, type BuilderRouting } from '@/lib/sf/adapters';
+import { fieldTypeEnabled, useEnabledFieldTypes } from '@/lib/sf/orgFieldTypes';
+import {
+  amountInputFromCents, centsFromAmountInput, fieldChoices, newBuilderRecipient, paymentFieldOptions,
+  splitEqualCents, toBuilderFields, toBuilderRecipients,
+  type BuilderFieldExtras, type BuilderRouting,
+} from '@/lib/sf/adapters';
+import {
+  nextRadioChoice, radioGroupMembers, radioMemberOptions, radioOptions, RADIO_MIN_SIZE,
+  RADIO_PITCH, type RadioOptions,
+} from '@/lib/sf/radioGroups';
 import LazyPdfPages from '@/components/sf/pdf/LazyPdfPages';
+import { UPLOAD_ACCEPT, MAX_UPLOAD_BYTES, isImageUpload } from '@/lib/sf/uploads';
+import ImageCropDialog, { cropToParam, isWholeImage } from '@/components/sf/ImageCropDialog';
+import type { CropRect } from '@/components/sf/ImageCropDialog';
 import { effectiveValidation } from '@/lib/sf/fieldValidation';
 import UploadDocument from '@/components/sf/UploadDocument';
 import PdfBadge from '@/components/sf/parts/PdfBadge';
@@ -29,9 +41,23 @@ import { rememberContact } from '@/lib/sf/recipientContacts';
 import { useDialogs } from '@/components/sf/DialogProvider';
 import { useRouter } from 'next/navigation';
 import { apiCall, errorMessage } from '@/lib/api/browser';
-import { documents as documentsApi } from '@/lib/api/resources';
+import { documents as documentsApi, payments as paymentsApi } from '@/lib/api/resources';
 import { useElementWidth } from '@/components/sf/pdf/useElementWidth';
-import type { FieldResponse, RecipientResponse, RecipientRole } from '@/lib/api/types';
+import type {
+  FieldResponse, ImageFit, PaymentAccountResponse, PaymentAllocationInput,
+  PaymentRequestResponse, PaymentSplitMode, RecipientResponse, RecipientRole,
+} from '@/lib/api/types';
+import Icon from '@/components/sf/Icon';
+
+/** Stripe's own floor (`schemas/payment.py:STRIPE_MINIMUM_CHARGE_CENTS`) —
+ *  mirrored here so a doomed allocation is flagged in the builder before the
+ *  sender ever hits Save, not just after the API 400s. */
+const STRIPE_MINIMUM_CHARGE_CENTS = 50;
+
+/** The rail's own fourth choice: crop first, then fit what is left on the
+ *  page. The API has no `custom` — a crop is a rectangle plus a real fit. */
+type AddImageFit = ImageFit | 'custom';
+const fitFor = (choice: AddImageFit): ImageFit => (choice === 'custom' ? 'fit' : choice);
 
 const ROLE_LABEL: { [k: string]: string } = { sign:'Needs to sign', approve:'Approver', copy:'Receives a copy', inperson:'In-person signer' };
 const REGEX_MAP: { [k: string]: string } = {
@@ -46,10 +72,6 @@ const COND_OP_LABEL: { [k: string]: string } = { checked:'is checked', equals:'e
 
 /** Field types whose whole point is a list of choices to pick from. Without
  *  one the signing surface can only tell the recipient to ask the sender. */
-/* Canvas-column width (CSS px) at which the toolbar has room to spell its
-   buttons out rather than leaving the label to title/aria-label alone. Below
-   it the toolbar stays icon-only and still fits without scrolling. */
-const WIDE_TOOLBAR = 1040;
 
 const CHOICE_TYPES = new Set(['dropdown', 'radio']);
 /** Types where pre-filling a value is meaningful. A signature, initials, a
@@ -76,6 +98,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   const { go } = useNav();
   const { askConfirm } = useDialogs();
   const { isFavorite, toggleFavorite, favoritesReady } = useFieldFavorites();
+  /* Which tiles this organization offers at all (ORG-6). */
+  const { enabled: enabledTypes } = useEnabledFieldTypes();
   const router = useRouter();
   const A = accent();
 
@@ -125,7 +149,16 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
      deltas — so a drag in any zoom, on any page size, yields points. */
   // Without an uploaded original the endpoint 404s — asking the PDF viewer to
   // render it would surface a load failure instead of the upload affordance.
-  const pdfUrl = documentId && hasFile ? `/api/proxy/documents/${documentId}/pdf` : null;
+  /** 1..pageCount — the document's page numbers, as the rail and the ops read them. */
+  const pages = Array.from({ length: Math.max(1, pageCount) }, (_, i) => i + 1);
+
+  /* The nonce is bumped whenever the pages are rearranged: the path is
+     unchanged but the bytes behind it are not, and without it the viewer would
+     keep rendering the pages it has already parsed. */
+  const [pdfNonce, setPdfNonce] = React.useState(0);
+  const pdfUrl = documentId && hasFile
+    ? `/api/proxy/documents/${documentId}/pdf` + (pdfNonce ? `?v=${pdfNonce}` : '')
+    : null;
   const [pageSizes, setPageSizes] = React.useState<{ widthPt: number; heightPt: number }[]>([]);
   const onGeometry = React.useCallback((sizes: { widthPt: number; heightPt: number }[]) => setPageSizes(sizes), []);
   const currentSize = pageSizes[s.page - 1] ?? null;
@@ -149,7 +182,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   const writeExtras = React.useCallback((id: string, patch: AnnotationExtras) => {
     if (extrasSink.current) extrasSink.current(id, patch);
   }, []);
-  const I = useBuilderInteractions({ documentId, pageSize, pageSizes: allPageSizes, setFieldExtras: writeExtras });
+  /* The reader in the same shape, for the gestures that copy a field: a copy
+     has to carry the original's `options` (a radio button's group, a
+     dropdown's choices) or it is not a copy of that field at all. */
+  const extrasSource = React.useRef<((id: string) => BuilderFieldExtras | null) | null>(null);
+  const readExtras = React.useCallback((id: string) => (extrasSource.current ? extrasSource.current(id) : null), []);
+  const I = useBuilderInteractions({
+    documentId, pageSize, pageSizes: allPageSizes, pageCount: pages.length,
+    setFieldExtras: writeExtras, getFieldExtras: readExtras,
+  });
 
   /* The canvas is one scrolling column of every page (a PDF is a document, not
      a slide deck). The page rail scrolls to a page rather than swapping which
@@ -175,6 +216,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     seededFields,
   });
   extrasSink.current = P.setFieldExtras;
+  extrasSource.current = P.fieldExtras;
 
   /* Hydrate the store from the server data. The builder's editing model *is*
      `s.fields` / `s.recipients` — the pointer machinery mutates them directly —
@@ -277,6 +319,172 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     flash(target.name + ' removed');
   };
 
+  /* ── pages ───────────────────────────────────────────────────────────────
+     A PDF arrives with a cover sheet nobody signs, or with its exhibits in the
+     wrong order, and re-uploading a corrected file is not an option — the API
+     refuses a second original. `PUT /api/documents/{id}/pages` takes the pages
+     to keep in the order they should end up in, so removing a page and
+     renumbering one are the same call.
+
+     Pending field edits are flushed first: the server renumbers the field rows
+     it holds, so an autosave still carrying the old page numbers must not land
+     after the rewrite. Fields are then re-seeded from the refreshed props
+     rather than remapped by hand, which keeps the canvas showing exactly what
+     the server stored. */
+  const [pageBusy, setPageBusy] = React.useState(false);
+  const rearrangePages = async (order: number[], note: string) => {
+    if (!documentId || pageBusy) return;
+    setPageBusy(true);
+    try {
+      await P.saveFieldsNow();
+      const res = await documentsApi.setPages(apiCall, documentId, order);
+      if (!res.ok) { flash(errorMessage(res) || 'Pages could not be updated'); return; }
+      set({ selected: [], page: Math.min(s.page, order.length) });
+      setPdfNonce(n => n + 1);
+      flash(note);
+      router.refresh();
+    } finally {
+      setPageBusy(false);
+    }
+  };
+
+  /* ── adding pages ────────────────────────────────────────────────────────
+     The other half of page editing: an exhibit arrives late, a signature sheet
+     is missing, or a signed addendum exists only as a photo. `POST
+     /api/documents/{id}/pages` grows the document with either blank pages or
+     the pages of an uploaded file (PDF, image or .docx — converted server-
+     side), inserted at a page number. Fields at or after that point move down
+     with their page, which is why pending edits are flushed first, exactly as
+     they are for a rearrange. */
+  const [addOpen, setAddOpen] = React.useState(false);
+  /** Where new pages land: `0` means the end, otherwise "after page N". */
+  const [addAfter, setAddAfter] = React.useState(0);
+  const addFileRef = React.useRef<HTMLInputElement>(null);
+  /* An image has no page size of its own. Left at its own pixel count a phone
+     photo becomes a page several feet tall beside letter-sized ones, so the
+     server lays it on a page the size of the one it joins; this chooses how. */
+  const [addFit, setAddFit] = React.useState<AddImageFit>('fit');
+  /* "Choose the area" holds the picked file back until the crop dialog says
+     which part of it to keep — the upload is the same call either way, with a
+     rectangle attached. */
+  const [cropping, setCropping] = React.useState<File | null>(null);
+
+  const addPages = async (opts: { file?: File; blankCount?: number; crop?: string }) => {
+    if (!documentId || pageBusy) return;
+    if (!hasFile) { flash('Upload a document first'); return; }
+    setPageBusy(true);
+    try {
+      await P.saveFieldsNow();
+      const at = addAfter > 0 ? Math.min(addAfter, pages.length) + 1 : undefined;
+      const res = await documentsApi.addPages(apiCall, documentId, Object.assign({ at, fit: fitFor(addFit) }, opts));
+      if (!res.ok) { flash(errorMessage(res) || 'Pages could not be added'); return; }
+      const added = res.data.page_count - pages.length;
+      setAddOpen(false);
+      set({ selected: [] });
+      setPdfNonce(n => n + 1);
+      flash(added === 1 ? 'Page added' : added + ' pages added');
+      router.refresh();
+    } finally {
+      setPageBusy(false);
+    }
+  };
+
+  const onAddFile = (file: File | null | undefined) => {
+    if (!file) return;
+    if (file.size === 0) { flash('That file is empty'); return; }
+    if (file.size > MAX_UPLOAD_BYTES) { flash('That file is larger than 25 MB'); return; }
+    // Only an image has an area to choose: a PDF or a .docx already has pages.
+    if (addFit === 'custom' && isImageUpload(file.name)) { setCropping(file); return; }
+    void addPages({ file });
+  };
+
+  /* The shape the new page will be: the page it follows (or the last one,
+     when it is going on the end). Null until the viewer has reported the PDF's
+     geometry, which is also when the crop frame has nothing to lock to. */
+  const addPageAspect = React.useMemo(() => {
+    const size = allPageSizes[(addAfter > 0 ? Math.min(addAfter, pages.length) : pages.length) - 1];
+    return size && size.height > 0 ? size.width / size.height : null;
+  }, [allPageSizes, addAfter, pages.length]);
+
+  const onCropped = (file: File) => (crop: CropRect | null) => {
+    setCropping(null);
+    if (!crop) return;                       // dismissed — the file is not added
+    void addPages({ file, crop: isWholeImage(crop) ? undefined : cropToParam(crop) });
+  };
+
+  const removePage = async (n: number) => {
+    if (pages.length < 2) { flash('A document must keep at least one page'); return; }
+    const owned = F.filter(f => f.page === n).length;
+    const ok = await askConfirm({
+      title: 'Delete page ' + n + '?',
+      message: owned
+        ? owned + (owned === 1 ? ' field' : ' fields') + ' on this page will be deleted with it, and the pages after it renumbered.'
+        : 'The pages after it are renumbered. This rewrites the document.',
+      cta: 'Delete page',
+      danger: true,
+    });
+    if (!ok) return;
+    await rearrangePages(pages.filter(p => p !== n), 'Page ' + n + ' deleted');
+  };
+
+  /** Move a page to a page number — pulled out of the order and put back in. */
+  const movePageTo = async (n: number, to: number) => {
+    if (to < 1 || to > pages.length || to === n) return;
+    const order = pages.filter(p => p !== n);
+    order.splice(to - 1, 0, n);
+    await rearrangePages(order, 'Page ' + n + ' is now page ' + to);
+  };
+
+  /** One slot up or down — the arrows beside each page in the rail. */
+  const movePage = (n: number, dir: number) => movePageTo(n, n + dir);
+
+  /* ── dragging a page to a new position ───────────────────────────────────
+     The arrows move a page one slot at a time, which is a lot of presses to
+     get page 12 to the front of a long document. Dragging a page in the rail
+     is the same edit — `movePageTo` — reached by pointing at where it should
+     go. The rail keeps the arrows: they are the keyboard path to this, and a
+     drag is an enhancement rather than the only way in.
+
+     `dragPage` is the page being carried; `dropBefore` is the slot the drop
+     would land in, which is what the insertion line is drawn from. */
+  const [dragPage, setDragPage] = React.useState<number | null>(null);
+  const [dropBefore, setDropBefore] = React.useState<number | null>(null);
+  const endPageDrag = () => { setDragPage(null); setDropBefore(null); };
+  const onPageDragStart = (n: number) => (e: React.DragEvent) => {
+    if (pageBusy) { e.preventDefault(); return; }
+    setDragPage(n);
+    // Text, because that is the one type every browser lets a drag carry; the
+    // page being moved is read off `dragPage`, not off the payload.
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', String(n)); } catch { /* older Safari */ }
+    }
+  };
+  /* Which half of the row the pointer is in decides whether the page lands
+     before or after it — without that, dragging onto the last row could never
+     mean "put it last". */
+  const onPageDragOver = (n: number) => (e: React.DragEvent) => {
+    if (dragPage === null) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const box = e.currentTarget.getBoundingClientRect();
+    const lower = box.height > 0 && e.clientY > box.top + box.height / 2;
+    setDropBefore(lower ? n + 1 : n);
+  };
+  const onPageDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const from = dragPage;
+    const before = dropBefore;
+    endPageDrag();
+    if (from === null || before === null) return;
+    /* `dropBefore` counts slots in the list as it stands. Pulling the dragged
+       page out first shifts every slot after it down by one, so a drop below
+       its old position lands one earlier than the raw slot number. */
+    const to = before > from ? before - 1 : before;
+    if (to === from) return;
+    void movePageTo(from, to);
+  };
+
   const changeRole = (id: string, role: string) => {
     const list = recips().map(x => (x.id === id ? Object.assign({}, x, { role }) : x));
     set({ recipients: list });
@@ -327,30 +535,19 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
 
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
   const primaryBtn = btn(A, '#fff', A);
-  /* Canvas toolbar is icon-only by default so it survives a narrow viewport —
-     the label lives in title/aria-label instead of beside the glyph. Once the
-     canvas column is wide enough to spell the whole toolbar out, the label
-     moves next to the glyph as well, so nothing has to be hovered to be read.
-     `viewportWidth` is the canvas column's own measured width, which is what
-     this toolbar spans. */
-  const wideTools = viewportWidth >= WIDE_TOOLBAR;
+  /* Canvas toolbar is icon-only at every width: the name of each tool is its
+     `title` — the tooltip on hover — and its `aria-label`, never text beside
+     the glyph. Spelling the labels out on a wide canvas made the toolbar read
+     as a sentence of words rather than a row of tools, and moved every button
+     as the rail was resized. */
   const sqBtn = (bg: string, fg: string, bd: string): CSSProperties =>
-    Object.assign({}, btn(bg, fg, bd), { width:'32px', padding:'0', justifyContent:'center', fontSize:'.9375rem', fontWeight:500, flex:'0 0 auto' },
-      wideTools ? { width:'auto', padding:'0 10px', gap:'6px' } : null);
-  const toolLabel: CSSProperties = { fontSize:'.6875rem', fontWeight:400, fontFamily:'var(--font-sans)', whiteSpace:'nowrap' };
-  /** The glyph, plus its label where there is room for it. */
-  const withLabel = (glyph: string, label: string) => wideTools
-    ? [glyph, <span key="l" style={toolLabel}>{label}</span>]
-    : glyph;
+    Object.assign({}, btn(bg, fg, bd),
+      { width:'32px', padding:'0', justifyContent:'center', fontSize:'.9375rem', fontWeight:500, flex:'0 0 auto' });
   const toolBtn = sqBtn('#fff', '#475569', '#e3e7ee');
   const alignStyle = toolBtn;
   const dangerStyle = sqBtn('#fff', '#b91c1c', '#fecaca');
   const gridBtnStyle = sqBtn(s.grid ? '#eef2ff' : '#fff', s.grid ? '#3730a3' : '#475569', s.grid ? '#c7d2fe' : '#e3e7ee');
   const iconBtn: CSSProperties = { flex:'0 0 auto', width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
-  /** `iconBtn` sized to hold a label too — the toolbar's undo/redo pair. */
-  const iconLabelBtn: CSSProperties = wideTools
-    ? Object.assign({}, iconBtn, { width:'auto', padding:'0 9px', display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'6px' })
-    : iconBtn;
   const input = inputStyle;
   const textareaStyle: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'9px', padding:'8px 10px', fontSize:'.78125rem', resize:'vertical', outline:'none', width:'100%', color:'#0f172a' };
 
@@ -391,9 +588,12 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     set({ penMode: on, penStroke: null, dragTool: null, ghost: null });
     flash(on ? 'Pen on · drag across the page to draw. Press Esc to put it down.' : 'Pen put down');
   };
-  const tools = TYPES.filter(t => (s.paletteTab === 'all' || s.favTypes.indexOf(t.id) > -1) &&
+  /* The organization's choice comes first: a type it has turned off is not a
+     tile you can reach by searching for it or by having starred it earlier. */
+  const tools = TYPES.filter(t => fieldTypeEnabled(enabledTypes, t.id) &&
+      (s.paletteTab === 'all' || s.favTypes.indexOf(t.id) > -1) &&
       (!s.paletteQuery || t.label.toLowerCase().indexOf(s.paletteQuery.toLowerCase()) > -1)).map(t => ({
-    id: t.id, label: t.label, icon: t.icon,
+    id: t.id, label: t.label, icon: t.icon, svg: t.svg,
     isPen: t.id === 'drawing',
     penOn: t.id === 'drawing' && s.penMode,
     // The button is operable by pointer *and* by keyboard: drag it onto the
@@ -422,20 +622,53 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   }));
 
   /* ── page thumbs ── */
-  const pages = Array.from({ length: Math.max(1, pageCount) }, (_, i) => i + 1);
   const thumbs = pages.map(n => {
     const cnt = inputFields.filter(f => f.page === n).length;
     const on = s.page === n;
     return { n: String(n), key: n,
       onClick: () => { set({ page: n, selected: [] }); scrollToPage(n); },
-      style: { display:'flex', alignItems:'center', gap:'10px', padding:'8px', borderRadius:'11px', cursor:'pointer', width:'100%',
-        border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? '#eef2ff' : '#fff' } as CSSProperties,
+      style: { position:'relative', display:'flex', alignItems:'center', gap:'10px', padding:'8px', borderRadius:'11px', width:'100%',
+        border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? '#eef2ff' : '#fff',
+        cursor: pages.length > 1 && !pageBusy ? 'grab' : 'default',
+        // The row being carried stays in place, dimmed, so the list it is being
+        // dropped into does not jump around under the pointer.
+        opacity: dragPage === n ? .45 : 1 } as CSSProperties,
       sheet: { width:'32px', height:'42px', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'3px', display:'flex', flexDirection:'column', gap:'3px', padding:'5px', flex:'0 0 32px' } as CSSProperties,
       line1: { height:'2px', background:BORDER_STRONG, borderRadius:'2px' } as CSSProperties,
       line2: { height:'2px', background:'#e3e7ee', borderRadius:'2px', width:'80%' } as CSSProperties,
       line3: { height:'2px', background:'#e3e7ee', borderRadius:'2px', width:'60%' } as CSSProperties,
       badgeLabel: cnt ? cnt + ' fields' : 'no fields',
-      badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: cnt ? '#047857' : TEXT_MUTED } as CSSProperties };
+      badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: cnt ? '#047857' : TEXT_MUTED } as CSSProperties,
+      /* Page-level edits, on the page they act on. Each is a document rewrite,
+         so they are disabled while one is in flight and the first/last page
+         cannot be moved past the ends of the document. */
+      /* Dragging is only meaningful with somewhere to go, and never while a
+         rewrite is in flight. */
+      draggable: pages.length > 1 && !pageBusy,
+      dragging: dragPage === n,
+      /* The insertion line is drawn on the row the drop would land above, and
+         on the last row's underside for a drop at the very end. */
+      dropAbove: dropBefore === n && dragPage !== null && dragPage !== n && dragPage !== n - 1,
+      dropBelowLast: n === pages.length && dropBefore === pages.length + 1 && dragPage !== null && dragPage !== n,
+      onDragStart: onPageDragStart(n),
+      onDragOver: onPageDragOver(n),
+      onDrop: onPageDrop,
+      onDragEnd: endPageDrag,
+      dropLine: { position:'absolute', left:'6px', right:'6px', height:'2px', borderRadius:'2px', background:A } as CSSProperties,
+      canUp: n > 1 && !pageBusy,
+      canDown: n < pages.length && !pageBusy,
+      canRemove: pages.length > 1 && !pageBusy,
+      onUp: () => { void movePage(n, -1); },
+      onDown: () => { void movePage(n, 1); },
+      onRemove: () => { void removePage(n); },
+      pageBtn: (enabled: boolean) => (Object.assign({
+        width:'22px', height:'20px', borderRadius:'6px', border:'1px solid #e3e7ee', background:'#fff',
+        fontSize:'.625rem', lineHeight:1, color:'#475569', display:'grid', placeItems:'center',
+      }, enabled ? { cursor:'pointer' } : { opacity:.4, cursor:'not-allowed' }) as CSSProperties),
+      removeBtn: (enabled: boolean) => (Object.assign({
+        width:'22px', height:'20px', borderRadius:'6px', border:'1px solid #e3e7ee', background:'#fff',
+        fontSize:'.625rem', lineHeight:1, color:'#dc2626', display:'grid', placeItems:'center',
+      }, enabled ? { cursor:'pointer' } : { opacity:.4, cursor:'not-allowed' }) as CSSProperties) };
   });
 
   /* Whichever page covers the middle of the viewport is the active one. Kept
@@ -575,6 +808,10 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
        drag handle. */
     const extras = P.fieldExtras(f.id);
     const choices = fieldChoices(extras?.options ?? null);
+    /* One button of a radio group (see `lib/sf/radioGroups.ts`): it draws as
+       the single dot it is, wherever the sender has dragged it, rather than as
+       a box listing the whole group. */
+    const radio = f.type === 'radio' ? radioOptions(extras?.options ?? null) : null;
     const boxW = f.w * z, boxH = f.h * z;
     /* ── the sender's own marks (ANN-1) ──
        An annotation is drawn as the mark it *is*, not as a labelled field box:
@@ -588,11 +825,16 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     /* A radio group that cannot draw all of its choices in the box as sized is
        flagged here rather than discovered by the recipient. */
     const radioColumn = boxH >= 26 * Math.max(2, choices.length);
-    const clipped = f.type === 'radio' && choices.length > 0
+    const clipped = f.type === 'radio' && !radio && choices.length > 0
       && (radioColumn ? boxH < 20 * choices.length : boxW < 70 * choices.length);
+    /* The dot is drawn inside the box, so a button sized right down to the
+       print on the page still reads as a circle rather than as a border. */
+    const dot = Math.max(6, Math.min(boxW, boxH) - 4);
     return {
       id: f.id,
-      aria: t.label + ' for ' + r.name + (f.required ? ', required' : ', optional') + ', at ' + f.x + ' by ' + f.y + ' points from the top-left of the page',
+      aria: (radio ? radio.groupLabel + ' — ' + radio.choice : t.label)
+        + ' for ' + r.name + (f.required ? ', required' : ', optional')
+        + ', at ' + f.x + ' by ' + f.y + ' points from the top-left of the page',
       selected: on,
       onDown: (e: React.PointerEvent) => I.onFieldDown(f.id, e),
       onResize: (e: React.PointerEvent) => I.onResizeDown(f.id, e),
@@ -621,13 +863,28 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
         outline: clipped ? '1.5px dashed #dc2626' : 'none', outlineOffset: clipped ? '1px' : undefined } as CSSProperties,
       badge: { position:'absolute', top:'-9px', left:'-1px', height:'17px', padding:'0 6px', borderRadius:'5px', background:r.color,
         color:'#fff', fontSize:'.59375rem', fontWeight:700, display:'flex', alignItems:'center', gap:'4px', fontFamily:'var(--font-sans)', whiteSpace:'nowrap' } as CSSProperties,
-      badgeText: initials(r.name) + ' · ' + t.label + (f.required ? ' *' : '') + (clipped ? ' · too small' : ''),
+      badgeText: initials(r.name) + ' · ' + (radio ? radio.choice : t.label)
+        + (f.required ? ' *' : '') + (clipped ? ' · too small' : ''),
       label: f.label,
       inner: { fontSize: (f.w * z) < 110 ? '10px' : '11.5px', fontWeight:600, color:'#0f172a', opacity:.75, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.2 } as CSSProperties,
 
       /* ── what the recipient sees, previewed ── */
       isCheck: f.type === 'checkbox',
-      isRadio: f.type === 'radio',
+      /** A radio field authored before groups existed: one box, every choice. */
+      isRadio: f.type === 'radio' && !radio,
+      /** One button of a group, or null. */
+      radio,
+      radioAria: radio
+        ? radio.groupLabel + ' — ' + radio.choice + ' (' + (radio.choices.indexOf(radio.choice) + 1)
+          + ' of ' + radio.choices.length + ') for ' + r.name
+        : '',
+      /** The sender pre-selected this button, so it is drawn filled. */
+      radioOn: radio ? (extras?.defaultValue ?? '') === radio.choice : false,
+      radioRing: { position:'absolute', inset:0, display:'grid', placeItems:'center', pointerEvents:'none' } as CSSProperties,
+      radioCircle: { width:dot + 'px', height:dot + 'px', borderRadius:'99px', border:'1.5px solid ' + r.color,
+        background:'#fff', display:'grid', placeItems:'center' } as CSSProperties,
+      radioFill: { width: Math.max(3, dot * 0.5) + 'px', height: Math.max(3, dot * 0.5) + 'px',
+        borderRadius:'99px', background:r.color } as CSSProperties,
       isSelect: f.type === 'dropdown',
       choices,
       /** The signing surface's own layout rule, so the preview agrees with it. */
@@ -645,11 +902,61 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
         fontSize:'.71875rem', color:'#334155', whiteSpace:'nowrap', overflow:'hidden' } as CSSProperties,
       selectText: choices.length ? choices[0] : 'Select…',
       /** Warn where the signer would be stuck, in the sender's own view. */
-      noChoices: CHOICE_TYPES.has(f.type) && choices.length === 0,
+      noChoices: CHOICE_TYPES.has(f.type) && !radio && choices.length === 0,
       warnStyle: { fontSize:'.625rem', color:'#b45309', lineHeight:1.25, whiteSpace:'normal', overflow:'hidden' } as CSSProperties,
       handle: { position:'absolute', right:'-5px', bottom:'-5px', width:'11px', height:'11px', borderRadius:'3px', background:'#fff', border:'1.5px solid ' + r.color, cursor:'nwse-resize' } as CSSProperties
     };
   });
+
+  /* ── the outline around a radio group ────────────────────────────────────
+     A group is a set of freely placed fields (see `lib/sf/radioGroups.ts`), and
+     each one draws as the single dot it is — which is right for the signer but
+     left the sender no way to see which dots answer the same question. Three
+     buttons of one group and three unrelated yes/no dots looked identical.
+
+     So the group is outlined on the page: a faint dashed box around its members
+     with the group's name on it, solid and tinted while a member is selected.
+     It is drawn per page — a group whose buttons straddle a page break gets an
+     outline on each — behind the fields and inert, so it never takes a gesture
+     meant for a button. */
+  const radioGroupBoxes = (pageNumber: number) => {
+    const groups = new Map<string, { label: string; color: string; on: boolean;
+      x1: number; y1: number; x2: number; y2: number }>();
+    F.filter(f => f.page === pageNumber && f.type === 'radio').forEach(f => {
+      const member = radioOptions(P.fieldExtras(f.id)?.options ?? null);
+      if (!member) return;                       // a legacy single-box radio
+      const found = groups.get(member.group);
+      const on = s.selected.indexOf(f.id) > -1;
+      if (!found) {
+        groups.set(member.group, {
+          label: member.groupLabel, color: recipIn(f.to).color, on,
+          x1: f.x, y1: f.y, x2: f.x + f.w, y2: f.y + f.h,
+        });
+        return;
+      }
+      found.on = found.on || on;
+      found.x1 = Math.min(found.x1, f.x);
+      found.y1 = Math.min(found.y1, f.y);
+      found.x2 = Math.max(found.x2, f.x + f.w);
+      found.y2 = Math.max(found.y2, f.y + f.h);
+    });
+    /* Padding in CSS px rather than points: the outline is chrome for the
+       sender, so it should look the same at every zoom. */
+    const pad = 7;
+    return Array.from(groups.entries()).map(([group, g]) => ({
+      key: group,
+      label: g.label,
+      box: { position:'absolute', left:(g.x1 * z - pad) + 'px', top:(g.y1 * z - pad) + 'px',
+        width:((g.x2 - g.x1) * z + pad * 2) + 'px', height:((g.y2 - g.y1) * z + pad * 2) + 'px',
+        border:'1.5px ' + (g.on ? 'solid' : 'dashed') + ' ' + g.color + (g.on ? 'cc' : '66'),
+        background: g.on ? g.color + '0f' : 'transparent',
+        borderRadius:'8px', pointerEvents:'none', zIndex:0 } as CSSProperties,
+      labelStyle: { position:'absolute', top:'-8px', left:'8px', padding:'0 5px', height:'16px',
+        display:'flex', alignItems:'center', borderRadius:'4px', background:'#fff',
+        border:'1px solid ' + g.color + (g.on ? 'cc' : '55'), color:g.color,
+        fontSize:'.5625rem', fontWeight:700, whiteSpace:'nowrap', fontFamily:'var(--font-sans)' } as CSSProperties,
+    }));
+  };
 
   /* ── inspector ── */
   const selection = sel();
@@ -662,22 +969,146 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
      anything to choose from, and the signer was told to "ask the sender". */
   const oneExtras = one ? P.fieldExtras(one.id) : null;
   const oneChoices = React.useMemo(() => fieldChoices(oneExtras?.options ?? null), [oneExtras]);
-  const wantsChoices = one ? CHOICE_TYPES.has(one.type) : false;
-  const wantsDefault = one ? DEFAULTABLE_TYPES.has(one.type) : false;
-  /* The textarea is edited as free text — a trailing newline or a blank line
-     mid-list must survive the keystroke that made it — so the draft is what is
-     shown and the parsed list is what is stored. */
-  const [choiceDraft, setChoiceDraft] = React.useState<{ id: string; text: string }>({ id: '', text: '' });
-  if (one && choiceDraft.id !== one.id) {
-    // Adjusting state during render — React's documented way to reset state
-    // when the thing being edited changes, with no intermediate paint.
-    setChoiceDraft({ id: one.id, text: oneChoices.join('\n') });
-  }
-  const editChoices = (text: string) => {
+  /* ── the selected radio group ──────────────────────────────────────────
+     A radio group is a set of fields, one per button, tied together by their
+     `options` (see `lib/sf/radioGroups.ts`). The inspector therefore edits the
+     *group* even though a single button is what is selected on the page: the
+     list below adds, renames, removes and pre-selects buttons, and the label,
+     the recipient and `required` are applied to every member — a group whose
+     buttons disagreed about who answers it, or about whether an answer is
+     owed, is not a question anybody could answer. */
+  const oneRadio = one && one.type === 'radio' ? radioOptions(oneExtras?.options ?? null) : null;
+  const radioButtons = oneRadio
+    ? radioGroupMembers(F, f => P.fieldExtras(f.id)?.options ?? null, oneRadio.group)
+    : [];
+  const radioChoices = radioButtons.map(m => m.options.choice);
+  /** Write one member's `options`, keeping the group's list in step. */
+  const writeRadio = (fieldId: string, patch: Partial<RadioOptions>, base: RadioOptions) => {
+    P.setFieldExtras(fieldId, { apiType: 'radio', options: radioMemberOptions(Object.assign({}, base, patch)) });
+  };
+  /** Publish the group's list — and its name — onto every member. */
+  const publishRadio = (choices: string[], groupLabel?: string) => {
+    radioButtons.forEach(m => writeRadio(m.field.id, {
+      choices,
+      groupLabel: groupLabel ?? m.options.groupLabel,
+      choice: m.options.choice,
+    }, m.options));
+  };
+  /** The group's pre-selected button, stored as every member's default value. */
+  const radioPreselected = oneExtras?.defaultValue ?? '';
+  const setRadioPreselected = (choice: string) => {
+    radioButtons.forEach(m => P.setFieldExtras(m.field.id, { defaultValue: choice ? choice : null }));
+  };
+  const [radioDraft, setRadioDraft] = React.useState<{ id: string; text: string } | null>(null);
+  const renameRadio = (member: (typeof radioButtons)[number], text: string) => {
+    setRadioDraft({ id: member.field.id, text });
+    const next = text.trim();
+    // An empty label is not a choice the API would accept, so it stays a draft
+    // until there is something to name the button with.
+    if (!next || (next !== member.options.choice && radioChoices.indexOf(next) > -1)) return;
+    const choices = radioChoices.map(choice => (choice === member.options.choice ? next : choice));
+    radioButtons.forEach(m => writeRadio(m.field.id, {
+      choices,
+      choice: m.field.id === member.field.id ? next : m.options.choice,
+    }, m.options));
+    if (radioPreselected === member.options.choice) setRadioPreselected(next);
+  };
+  const addRadioOption = () => {
+    if (!oneRadio || !radioButtons.length) return;
+    const choice = nextRadioChoice(radioChoices);
+    const last = radioButtons[radioButtons.length - 1].field;
+    const size = allPageSizes[last.page - 1] ?? null;
+    const wanted = last.y + RADIO_PITCH;
+    const id = 'f' + Date.now().toString().slice(-6);
+    const nf: SFField = {
+      id, page: last.page, type: 'radio', x: last.x,
+      y: size ? Math.max(0, Math.min(wanted, size.height - last.h)) : wanted,
+      w: last.w, h: last.h, to: last.to, required: last.required, readOnly: false,
+      label: oneRadio.groupLabel, placeholder: '', validation: 'none', cond: last.cond,
+    };
+    const choices = radioChoices.concat([choice]);
+    set(prev => ({ fields: prev.fields.concat([nf]), selected: [id] }));
+    writeRadio(id, { choice, choices }, oneRadio);
+    publishRadio(choices);
+    flash(choice + ' added — drag it where it belongs on the page');
+  };
+  const removeRadioOption = (member: (typeof radioButtons)[number]) => {
+    const rest = radioButtons.filter(m => m.field.id !== member.field.id);
+    set(prev => ({
+      fields: prev.fields.filter(f => f.id !== member.field.id),
+      selected: rest.length ? [rest[0].field.id] : [],
+    }));
+    setRadioDraft(null);
+    const choices = rest.map(m => m.options.choice);
+    rest.forEach(m => writeRadio(m.field.id, { choices, choice: m.options.choice }, m.options));
+    if (radioPreselected === member.options.choice) {
+      rest.forEach(m => P.setFieldExtras(m.field.id, { defaultValue: null }));
+    }
+    flash(rest.length ? member.options.choice + ' removed' : 'Radio group removed');
+  };
+  /** A group-wide edit: every button answers for the same recipient, carries
+   *  the same obligation and shows the same name. */
+  const setRadioGroupField = (patch: Partial<SFField>) => {
+    radioButtons.forEach(m => setField(m.field.id, patch));
+    if (patch.label !== undefined) publishRadio(radioChoices, patch.label || 'Radio Group');
+  };
+  /** The smallest box this field may be given — a radio button is a dot, so it
+   *  is allowed below the floor an input box needs (`onResizeDown` agrees). */
+  const minSize = oneRadio ? { w: RADIO_MIN_SIZE, h: RADIO_MIN_SIZE } : { w: 32, h: 24 };
+  /** A field edit that follows the whole group when a radio button is selected. */
+  const editOne = (patch: Partial<SFField>) => {
     if (!one) return;
-    setChoiceDraft({ id: one.id, text });
-    const list = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-    P.setFieldExtras(one.id, { options: list.length ? list : null });
+    if (oneRadio) { setRadioGroupField(patch); return; }
+    setField(one.id, patch);
+  };
+  const wantsChoices = one ? CHOICE_TYPES.has(one.type) && !oneRadio : false;
+  const wantsDefault = one ? DEFAULTABLE_TYPES.has(one.type) && !oneRadio : false;
+  /* A dropdown's choices, one input per choice — the same editor shape as a
+     radio group's buttons. They used to be one newline-separated textarea,
+     which meant the sender was formatting a list rather than editing options:
+     there was no way to rename one without retyping around it, no way to move
+     one, and a stray blank line silently became nothing at all.
+
+     A row is allowed to be empty while it is being typed — the empty entry is
+     kept in the stored list so the row keeps its place, and dropped when the
+     input is left. */
+  const writeChoices = (list: string[]) => {
+    if (!one) return;
+    const kept = list.length ? list : [];
+    P.setFieldExtras(one.id, { options: kept.length ? kept : null });
+  };
+  const renameChoice = (at: number, text: string) => {
+    const next = oneChoices.slice();
+    next[at] = text;
+    writeChoices(next);
+  };
+  /** Drop the rows left blank, once the sender has moved on from them. */
+  const settleChoices = () => {
+    const kept = oneChoices.map(choice => choice.trim()).filter(choice => choice.length > 0);
+    if (kept.length !== oneChoices.length || kept.some((choice, i) => choice !== oneChoices[i])) writeChoices(kept);
+  };
+  const addChoice = () => {
+    /* "Option N", N unused, so a fresh row is never a duplicate of one that is
+       already there — a dropdown with two identical options cannot be answered
+       unambiguously. */
+    let n = oneChoices.length + 1;
+    while (oneChoices.indexOf('Option ' + n) > -1) n += 1;
+    writeChoices(oneChoices.concat(['Option ' + n]));
+  };
+  const removeChoice = (at: number) => {
+    const gone = oneChoices[at];
+    writeChoices(oneChoices.filter((_, i) => i !== at));
+    // A pre-selected value that no longer exists would be sent as an answer
+    // the API rejects, so it goes with the option.
+    if (one && (oneExtras?.defaultValue ?? '') === gone) P.setFieldExtras(one.id, { defaultValue: null });
+  };
+  const moveChoice = (at: number, dir: number) => {
+    const to = at + dir;
+    if (to < 0 || to >= oneChoices.length) return;
+    const next = oneChoices.slice();
+    const [moved] = next.splice(at, 1);
+    next.splice(to, 0, moved);
+    writeChoices(next);
   };
   const editDefault = (value: string) => {
     if (!one) return;
@@ -700,6 +1131,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   const editDrawing = (patch: { color?: string; stroke?: number }) => {
     if (!one || !oneDrawing) return;
     P.setFieldExtras(one.id, { options: Object.assign({}, oneDrawing, patch) });
+  };
+  /* PAY-1: the selected payment field's own amount/currency/memo, per-field —
+     the envelope-level split (who owes what) is a separate panel below,
+     since it spans every payment field on the document rather than just this
+     one. */
+  const onePayment = one && one.type === 'payment' ? paymentFieldOptions(oneExtras?.options ?? null) : null;
+  const editPayment = (patch: Partial<ReturnType<typeof paymentFieldOptions>>) => {
+    if (!one || !onePayment) return;
+    P.setFieldExtras(one.id, { options: Object.assign({}, onePayment, patch) });
   };
   /* The text is edited as free text — a trailing newline has to survive the
      keystroke that made it — so, like the choices box, the draft is what is
@@ -728,7 +1168,71 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   const reqKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.required ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
   const roSwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: one && one.readOnly ? A : BORDER_STRONG, position:'relative' };
   const roKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.readOnly ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff' };
+  /** The up/down arrows beside a dropdown choice — small, and plainly inert at the ends. */
+  const choiceMoveBtn = (enabled: boolean): CSSProperties => Object.assign({
+    width:'22px', height:'14px', borderRadius:'5px', border:'1px solid #e3e7ee', background:'#fff',
+    fontSize:'.5rem', lineHeight:1, color:'#475569', display:'grid', placeItems:'center', padding:0,
+  }, enabled ? { cursor:'pointer' } : { opacity:.4, cursor:'not-allowed' });
   const recipientOptions = R.map(r => ({ id: r.id, label: r.name + ' — ' + r.status }));
+
+  /* ── the selected field's own toolbar, on the page ───────────────────────
+     The inspector rail is still the full authoring surface, but the handful of
+     things a sender does over and over — reassign this field, make another one
+     like it, throw it away — were a trip across the screen from the field they
+     apply to. So the selected field carries them itself: the bar floats just
+     off its edge, the way it does in the tools senders already know.
+     Everything else stays in the rail, one "Edit" away. */
+  const inspectorFocusRef = React.useRef<HTMLInputElement | null>(null);
+  const focusInspector = React.useCallback(() => {
+    const el = inspectorFocusRef.current;
+    if (!el) return;
+    // Guarded: the rail is scrolled into view where the environment can, but
+    // focus is the part that matters and must not depend on it.
+    if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+    el.focus();
+    el.select();
+  }, []);
+  /* The bar is chrome, not part of the field: a press on it must not start the
+     field's drag or the sheet's marquee. The grip is the deliberate exception
+     — it hands the gesture straight to the field, so the bar can be dragged. */
+  const stopDown = (e: React.PointerEvent) => { e.stopPropagation(); };
+  const toolbarBtn: CSSProperties = { display:'grid', placeItems:'center', width:'26px', height:'26px', borderRadius:'7px',
+    border:'1px solid transparent', background:'transparent', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
+  const toolbarDanger: CSSProperties = Object.assign({}, toolbarBtn, { color:'#dc2626' });
+  const fieldToolbar = one && !s.penMode ? {
+    id: one.id,
+    page: one.page,
+    isAnn: oneIsAnn,
+    to: one.to,
+    typeLabel: meta(one.type).label,
+    color: recipIn(one.to).color,
+    /* Above the field, unless it sits too near the top of the page for the bar
+       to fit — then below it, so the bar is never clipped off the sheet. */
+    wrap: Object.assign({
+      position:'absolute',
+      left:(one.x * z) + 'px',
+      display:'flex', alignItems:'center', gap:'1px', zIndex:6,
+      background:'#fff', border:'1px solid ' + BORDER_STRONG, borderRadius:'9px',
+      boxShadow:'0 8px 20px rgba(15,23,42,.18)', padding:'3px 4px', whiteSpace:'nowrap',
+      fontFamily:'var(--font-sans)',
+    }, one.y * z >= 42
+      ? { top:(one.y * z - 37) + 'px' }
+      : { top:(one.y * z + one.h * z + 9) + 'px' }) as CSSProperties,
+    gripStyle: { display:'grid', placeItems:'center', width:'20px', height:'26px', cursor:'grab', color:BORDER_STRONG, fontSize:'.75rem' } as CSSProperties,
+    dotStyle: { width:'9px', height:'9px', borderRadius:'99px', background:recipIn(one.to).color, flex:'0 0 9px' } as CSSProperties,
+    selectStyle: { height:'26px', maxWidth:'168px', border:'1px solid #e3e7ee', borderRadius:'7px', background:'#fff',
+      fontSize:'.71875rem', color:'#0f172a', padding:'0 4px', cursor:'pointer', outline:'none' } as CSSProperties,
+    dividerStyle: { width:'1px', height:'18px', background:'#e3e7ee', margin:'0 2px' } as CSSProperties,
+    annNoteStyle: { fontSize:'.6875rem', color:TEXT_MUTED, padding:'0 6px' } as CSSProperties,
+    onGrip: (e: React.PointerEvent) => I.onFieldDown(one.id, e),
+    onReassign: (e: React.ChangeEvent<HTMLSelectElement>) => setField(one.id, { to: e.target.value }),
+    onEdit: focusInspector,
+    onDuplicate: I.duplicateSel,
+    /* Only worth offering where there is another page to copy onto. */
+    canCopyAll: pages.length > 1,
+    onCopyAll: I.copyToAllPages,
+    onDelete: I.deleteSel,
+  } : null;
 
   /* ── step 2: routing / send setup ── */
   const routingRows = R.map(r => ({
@@ -770,6 +1274,149 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     label, meta: metaText,
     dot: { width:'8px', height:'8px', borderRadius:'99px', background:c, marginTop:'5px', flex:'0 0 8px' } as CSSProperties
   }));
+
+  /* ── PAY-1: the envelope's payment request ────────────────────────────────
+     One `PaymentRequest` per document, split across one or more signing
+     recipients. `signer_payment_service.sync_request` is the authority on
+     every rule enforced here — this only mirrors it so a sender learns about
+     a refusal before Save, not after a 400. */
+  const [paymentAccount, setPaymentAccount] = React.useState<PaymentAccountResponse | null | undefined>(undefined);
+  const [paymentRequest, setPaymentRequest] = React.useState<PaymentRequestResponse | null | undefined>(undefined);
+  const [paymentSaving, setPaymentSaving] = React.useState(false);
+  const [paymentDraft, setPaymentDraft] = React.useState<{
+    total: string; currency: string; memo: string; splitMode: PaymentSplitMode;
+    payerIds: string[]; customAmounts: Record<string, string>;
+  }>({ total: '', currency: 'USD', memo: '', splitMode: 'single', payerIds: [], customAmounts: {} });
+
+  /* The envelope-level payment panel (in the "Set up and send" step) is the
+     only place these load lazily for — mark it open the first time the
+     sender reaches that step, so an envelope with no payment field never
+     pays for the two round trips below. */
+  const [paymentPanelOpen, setPaymentPanelOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (s.wizardStep === 2) setPaymentPanelOpen(true);
+  }, [s.wizardStep]);
+  const hasPaymentField = F.some(f => f.type === 'payment');
+
+  /* Fetched at most once per document — guarded by this ref rather than by
+     narrowing the effect's own re-run conditions, so a background refetch
+     never clobbers a running draft while the sender is mid-edit. */
+  const paymentFetchedRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!documentId) return;
+    if (!hasPaymentField && !paymentPanelOpen) return;
+    if (paymentFetchedRef.current === documentId) return;
+    paymentFetchedRef.current = documentId;
+    let live = true;
+    void paymentsApi.account(apiCall).then(res => { if (live) setPaymentAccount(res.ok ? res.data : null); });
+    void paymentsApi.paymentRequest(apiCall, documentId).then(res => {
+      if (!live) return;
+      const data = res.ok ? res.data : null;
+      setPaymentRequest(data);
+      if (data) {
+        const payerFields = F.filter(f => f.type === 'payment'
+          && paymentFieldOptions(P.fieldExtras(f.id)?.options ?? null).payment_request_id === data.id);
+        setPaymentDraft({
+          total: amountInputFromCents(data.total_cents),
+          currency: data.currency,
+          memo: data.memo ?? '',
+          splitMode: data.split_mode,
+          payerIds: payerFields.map(f => f.to),
+          customAmounts: Object.fromEntries(payerFields.map(f =>
+            [f.to, amountInputFromCents(paymentFieldOptions(P.fieldExtras(f.id)?.options ?? null).amount_cents)])),
+        });
+      }
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, hasPaymentField, paymentPanelOpen]);
+
+  const payableRecipients = R.filter(r => r.role !== 'copy');
+  const paymentFieldFor = (recipientId: string): SFField | null =>
+    F.find(f => f.type === 'payment' && f.to === recipientId) || null;
+  const paymentTotalCents = centsFromAmountInput(paymentDraft.total) ?? 0;
+  const paymentEqualAmounts = splitEqualCents(paymentTotalCents, paymentDraft.payerIds.length);
+  const paymentNoStripe = paymentAccount === null || (!!paymentAccount && !paymentAccount.charges_enabled);
+
+  /** Resolved allocations for the current draft, in the shape the API wants. */
+  const paymentAllocations = (): PaymentAllocationInput[] => {
+    if (paymentDraft.splitMode === 'single') {
+      return paymentDraft.payerIds.slice(0, 1).map(id => ({ recipient_id: id, amount_cents: paymentTotalCents }));
+    }
+    if (paymentDraft.splitMode === 'equal') {
+      return paymentDraft.payerIds.map((id, i) => ({ recipient_id: id, amount_cents: paymentEqualAmounts[i] ?? 0 }));
+    }
+    return paymentDraft.payerIds.map(id => ({
+      recipient_id: id, amount_cents: centsFromAmountInput(paymentDraft.customAmounts[id] ?? '') ?? 0,
+    }));
+  };
+
+  /** Every reason Save is refused, mirroring `validate_allocations` /
+   *  `sync_request` — surfaced in the panel rather than discovered as a 400. */
+  const paymentErrors = (): string[] => {
+    const errs: string[] = [];
+    if (paymentTotalCents <= 0) errs.push('Enter a total amount greater than zero.');
+    if (!paymentDraft.payerIds.length) errs.push('Select at least one recipient to pay.');
+    if (paymentDraft.splitMode === 'single' && paymentDraft.payerIds.length > 1) {
+      errs.push('A single-payer split needs exactly one recipient.');
+    }
+    const missingField = paymentDraft.payerIds.filter(id => !paymentFieldFor(id));
+    if (missingField.length) {
+      const names = missingField.map(id => (R.find(r => r.id === id) || {}).name || id).join(', ');
+      errs.push('Place a payment field for ' + names + ' before allocating an amount to them.');
+    }
+    const allocations = paymentAllocations();
+    if (paymentDraft.splitMode === 'custom') {
+      const sum = allocations.reduce((total, a) => total + a.amount_cents, 0);
+      if (sum !== paymentTotalCents) {
+        errs.push('Custom allocations sum to ' + amountInputFromCents(sum)
+          + ', which must equal the total of ' + amountInputFromCents(paymentTotalCents) + '.');
+      }
+    }
+    allocations.forEach(a => {
+      if (a.amount_cents > 0 && a.amount_cents < STRIPE_MINIMUM_CHARGE_CENTS) {
+        const name = (R.find(r => r.id === a.recipient_id) || {}).name || a.recipient_id;
+        errs.push(name + '’s allocation is below the $0.50 minimum Stripe can charge.');
+      }
+    });
+    if (paymentNoStripe) {
+      errs.push('Connect a Stripe account with charges enabled before this envelope can collect payment — see Payments under your account.');
+    }
+    return errs;
+  };
+  const paymentValidation = paymentErrors();
+
+  /** Toggling a recipient in/out of the payer set. A single-payer split
+   *  replaces the selection outright — there is only ever room for one. */
+  const togglePaymentPayer = (id: string) => {
+    setPaymentDraft(prev => {
+      if (prev.splitMode === 'single') return Object.assign({}, prev, { payerIds: [id] });
+      const has = prev.payerIds.indexOf(id) > -1;
+      const payerIds = has ? prev.payerIds.filter(x => x !== id) : prev.payerIds.concat([id]);
+      return Object.assign({}, prev, { payerIds });
+    });
+  };
+  const setPaymentCustomAmount = (id: string, value: string) => {
+    setPaymentDraft(prev => Object.assign({}, prev, { customAmounts: Object.assign({}, prev.customAmounts, { [id]: value }) }));
+  };
+  const setPaymentSplitMode = (mode: PaymentSplitMode) => {
+    setPaymentDraft(prev => Object.assign({}, prev, { splitMode: mode, payerIds: mode === 'single' ? prev.payerIds.slice(0, 1) : prev.payerIds }));
+  };
+  const savePaymentRequest = async () => {
+    if (!documentId || paymentValidation.length) return;
+    setPaymentSaving(true);
+    const res = await paymentsApi.setPaymentRequest(apiCall, documentId, {
+      total_cents: paymentTotalCents,
+      currency: paymentDraft.currency,
+      memo: paymentDraft.memo || null,
+      split_mode: paymentDraft.splitMode,
+      allocations: paymentAllocations(),
+    });
+    setPaymentSaving(false);
+    if (!res.ok) { flash(errorMessage(res) || 'Could not save the payment request'); return; }
+    setPaymentRequest(res.data);
+    flash('Payment request saved');
+  };
 
   /* A fresh tenant has no draft to open, and `?document=` can name a document
      that has been deleted or belongs to another tenant (the API answers 404). */
@@ -814,7 +1461,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
             <button type="button" onClick={startRename} title="Rename document" aria-label={'Rename document · ' + docTitle}
               style={{ display:'flex', alignItems:'center', gap:'6px', background:'none', border:'none', padding:'0', cursor:'pointer', minWidth:0, font:'inherit' }}>
               <span style={{ fontSize:'.8125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{docTitle}</span>
-              <span aria-hidden="true" style={{ fontSize:'.75rem', color:TEXT_MUTED, flex:'0 0 auto' }}>✎</span>
+              <span aria-hidden="true" style={{ color:TEXT_MUTED, flex:'0 0 auto' }}><Icon name="pencil" size={12} /></span>
             </button>
           )}
         </div>
@@ -878,7 +1525,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 <div key={t.id} style={{ position:'relative', height:'100%' }}>
                   <button type="button" onPointerDown={t.onDown} onClick={t.onPlace} aria-label={t.aria}
                     aria-pressed={t.isPen ? t.penOn : undefined} style={t.style}>
-                    <span style={t.glyph}>{t.icon}</span>
+                    <span style={t.glyph}>{t.svg ? <Icon name={t.svg} size={13} /> : t.icon}</span>
                     <span style={{ fontSize:'.71875rem', fontWeight:500, lineHeight:1.2, minWidth:0, paddingRight:'12px' }}>{t.label}</span>
                   </button>
                   <button
@@ -892,7 +1539,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                       border:'none', background:'transparent', padding:0, borderRadius:'5px', lineHeight:1, fontSize:'.6875rem',
                       cursor: t.favoriteDisabled ? 'default' : 'pointer', color: t.favorite ? '#b45309' : BORDER_STRONG }}
                   >
-                    {t.favorite ? '★' : '☆'}
+                    <Icon name="star" size={13} solid={t.favorite} />
                   </button>
                 </div>
               ))}
@@ -919,6 +1566,20 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                         border:'2px solid ' + (s.penInk === c ? '#0f172a' : '#fff'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }}
                     />
                   ))}
+                  {/* The five presets cover the inks a sender reaches for; the
+                      picker is for the fifth colour they need — a brand ink, or
+                      a highlighter that has to match the printed form. It sits
+                      in the same group so the swatch row reads as one choice,
+                      and shows a ring when the current ink is not a preset. */}
+                  <input
+                    type="color" aria-label="Custom pen colour" title={'Custom colour — ' + s.penInk}
+                    value={s.penInk}
+                    onChange={e => set({ penInk: e.target.value })}
+                    style={{ width:'22px', height:'22px', borderRadius:'7px', padding:0, cursor:'pointer',
+                      background:'transparent', appearance:'none', WebkitAppearance:'none',
+                      border:'2px solid ' + (INK_COLORS.indexOf(s.penInk) < 0 ? '#0f172a' : '#fff'),
+                      boxShadow:'0 0 0 1px ' + BORDER_STRONG }}
+                  />
                 </div>
                 <label style={lbl}>Stroke width — {s.penWidth}pt
                   <input
@@ -935,24 +1596,83 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
           <div>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'8px' }}>
               <div style={railHead}>Pages</div>
-              {/* The prototype's "+ Add page" flashed a toast and appended
-                  nothing — the API has no endpoint that grows an uploaded PDF,
-                  and the page count is the document's own. Removed rather than
-                  left claiming to have done something. */}
               <span style={{ fontSize:'.6875rem', color:'#64748b' }}>{pages.length} in this PDF</span>
+            </div>
+            {/* Adding pages is `POST /api/documents/{id}/pages`: a blank sheet,
+                or a file whose pages are converted and spliced in. */}
+            <div style={{ marginTop:'8px' }}>
+              <button type="button" onClick={() => setAddOpen(o => !o)} disabled={!hasFile || pageBusy}
+                aria-expanded={addOpen} aria-controls="sf-add-page"
+                style={Object.assign({}, ghostBtn, { width:'100%', justifyContent:'center' },
+                  !hasFile || pageBusy ? { opacity:.55, cursor:'not-allowed' } : null)}>
+                + Add page
+              </button>
+              {addOpen ? (
+                <div id="sf-add-page" style={{ marginTop:'8px', display:'flex', flexDirection:'column', gap:'8px',
+                  border:'1px solid #e3e7ee', borderRadius:'10px', padding:'10px', background:'#fff' }}>
+                  <label style={lbl}>Position
+                    <select value={addAfter} onChange={e => setAddAfter(parseInt(e.target.value, 10))} style={inputStyle}>
+                      <option value={0}>At the end</option>
+                      {pages.map(n => <option key={n} value={n}>After page {n}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => { void addPages({ blankCount: 1 }); }} disabled={pageBusy}
+                    style={Object.assign({}, ghostBtn, { justifyContent:'center' }, pageBusy ? { opacity:.55, cursor:'progress' } : null)}>
+                    Blank page
+                  </button>
+                  <label style={lbl}>Image fit
+                    <select value={addFit} onChange={e => setAddFit(e.target.value as ImageFit)} style={inputStyle}>
+                      <option value="fit">Fit inside the page</option>
+                      <option value="fill">Fill the page (crops)</option>
+                      <option value="actual">Keep the image&rsquo;s own size</option>
+                      <option value="custom">Choose the area&hellip;</option>
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => addFileRef.current?.click()} disabled={pageBusy}
+                    style={Object.assign({}, ghostBtn, { justifyContent:'center' }, pageBusy ? { opacity:.55, cursor:'progress' } : null)}>
+                    {pageBusy ? 'Adding…' : 'Upload file or image…'}
+                  </button>
+                  <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
+                    PDFs, images and documents such as .docx are converted to pages.
+                    An image is laid on a page the size of the one it joins.
+                  </span>
+                  <input ref={addFileRef} type="file" accept={UPLOAD_ACCEPT}
+                    onChange={e => { onAddFile(e.target.files?.[0]); e.target.value = ''; }}
+                    aria-label="Choose a file to add as pages"
+                    style={{ position:'absolute', width:1, height:1, padding:0, margin:-1, overflow:'hidden', clip:'rect(0 0 0 0)', border:0 }} />
+                </div>
+              ) : null}
             </div>
             <div style={{ display:'flex', flexDirection:'column', gap:'8px', marginTop:'9px' }}>
               {thumbs.map(p => (
-                <button key={p.key} type="button" onClick={p.onClick} style={p.style}>
-                  <span style={p.sheet}>
-                    <span style={p.line1}></span><span style={p.line2}></span><span style={p.line3}></span>
+                <div key={p.key} style={p.style} draggable={p.draggable}
+                  onDragStart={p.onDragStart} onDragOver={p.onDragOver} onDrop={p.onDrop} onDragEnd={p.onDragEnd}>
+                  {p.dropAbove ? <span aria-hidden="true" style={Object.assign({ top:'-2px' }, p.dropLine)}></span> : null}
+                  {p.dropBelowLast ? <span aria-hidden="true" style={Object.assign({ bottom:'-2px' }, p.dropLine)}></span> : null}
+                  {p.draggable ? (
+                    <span aria-hidden="true" title="Drag to reposition"
+                      style={{ color:BORDER_STRONG, fontSize:'.6875rem', cursor:'grab', flex:'0 0 auto' }}>⠿</span>
+                  ) : null}
+                  <button type="button" onClick={p.onClick} aria-label={'Go to page ' + p.n}
+                    style={{ display:'flex', alignItems:'center', gap:'10px', flex:1, minWidth:0, background:'transparent',
+                      border:'none', padding:0, cursor:'pointer', textAlign:'left' }}>
+                    <span style={p.sheet}>
+                      <span style={p.line1}></span><span style={p.line2}></span><span style={p.line3}></span>
+                    </span>
+                    <span style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
+                      <span style={{ fontSize:'.75rem', fontWeight:600 }}>Page {p.n}</span>
+                      <span style={p.badge}>{p.badgeLabel}</span>
+                    </span>
+                  </button>
+                  <span style={{ display:'flex', flexDirection:'column', gap:'2px', marginLeft:'auto' }}>
+                    <button type="button" onClick={p.onUp} disabled={!p.canUp} style={p.pageBtn(p.canUp)}
+                      title={'Move page ' + p.n + ' up'} aria-label={'Move page ' + p.n + ' up'}><Icon name="caretUp" size={11} /></button>
+                    <button type="button" onClick={p.onDown} disabled={!p.canDown} style={p.pageBtn(p.canDown)}
+                      title={'Move page ' + p.n + ' down'} aria-label={'Move page ' + p.n + ' down'}><Icon name="caretDown" size={11} /></button>
                   </span>
-                  <span style={{ display:'flex', flexDirection:'column', gap:'4px', textAlign:'left' }}>
-                    <span style={{ fontSize:'.75rem', fontWeight:600 }}>Page {p.n}</span>
-                    <span style={p.badge}>{p.badgeLabel}</span>
-                  </span>
-                  <span style={{ marginLeft:'auto', fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>↕</span>
-                </button>
+                  <button type="button" onClick={p.onRemove} disabled={!p.canRemove} style={p.removeBtn(p.canRemove)}
+                    title={'Delete page ' + p.n} aria-label={'Delete page ' + p.n}><Icon name="trash" size={12} /></button>
+                </div>
               ))}
             </div>
           </div>
@@ -960,27 +1680,29 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
 
         <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', background:'#eceff4' }}>
           <div data-sf-scroll="1" style={{ height:'46px', flex:'0 0 46px', borderBottom:'1px solid #e3e7ee', background:'#fff', display:'flex', alignItems:'center', gap:'8px', padding:'0 14px', overflowX:'auto', overflowY:'hidden', scrollbarWidth:'thin' }}>
-            <button type="button" aria-label="Undo" title="Undo" onClick={undo} disabled={!canUndo} style={Object.assign({}, iconLabelBtn, canUndo ? null : { opacity: .45, cursor: 'not-allowed' })}>{withLabel('↺', 'Undo')}</button>
-            <button type="button" aria-label="Redo" title="Redo" onClick={redo} disabled={!canRedo} style={Object.assign({}, iconLabelBtn, canRedo ? null : { opacity: .45, cursor: 'not-allowed' })}>{withLabel('↻', 'Redo')}</button>
+            <button type="button" aria-label="Undo" title="Undo" onClick={undo} disabled={!canUndo} style={Object.assign({}, iconBtn, canUndo ? null : { opacity: .45, cursor: 'not-allowed' })}><Icon name="undo" size={14} /></button>
+            <button type="button" aria-label="Redo" title="Redo" onClick={redo} disabled={!canRedo} style={Object.assign({}, iconBtn, canRedo ? null : { opacity: .45, cursor: 'not-allowed' })}><Icon name="redo" size={14} /></button>
             <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
             <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'2px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'2px' }}>
-              <button type="button" aria-label="Zoom out" title="Zoom out" onClick={zoomOut} style={iconBtn}>−</button>
+              <button type="button" aria-label="Zoom out" title="Zoom out" onClick={zoomOut} style={iconBtn}><Icon name="minus" size={13} /></button>
               <span style={{ minWidth:'52px', textAlign:'center', fontSize:'.75rem', fontFamily:'var(--font-sans)', color:'#334155' }}>{zoomLabel}</span>
-              <button type="button" aria-label="Zoom in" title="Zoom in" onClick={zoomIn} style={iconBtn}>+</button>
+              <button type="button" aria-label="Zoom in" title="Zoom in" onClick={zoomIn} style={iconBtn}><Icon name="plus" size={13} /></button>
             </div>
-            <button type="button" onClick={fitWidth} title="Fit width" aria-label="Fit width" style={toolBtn}>{withLabel('⇔', 'Fit width')}</button>
-            <button type="button" onClick={fitPage} title="Fit page" aria-label="Fit page" style={toolBtn}>{withLabel('⛶', 'Fit page')}</button>
+            <button type="button" onClick={fitWidth} title="Fit width" aria-label="Fit width" style={toolBtn}><Icon name="fitWidth" size={14} /></button>
+            <button type="button" onClick={fitPage} title="Fit page" aria-label="Fit page" style={toolBtn}><Icon name="fit" size={14} /></button>
             <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
-            <button type="button" onClick={toggleGrid} title="Snap grid" aria-label="Snap grid" aria-pressed={s.grid} style={gridBtnStyle}>{withLabel('▦', 'Grid')}</button>
+            <button type="button" onClick={toggleGrid} title="Snap grid" aria-label="Snap grid" aria-pressed={s.grid} style={gridBtnStyle}><Icon name="grid" size={14} /></button>
             <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
             <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'6px' }}>
-              <button type="button" onClick={I.alignLeft} title="Align left" aria-label="Align left" style={alignStyle}>{withLabel('⇤', 'Align left')}</button>
-              <button type="button" onClick={I.alignCenterX} title="Center" aria-label="Center" style={alignStyle}>{withLabel('⇹', 'Center')}</button>
-              <button type="button" onClick={I.distribute} title="Distribute" aria-label="Distribute" style={alignStyle}>{withLabel('☰', 'Distribute')}</button>
-              <button type="button" onClick={I.duplicateSel} title="Duplicate" aria-label="Duplicate" style={alignStyle}>{withLabel('⧉', 'Duplicate')}</button>
-              <button type="button" onClick={I.deleteSel} title="Delete" aria-label="Delete" style={dangerStyle}>{withLabel('🗑', 'Delete')}</button>
+              <button type="button" onClick={I.alignLeft} title="Align left" aria-label="Align left" style={alignStyle}><Icon name="alignLeft" size={14} /></button>
+              <button type="button" onClick={I.alignCenterX} title="Center" aria-label="Center" style={alignStyle}><Icon name="alignCenter" size={14} /></button>
+              <button type="button" onClick={I.distribute} title="Distribute" aria-label="Distribute" style={alignStyle}><Icon name="distribute" size={14} /></button>
+              <button type="button" onClick={I.duplicateSel} title="Duplicate" aria-label="Duplicate" style={alignStyle}><Icon name="duplicate" size={14} /></button>
+              <button type="button" onClick={I.copyToAllPages} title="Copy to every page" aria-label="Copy to every page"
+                disabled={pages.length < 2} style={Object.assign({}, alignStyle, pages.length < 2 ? { opacity:.45, cursor:'not-allowed' } : null)}><Icon name="duplicateAll" size={14} /></button>
+              <button type="button" onClick={I.deleteSel} title="Delete" aria-label="Delete" style={dangerStyle}><Icon name="trash" size={14} /></button>
             </div>
-            <button type="button" onClick={openPreview} title="Open preview" aria-label="Open preview" style={toolBtn}>{withLabel('◱', 'Preview')}</button>
+            <button type="button" onClick={openPreview} title="Open preview" aria-label="Open preview" style={toolBtn}><Icon name="preview" size={14} /></button>
             <span style={{ flex:'0 0 auto', marginLeft:'auto', paddingLeft:'8px', fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{selLabel}</span>
           </div>
 
@@ -1000,6 +1722,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   <>
                     <div style={gridOverlay}></div>
 
+                    {/* Behind the buttons: which dots answer the same question. */}
+                    {radioGroupBoxes(g.page).map(box => (
+                      /* Decorative: every button already announces its group and
+                         its position in it, so the outline is not read out again. */
+                      <div key={box.key} aria-hidden="true" data-radio-group={box.key} style={box.box}>
+                        <span style={box.labelStyle}>{box.label}</span>
+                      </div>
+                    ))}
+
                     {fieldsForPage(g.page).map(f => (
                       <div key={f.id} role="button" tabIndex={0} aria-label={f.aria} onPointerDown={f.onDown} onKeyDown={f.onKey} style={f.box}>
                         {!f.isAnn ? <span style={f.badge}>{f.badgeText}</span> : null}
@@ -1018,7 +1749,12 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                             : <span style={f.emptyTextStyle}>Empty text box — type its text in the inspector</span>
                         ) : null}
                         {f.isCheck ? (
-                          <span style={f.previewWrap}><span style={f.checkGlyph}>☑</span></span>
+                          <span style={f.previewWrap}><span style={f.checkGlyph}><Icon name="checkbox" size={14} /></span></span>
+                        ) : null}
+                        {f.radio ? (
+                          <span style={f.radioRing} aria-hidden="true">
+                            <span style={f.radioCircle}>{f.radioOn ? <span style={f.radioFill}></span> : null}</span>
+                          </span>
                         ) : null}
                         {f.isRadio ? (
                           <span style={f.previewWrap}>
@@ -1038,13 +1774,13 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                         {f.isSelect ? (
                           <span style={f.previewWrap}>
                             {f.choices.length ? (
-                              <span style={f.selectRow}><span>{f.selectText}</span><span aria-hidden="true">▾</span></span>
+                              <span style={f.selectRow}><span>{f.selectText}</span><Icon name="caretDown" size={11} /></span>
                             ) : (
                               <span style={f.warnStyle}>No choices yet — add them in the inspector</span>
                             )}
                           </span>
                         ) : null}
-                        {!f.isCheck && !f.isRadio && !f.isSelect && !f.isAnn ? (
+                        {!f.isCheck && !f.isRadio && !f.radio && !f.isSelect && !f.isAnn ? (
                           <span style={f.inner}>{f.label}</span>
                         ) : null}
                         {f.selected ? (
@@ -1052,6 +1788,38 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                         ) : null}
                       </div>
                     ))}
+
+                    {/* The selected field's inline toolbar — reassign, edit,
+                        duplicate, delete, right where the field is. */}
+                    {fieldToolbar && fieldToolbar.page === g.page ? (
+                      <div style={fieldToolbar.wrap} onPointerDown={stopDown}
+                        role="toolbar" aria-label={fieldToolbar.typeLabel + ' field'}>
+                        <span onPointerDown={fieldToolbar.onGrip} style={fieldToolbar.gripStyle}
+                          aria-hidden="true" title="Drag to move"><Icon name="move" size={12} /></span>
+                        {!fieldToolbar.isAnn ? (
+                          <>
+                            <span style={fieldToolbar.dotStyle} aria-hidden="true"></span>
+                            <select value={fieldToolbar.to} onChange={fieldToolbar.onReassign}
+                              aria-label="Assigned recipient" title="Assigned recipient" style={fieldToolbar.selectStyle}>
+                              {recipientOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                            </select>
+                          </>
+                        ) : (
+                          <span style={fieldToolbar.annNoteStyle}>{fieldToolbar.typeLabel}</span>
+                        )}
+                        <span style={fieldToolbar.dividerStyle}></span>
+                        <button type="button" onClick={fieldToolbar.onEdit} title="Edit field"
+                          aria-label="Edit field" style={toolbarBtn}><Icon name="pencil" size={12} /></button>
+                        <button type="button" onClick={fieldToolbar.onDuplicate} title="Duplicate field"
+                          aria-label="Duplicate field" style={toolbarBtn}>⧉</button>
+                        {fieldToolbar.canCopyAll ? (
+                          <button type="button" onClick={fieldToolbar.onCopyAll} title="Copy to every page"
+                            aria-label="Copy to every page" style={toolbarBtn}>⧉⁺</button>
+                        ) : null}
+                        <button type="button" onClick={fieldToolbar.onDelete} title="Delete field"
+                          aria-label="Delete field" style={toolbarDanger}><Icon name="trash" size={12} /></button>
+                      </div>
+                    ) : null}
 
                     {/* The gesture in flight, drawn straight onto the page in
                         page-point space so what the sender sees under the
@@ -1085,10 +1853,17 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
           {one ? (
             <div style={{ padding:'14px', display:'flex', flexDirection:'column', gap:'16px' }}>
               <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-                <span style={inspIcon}>{meta(one.type).icon}</span>
+                <span style={inspIcon}>{meta(one.type).svg ? <Icon name={meta(one.type).svg!} size={13} /> : meta(one.type).icon}</span>
                 <div style={{ display:'flex', flexDirection:'column', lineHeight:1.25 }}>
-                  <span style={{ fontSize:'.84375rem', fontWeight:600 }}>{meta(one.type).label}</span>
-                  <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{one.id + ' · page ' + one.page}</span>
+                  <span style={{ fontSize:'.84375rem', fontWeight:600 }}>
+                    {oneRadio ? oneRadio.groupLabel : meta(one.type).label}
+                  </span>
+                  <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>
+                    {oneRadio
+                      ? oneRadio.choice + ' · button ' + (radioChoices.indexOf(oneRadio.choice) + 1)
+                        + ' of ' + radioChoices.length + ' · page ' + one.page
+                      : one.id + ' · page ' + one.page}
+                  </span>
                 </div>
               </div>
 
@@ -1103,16 +1878,16 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
 
               <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
                 <label style={lbl}>Label
-                  <input type="text" value={one.label} onChange={e => setField(one.id, { label: e.target.value })} style={input} />
+                  <input ref={inspectorFocusRef} type="text" value={one.label} onChange={e => editOne({ label: e.target.value })} style={input} />
                 </label>
-                {!oneIsAnn ? (
+                {!oneIsAnn && !oneRadio && !onePayment ? (
                   <label style={lbl}>Placeholder
                     <input type="text" value={one.placeholder} onChange={e => setField(one.id, { placeholder: e.target.value })} style={input} />
                   </label>
                 ) : null}
                 {!oneIsAnn ? (
                   <label style={lbl}>Assigned recipient
-                    <select value={one.to} onChange={e => setField(one.id, { to: e.target.value })} style={input}>
+                    <select value={one.to} onChange={e => editOne({ to: e.target.value })} style={input}>
                       {recipientOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                     </select>
                   </label>
@@ -1121,6 +1896,52 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   <div role="note" style={{ fontSize:'.71875rem', lineHeight:1.55, color:'#3730a3', background:'#eef2ff',
                     border:'1px solid #c7d2fe', borderRadius:'10px', padding:'9px 10px' }}>
                     Your own mark on the page. Nobody is asked to fill it in — it is drawn for every recipient and burned into the completed PDF.
+                  </div>
+                ) : null}
+                {oneRadio ? (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6',
+                    borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
+                    <div style={railHead}>Radio buttons</div>
+                    <div style={{ fontSize:'.71875rem', lineHeight:1.5, color:TEXT_MUTED }}>
+                      Each button sits where you drag it on the page. The recipient picks one of them.
+                    </div>
+                    <div role="group" aria-label="Radio buttons in this group" style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+                      {radioButtons.map((m, i) => {
+                        const current = m.field.id === one.id;
+                        return (
+                          <div key={m.field.id} style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                            <input
+                              type="text"
+                              aria-label={'Radio button ' + (i + 1) + ' label'}
+                              value={radioDraft && radioDraft.id === m.field.id ? radioDraft.text : m.options.choice}
+                              onChange={e => renameRadio(m, e.target.value)}
+                              onFocus={() => set({ selected: [m.field.id], page: m.field.page })}
+                              onBlur={() => setRadioDraft(null)}
+                              style={Object.assign({}, input, current
+                                ? { borderColor: A, boxShadow: '0 0 0 3px ' + A + '22' }
+                                : {}) as CSSProperties}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeRadioOption(m)}
+                              aria-label={'Remove ' + m.options.choice}
+                              title={radioButtons.length > 1 ? 'Remove this button' : 'Remove the group'}
+                              style={{ width:'30px', height:'30px', flex:'0 0 30px', borderRadius:'8px', cursor:'pointer',
+                                border:'1px solid #e3e7ee', background:'#fff', color:'#dc2626', fontSize:'.8125rem',
+                                display:'grid', placeItems:'center' }}
+                            ><Icon name="trash" size={12} /></button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button type="button" onClick={addRadioOption} style={Object.assign({}, btn('#fff', '#334155', '#e3e7ee'),
+                      { width:'100%', justifyContent:'center' } as CSSProperties)}>+ Add option</button>
+                    <label style={lbl}>Pre-selected option
+                      <select value={radioPreselected} onChange={e => setRadioPreselected(e.target.value)} style={input}>
+                        <option value="">Nothing selected</option>
+                        {radioChoices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                      </select>
+                    </label>
                   </div>
                 ) : null}
                 {oneTextbox ? (
@@ -1183,6 +2004,55 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     </label>
                   </>
                 ) : null}
+                {onePayment ? (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6',
+                    borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
+                    <div style={railHead}>Payment</div>
+                    <label style={lbl}>Amount
+                      <select value={onePayment.amount_mode}
+                        onChange={e => editPayment({ amount_mode: e.target.value === 'signer_entered' ? 'signer_entered' : 'fixed' })}
+                        style={input}>
+                        <option value="fixed">Fixed amount</option>
+                        <option value="signer_entered">Signer enters amount</option>
+                      </select>
+                    </label>
+                    {onePayment.amount_mode === 'fixed' ? (
+                      <label style={lbl}>Amount ({onePayment.currency})
+                        <input type="text" inputMode="decimal" placeholder="0.00"
+                          value={amountInputFromCents(onePayment.amount_cents)}
+                          onChange={e => editPayment({ amount_cents: centsFromAmountInput(e.target.value) })}
+                          style={input} />
+                      </label>
+                    ) : (
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
+                        <label style={lbl}>Minimum
+                          <input type="text" inputMode="decimal" placeholder="0.50"
+                            value={amountInputFromCents(onePayment.min_cents)}
+                            onChange={e => editPayment({ min_cents: centsFromAmountInput(e.target.value) })}
+                            style={input} />
+                        </label>
+                        <label style={lbl}>Maximum
+                          <input type="text" inputMode="decimal" placeholder="no limit"
+                            value={amountInputFromCents(onePayment.max_cents)}
+                            onChange={e => editPayment({ max_cents: centsFromAmountInput(e.target.value) })}
+                            style={input} />
+                        </label>
+                      </div>
+                    )}
+                    <label style={lbl}>Currency
+                      <input type="text" value={onePayment.currency} maxLength={3}
+                        onChange={e => editPayment({ currency: e.target.value.toUpperCase() })} style={input} />
+                    </label>
+                    <label style={lbl}>Memo
+                      <input type="text" value={onePayment.memo ?? ''}
+                        onChange={e => editPayment({ memo: e.target.value ? e.target.value : null })}
+                        placeholder="e.g. Deposit for MSA-2291" style={input} />
+                    </label>
+                    <div style={{ fontSize:'.71875rem', lineHeight:1.5, color:TEXT_MUTED }}>
+                      The memo appears on the signer’s card statement and in your Stripe dashboard for this charge.
+                    </div>
+                  </div>
+                ) : null}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
                   <label style={lbl}>X
                     <input type="number" value={one.x} onChange={e => setField(one.id, { x: parseInt(e.target.value || '0', 10) })} style={input} />
@@ -1191,23 +2061,23 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     <input type="number" value={one.y} onChange={e => setField(one.id, { y: parseInt(e.target.value || '0', 10) })} style={input} />
                   </label>
                   <label style={lbl}>Width
-                    <input type="number" value={one.w} onChange={e => setField(one.id, { w: Math.max(32, parseInt(e.target.value || '32', 10)) })} style={input} />
+                    <input type="number" value={one.w} onChange={e => setField(one.id, { w: Math.max(minSize.w, parseInt(e.target.value || String(minSize.w), 10)) })} style={input} />
                   </label>
                   <label style={lbl}>Height
-                    <input type="number" value={one.h} onChange={e => setField(one.id, { h: Math.max(24, parseInt(e.target.value || '24', 10)) })} style={input} />
+                    <input type="number" value={one.h} onChange={e => setField(one.id, { h: Math.max(minSize.h, parseInt(e.target.value || String(minSize.h), 10)) })} style={input} />
                   </label>
                 </div>
                 {!oneIsAnn ? (
                 <div style={{ display:'flex', flexDirection:'column', gap:'7px', border:'1px solid #eef1f6', borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
-                  <button type="button" role="switch" aria-checked={!!one.required} onClick={() => setField(one.id, { required: !one.required })} style={rowBtn}>
+                  <button type="button" role="switch" aria-checked={!!one.required} onClick={() => editOne({ required: !one.required })} style={rowBtn}>
                     <span style={{ fontSize:'.78125rem' }}>Required</span><span style={reqSwitch}><span style={reqKnob}></span></span>
                   </button>
-                  <button type="button" role="switch" aria-checked={!!one.readOnly} onClick={() => setField(one.id, { readOnly: !one.readOnly })} style={rowBtn}>
+                  <button type="button" role="switch" aria-checked={!!one.readOnly} onClick={() => editOne({ readOnly: !one.readOnly })} style={rowBtn}>
                     <span style={{ fontSize:'.78125rem' }}>Read-only</span><span style={roSwitch}><span style={roKnob}></span></span>
                   </button>
                 </div>
                 ) : null}
-                {!oneIsAnn ? (
+                {!oneIsAnn && !oneRadio && !onePayment ? (
                 <label style={lbl}>Validation
                   <select value={one.validation} onChange={e => setField(one.id, { validation: e.target.value })} style={input}>
                     <option value="none">{impliedValidation ? 'Automatic (' + VALIDATION_LABEL[impliedValidation] + ')' : 'None'}</option>
@@ -1218,34 +2088,70 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   </select>
                 </label>
                 ) : null}
-                {!oneIsAnn ? <div style={regexBox}>{REGEX_MAP[impliedValidation || one.validation]}</div> : null}
+                {!oneIsAnn && !oneRadio && !onePayment ? <div style={regexBox}>{REGEX_MAP[impliedValidation || one.validation]}</div> : null}
 
                 {wantsChoices ? (
-                  <label style={lbl}>Choices — one per line
-                    <textarea
-                      value={choiceDraft.id === one.id ? choiceDraft.text : oneChoices.join('\n')}
-                      onChange={e => editChoices(e.target.value)}
-                      rows={4}
-                      placeholder={'Yes\nNo\nNot applicable'}
-                      style={Object.assign({}, input, { height:'auto', padding:'8px 11px', lineHeight:1.5, resize:'vertical' } as CSSProperties)}
-                    />
-                  </label>
-                ) : null}
-                {wantsChoices ? (
-                  <div style={{ fontSize:'.71875rem', lineHeight:1.5, color: oneChoices.length ? '#047857' : '#b45309' }}>
-                    {oneChoices.length
-                      ? oneChoices.length + (oneChoices.length === 1 ? ' choice' : ' choices') + ' — the recipient picks one'
-                      : 'No choices yet — the recipient is shown nothing to pick from until you add some.'}
+                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6',
+                    borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
+                    <div style={railHead}>Choices</div>
+                    <div style={{ fontSize:'.71875rem', lineHeight:1.5, color:TEXT_MUTED }}>
+                      One row per choice, in the order the recipient sees them. They pick one.
+                    </div>
+                    <div role="group" aria-label="Choices" style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+                      {oneChoices.map((choice, i) => (
+                        <div key={i} style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                          <input
+                            type="text"
+                            aria-label={'Choice ' + (i + 1)}
+                            value={choice}
+                            onChange={e => renameChoice(i, e.target.value)}
+                            onBlur={settleChoices}
+                            style={input}
+                          />
+                          <span style={{ display:'flex', flexDirection:'column', gap:'2px', flex:'0 0 auto' }}>
+                            <button type="button" onClick={() => moveChoice(i, -1)} disabled={i === 0}
+                              aria-label={'Move ' + (choice || 'choice ' + (i + 1)) + ' up'}
+                              style={choiceMoveBtn(i > 0)}><Icon name="caretUp" size={11} /></button>
+                            <button type="button" onClick={() => moveChoice(i, 1)} disabled={i === oneChoices.length - 1}
+                              aria-label={'Move ' + (choice || 'choice ' + (i + 1)) + ' down'}
+                              style={choiceMoveBtn(i < oneChoices.length - 1)}><Icon name="caretDown" size={11} /></button>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeChoice(i)}
+                            aria-label={'Remove ' + (choice || 'choice ' + (i + 1))}
+                            title="Remove this choice"
+                            style={{ width:'30px', height:'30px', flex:'0 0 30px', borderRadius:'8px', cursor:'pointer',
+                              border:'1px solid #e3e7ee', background:'#fff', color:'#dc2626', fontSize:'.8125rem',
+                              display:'grid', placeItems:'center' }}
+                          ><Icon name="trash" size={12} /></button>
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" onClick={addChoice} style={Object.assign({}, btn('#fff', '#334155', '#e3e7ee'),
+                      { width:'100%', justifyContent:'center' } as CSSProperties)}>+ Add option</button>
+                    <div style={{ fontSize:'.71875rem', lineHeight:1.5, color: oneChoices.length ? '#047857' : '#b45309' }}>
+                      {oneChoices.length
+                        ? oneChoices.length + (oneChoices.length === 1 ? ' choice' : ' choices') + ' — the recipient picks one'
+                        : 'No choices yet — the recipient is shown nothing to pick from until you add some.'}
+                    </div>
+                    <label style={lbl}>Pre-selected option
+                      <select value={oneExtras?.defaultValue ?? ''} onChange={e => editDefault(e.target.value)} style={input}>
+                        <option value="">Nothing selected</option>
+                        {oneChoices.filter(choice => choice.trim().length > 0)
+                          .map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                      </select>
+                    </label>
                   </div>
                 ) : null}
 
-                {wantsDefault ? (
+                {wantsDefault && !wantsChoices ? (
                   <label style={lbl}>Default value
                     <input
                       type="text"
                       value={oneExtras?.defaultValue ?? ''}
                       onChange={e => editDefault(e.target.value)}
-                      placeholder={wantsChoices ? 'One of the choices above' : 'Pre-filled for the recipient'}
+                      placeholder="Pre-filled for the recipient"
                       style={input}
                     />
                   </label>
@@ -1257,17 +2163,17 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 <div style={railHead}>Conditional logic</div>
                 <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6', borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
                   <div style={{ fontSize:'.71875rem', color:'#64748b' }}>Show this field only if</div>
-                  <select value={cond.field} onChange={e => setField(one.id, { cond: e.target.value ? { field: e.target.value, op: cond.op, value: cond.value } : null })} style={input} aria-label="Trigger field">
+                  <select value={cond.field} onChange={e => editOne({ cond: e.target.value ? { field: e.target.value, op: cond.op, value: cond.value } : null })} style={input} aria-label="Trigger field">
                     <option value="">— always show —</option>
                     {condOptions.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
-                    <select value={cond.op} onChange={e => { if (one.cond) setField(one.id, { cond: Object.assign({}, one.cond, { op: e.target.value }) }); }} style={input} aria-label="Operator">
+                    <select value={cond.op} onChange={e => { if (one.cond) editOne({ cond: Object.assign({}, one.cond, { op: e.target.value }) }); }} style={input} aria-label="Operator">
                       <option value="checked">is checked</option>
                       <option value="equals">equals</option>
                       <option value="notEmpty">is not empty</option>
                     </select>
-                    <input type="text" value={cond.value} onChange={e => { if (one.cond) setField(one.id, { cond: Object.assign({}, one.cond, { value: e.target.value }) }); }} placeholder="value" aria-label="Comparison value" style={input} />
+                    <input type="text" value={cond.value} onChange={e => { if (one.cond) editOne({ cond: Object.assign({}, one.cond, { value: e.target.value }) }); }} placeholder="value" aria-label="Comparison value" style={input} />
                   </div>
                   <div style={condSummaryStyle}>{condSummary}</div>
                 </div>
@@ -1311,10 +2217,10 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                       <option value="approve">Approver</option>
                     </select>
                     <div style={{ display:'flex', gap:'4px' }}>
-                      <button type="button" aria-label="Move up" onClick={r.onUp} style={iconBtn}>↑</button>
-                      <button type="button" aria-label="Move down" onClick={r.onDown} style={iconBtn}>↓</button>
+                      <button type="button" aria-label="Move up" onClick={r.onUp} style={iconBtn}><Icon name="arrowUp" size={13} /></button>
+                      <button type="button" aria-label="Move down" onClick={r.onDown} style={iconBtn}><Icon name="arrowDown" size={13} /></button>
                       <button type="button" aria-label={'Remove ' + r.name} title={'Remove ' + r.name} onClick={r.onRemove}
-                        style={Object.assign({}, iconBtn, { color:'#b91c1c' })}>✕</button>
+                        style={Object.assign({}, iconBtn, { color:'#b91c1c' })}><Icon name="close" size={13} /></button>
                     </div>
                   </div>
                 ))}
@@ -1336,6 +2242,115 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               <label style={lbl}>Message
                 <textarea rows={4} onChange={e => changeRouting({ message: e.target.value })} value={s.message} style={textareaStyle}></textarea>
               </label>
+            </div>
+
+            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
+              <div style={railHead}>Payment request</div>
+
+              {paymentNoStripe ? (
+                <div role="alert" style={{ fontSize:'.75rem', lineHeight:1.6, color:'#7c2d12', background:'#fff7ed',
+                  border:'1px solid #fed7aa', borderRadius:'10px', padding:'9px 10px', display:'flex', flexDirection:'column', gap:'4px' }}>
+                  <span><strong>This envelope cannot be sent for payment yet.</strong> Connect a Stripe account with charges enabled first.</span>
+                  <Link href="/account/payments" style={{ color:'#7c2d12', textDecoration:'underline', fontWeight:600 }}>Go to Payments</Link>
+                </div>
+              ) : null}
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 90px', gap:'8px' }}>
+                <label style={lbl}>Total amount
+                  <input type="text" inputMode="decimal" placeholder="0.00" value={paymentDraft.total}
+                    onChange={e => setPaymentDraft(prev => Object.assign({}, prev, { total: e.target.value }))}
+                    style={input} />
+                </label>
+                <label style={lbl}>Currency
+                  <input type="text" maxLength={3} value={paymentDraft.currency}
+                    onChange={e => setPaymentDraft(prev => Object.assign({}, prev, { currency: e.target.value.toUpperCase() }))}
+                    style={input} />
+                </label>
+              </div>
+              <label style={lbl}>Memo
+                <input type="text" value={paymentDraft.memo}
+                  onChange={e => setPaymentDraft(prev => Object.assign({}, prev, { memo: e.target.value }))}
+                  placeholder="Shown on the signer’s card statement and your Stripe dashboard" style={input} />
+              </label>
+
+              <div role="group" aria-label="Split" style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px' }}>
+                {(['single', 'equal', 'custom'] as PaymentSplitMode[]).map(mode => (
+                  <button key={mode} type="button" onClick={() => setPaymentSplitMode(mode)}
+                    aria-pressed={paymentDraft.splitMode === mode}
+                    style={{ flex:1, height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem',
+                      fontWeight: paymentDraft.splitMode === mode ? 600 : 500,
+                      background: paymentDraft.splitMode === mode ? '#fff' : 'transparent',
+                      color: paymentDraft.splitMode === mode ? '#0f172a' : '#64748b',
+                      boxShadow: paymentDraft.splitMode === mode ? '0 1px 2px rgba(15,23,42,.12)' : 'none' }}>
+                    {mode === 'single' ? 'Single payer' : mode === 'equal' ? 'Split equally' : 'Custom split'}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+                {payableRecipients.map(r => {
+                  const hasField = !!paymentFieldFor(r.id);
+                  const checked = paymentDraft.payerIds.indexOf(r.id) > -1;
+                  const idx = paymentDraft.payerIds.indexOf(r.id);
+                  const equalAmount = idx > -1 ? paymentEqualAmounts[idx] : null;
+                  return (
+                    <div key={r.id} style={{ display:'flex', alignItems:'center', gap:'8px', opacity: hasField ? 1 : .55 }}>
+                      <input
+                        type={paymentDraft.splitMode === 'single' ? 'radio' : 'checkbox'}
+                        name="payment-payer"
+                        aria-label={'Charge ' + r.name}
+                        checked={checked}
+                        disabled={!hasField}
+                        onChange={() => togglePaymentPayer(r.id)}
+                      />
+                      <span style={{ fontSize:'.78125rem', flex:1 }}>{r.name}</span>
+                      {!hasField ? (
+                        <span style={{ fontSize:'.65625rem', color:'#b45309' }}>No payment field placed</span>
+                      ) : null}
+                      {paymentDraft.splitMode === 'equal' && checked ? (
+                        <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+                          {paymentDraft.currency} {amountInputFromCents(equalAmount)}
+                        </span>
+                      ) : null}
+                      {paymentDraft.splitMode === 'custom' && checked ? (
+                        <input type="text" inputMode="decimal" placeholder="0.00" aria-label={r.name + '’s amount'}
+                          value={paymentDraft.customAmounts[r.id] ?? ''}
+                          onChange={e => setPaymentCustomAmount(r.id, e.target.value)}
+                          style={Object.assign({}, input, { width:'80px' } as CSSProperties)} />
+                      ) : null}
+                    </div>
+                  );
+                })}
+                {payableRecipients.length === 0 ? (
+                  <span style={{ fontSize:'.75rem', color:TEXT_MUTED }}>No signing recipients to charge yet — a copy-only recipient can never be asked to pay.</span>
+                ) : null}
+              </div>
+
+              {paymentDraft.splitMode === 'custom' ? (
+                <div style={{ fontSize:'.71875rem', color: paymentAllocations().reduce((t, a) => t + a.amount_cents, 0) === paymentTotalCents ? '#047857' : '#b45309' }}>
+                  {amountInputFromCents(paymentAllocations().reduce((t, a) => t + a.amount_cents, 0))} of {amountInputFromCents(paymentTotalCents)} allocated
+                </div>
+              ) : null}
+
+              {paymentValidation.length ? (
+                <ul style={{ margin:0, paddingLeft:'18px', display:'flex', flexDirection:'column', gap:'3px' }}>
+                  {paymentValidation.map((msg, i) => (
+                    <li key={i} style={{ fontSize:'.71875rem', color:'#b91c1c' }}>{msg}</li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <button type="button" onClick={savePaymentRequest} disabled={paymentSaving || paymentValidation.length > 0}
+                style={Object.assign({}, btn(A, '#fff', A), { justifyContent:'center',
+                  opacity: paymentSaving || paymentValidation.length > 0 ? .6 : 1 } as CSSProperties)}>
+                {paymentSaving ? 'Saving…' : 'Save payment request'}
+              </button>
+              {paymentRequest ? (
+                <div style={{ fontSize:'.71875rem', color:'#64748b' }}>
+                  {paymentRequest.paid_count} of {paymentRequest.allocation_count} paid so far —
+                  {' '}{amountInputFromCents(paymentRequest.collected_cents)} {paymentRequest.currency} collected.
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -1370,6 +2385,10 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
             </div>
           </div>
         </div>
+      ) : null}
+
+      {cropping ? (
+        <ImageCropDialog file={cropping} pageAspect={addPageAspect} onDone={onCropped(cropping)} />
       ) : null}
     </section>
   );

@@ -56,6 +56,22 @@ x-backend-env: &backend-env
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?set STRIPE_SECRET_KEY (BILLING_PROVIDER=stripe)}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?set STRIPE_WEBHOOK_SECRET, the whsec_... endpoint signing secret}
 
+  # Signer payments (Stripe Connect): a signer pays the TENANT's own connected
+  # account, not the platform's. Optional -- the feature is simply unavailable
+  # (409s) until both are set -- so no `:?` guard here, unlike the billing
+  # keys above which the platform cannot run without.
+  #
+  # STRIPE_CONNECT_WEBHOOK_SECRET is a DIFFERENT secret from
+  # STRIPE_WEBHOOK_SECRET above: it signs a separate endpoint,
+  # POST /api/webhooks/stripe/connect, registered separately in the Stripe
+  # Dashboard. See backend/.env.example for why conflating the two is the
+  # likeliest misconfiguration.
+  STRIPE_CONNECT_WEBHOOK_SECRET: ${STRIPE_CONNECT_WEBHOOK_SECRET:-}
+  # Publishable, not secret -- safe in this file, but note it is a DIFFERENT
+  # variable from the frontend's NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY build arg
+  # below, which is for the platform's own billing checkout.
+  STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+
   # Connection budget: replicas x WEB_CONCURRENCY x (pool + overflow) must stay
   # under Postgres max_connections (100 by default). Defaults here are 3+2=5
   # per worker; see app/core/config.py for the arithmetic.
@@ -251,31 +267,14 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    # webhook_service.process_due_retries() exists but nothing called it. There
-    # is no scripts/run_webhook_retries.py yet -- when the backend adds one,
-    # replace this inline driver with `python /app/scripts/run_webhook_retries.py`.
+    # run_webhook_retries.py is idempotent and batched, so a sleep loop is
+    # sufficient here. Replace with a real cron/CronJob when you have one.
     command:
       - sh
       - -c
       - |
         while true; do
-          python - <<'PY' || echo "webhook retry sweep failed" >&2
-        import sys
-        sys.path.insert(0, "/app")
-        from app.core.database import SessionLocal
-        from app.core.logging import configure_logging, get_logger
-        from app.services.webhook_service import webhook_service
-
-        configure_logging()
-        db = SessionLocal()
-        try:
-            processed = webhook_service.process_due_retries(db)
-            get_logger("scripts.webhook_retry").info(
-                "webhook retry sweep complete", extra={"processed": processed}
-            )
-        finally:
-            db.close()
-        PY
+          python /app/scripts/run_webhook_retries.py || echo "webhook retry sweep failed" >&2
           sleep "${WEBHOOK_RETRY_INTERVAL_SECONDS:-60}"
         done
     stop_grace_period: 15s

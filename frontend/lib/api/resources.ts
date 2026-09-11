@@ -172,6 +172,39 @@ export const documents = {
     // A 25 MB PDF over a slow link needs more than the 15s default deadline.
     return c<T.UploadPdfResponse>(`/api/documents/${id}/upload-pdf`, { method: 'POST', formData, timeoutMs: 120_000 });
   },
+  /**
+   * `POST /api/documents/{id}/pages` — multipart, grows a document that
+   * already has its original. Send a `file` (PDF, image, or a document such
+   * as .docx — converted server-side) or a `blankCount`. `at` is the page
+   * number the new pages take, defaulting to the end; fields at or after it
+   * move down with their page. `fit` applies to an image, which has no page
+   * size of its own: `fit` puts the whole image inside the document's page,
+   * `fill` covers the page and crops, `actual` keeps the image's own size.
+   * `crop` is `"x,y,width,height"` as fractions of the image from its top
+   * left — the area the sender selected — applied before the fit.
+   * Refused (409) once the envelope is sent.
+   */
+  addPages: (
+    c: Caller,
+    id: string,
+    opts: { file?: File; blankCount?: number; at?: number; fit?: T.ImageFit; crop?: string },
+  ) => {
+    const formData = new FormData();
+    if (opts.file) formData.append('upload', opts.file, opts.file.name);
+    if (opts.blankCount) formData.append('blank_count', String(opts.blankCount));
+    if (opts.at !== undefined) formData.append('at', String(opts.at));
+    if (opts.fit) formData.append('fit', opts.fit);
+    if (opts.crop) formData.append('crop', opts.crop);
+    return c<T.UploadPdfResponse>(`/api/documents/${id}/pages`, { method: 'POST', formData, timeoutMs: 120_000 });
+  },
+  /**
+   * `PUT /api/documents/{id}/pages` — the pages to keep, in the order they
+   * should end up in. A page left out of `order` is removed; a page in a new
+   * position is renumbered, and its fields go with it. Fields on a removed
+   * page are removed with the page. Refused (409) once the envelope is sent.
+   */
+  setPages: (c: Caller, id: string, order: number[]) =>
+    put<T.UploadPdfResponse>(c, `/api/documents/${id}/pages`, { order }),
   /** `GET /api/documents/{id}/pdf` streams a PDF — link to it, don't JSON-fetch it. */
   pdfPath: (id: string) => `/api/documents/${id}/pdf`,
   finalPdfPath: (id: string) => `/api/documents/${id}/final-pdf`,
@@ -417,9 +450,12 @@ export const tenants = {
   flagOverrides: (c: Caller, orgId: string) => get<T.TenantFlagOverride[]>(c, `/api/saas/tenants/${orgId}/flags`),
   setFlagOverride: (c: Caller, orgId: string, body: { key: string; enabled: boolean | null }) =>
     put<T.TenantFlagOverride[]>(c, `/api/saas/tenants/${orgId}/flags`, body),
-  impersonate: (c: Caller, orgId: string, body: { justification: string; ttl_seconds?: number; scopes?: string[] }) =>
-    post<T.ImpersonationSessionResponse>(c, `/api/saas/tenants/${orgId}/impersonate`, body),
-  stopImpersonation: (c: Caller) => del<{ ended_sessions: number }>(c, '/api/saas/impersonation'),
+  /* Impersonation is deliberately absent. Reaching those two endpoints through
+     this transport is what made the feature look broken: the proxy sends the
+     *caller's* bearer token, so the impersonation token came back to client JS
+     and was never installed anywhere, and ending a session needs the admin
+     token the cookie no longer holds. Both go through
+     `/api/auth/impersonate`, which owns the cookie swap. */
   overview: (c: Caller) => get<T.PlatformOverview>(c, '/api/saas/overview'),
   metrics: (c: Caller) => get<T.SaaSMetrics>(c, '/api/saas/metrics'),
 };
@@ -520,4 +556,82 @@ export const reports = {
 
 export const webhooks = {
   eventTypes: (c: Caller) => get<T.WebhookEventTypeResponse[]>(c, '/api/webhooks/event-types'),
+  list: (c: Caller) => get<T.WebhookEndpointResponse[]>(c, '/api/webhooks'),
+  get: (c: Caller, id: string) => get<T.WebhookEndpointResponse>(c, `/api/webhooks/${id}`),
+  /** 201 carries the signing secret, and it is never returned again. */
+  create: (c: Caller, body: { url: string; description?: string | null; event_types?: string[] | null; is_active?: boolean }) =>
+    post<T.WebhookEndpointCreated>(c, '/api/webhooks', body),
+  update: (c: Caller, id: string, body: { url?: string; description?: string | null; event_types?: string[] | null; is_active?: boolean }) =>
+    patch<T.WebhookEndpointResponse>(c, `/api/webhooks/${id}`, body),
+  /** Answers with a fresh secret, shown once. The old one stops verifying. */
+  rotateSecret: (c: Caller, id: string) => post<T.WebhookEndpointCreated>(c, `/api/webhooks/${id}/rotate-secret`),
+  remove: (c: Caller, id: string) => del<void>(c, `/api/webhooks/${id}`),
+  deliveries: (c: Caller, id: string, params?: { status?: T.WebhookDeliveryStatus; limit?: number }) =>
+    get<T.WebhookDeliveryResponse[]>(c, `/api/webhooks/${id}/deliveries`, params),
+  /** Resets the attempt counter and re-sends immediately. */
+  replay: (c: Caller, deliveryId: string) =>
+    post<T.WebhookDeliveryResponse>(c, `/api/webhooks/deliveries/${deliveryId}/replay`),
+  sendTest: (c: Caller, id: string) => post<T.WebhookDeliveryResponse[]>(c, `/api/webhooks/${id}/test`),
+};
+
+/* ── payments (Stripe Connect) ──────────────────────────────────────────── */
+
+export const payments = {
+  /** The tenant's own Stripe Connect account, or `null` before onboarding. */
+  account: (c: Caller) => get<T.PaymentAccountResponse | null>(c, '/api/payments/account'),
+  /** A one-time hosted onboarding url. `return_url`/`refresh_url` are where
+   *  Stripe sends the tenant back to, on completion and on retry respectively. */
+  accountLink: (c: Caller, body: { return_url: string; refresh_url: string }) =>
+    post<T.PaymentAccountLink>(c, '/api/payments/account/link', body),
+  /** Re-pulls the account's live state from Stripe. */
+  refreshAccount: (c: Caller) => post<T.PaymentAccountResponse>(c, '/api/payments/account/refresh'),
+  disconnectAccount: (c: Caller) => del<void>(c, '/api/payments/account'),
+
+  paymentRequest: (c: Caller, documentId: string) =>
+    get<T.PaymentRequestResponse | null>(c, `/api/documents/${documentId}/payment-request`),
+  setPaymentRequest: (c: Caller, documentId: string, body: T.PaymentRequestPayload) =>
+    put<T.PaymentRequestResponse>(c, `/api/documents/${documentId}/payment-request`, body),
+  documentPayments: (c: Caller, documentId: string) =>
+    get<T.SignerPaymentResponse[]>(c, `/api/documents/${documentId}/payments`),
+  refund: (c: Caller, paymentId: string, amount_cents?: number) =>
+    post<T.SignerPaymentResponse>(c, `/api/payments/${paymentId}/refund`, { amount_cents: amount_cents ?? null }),
+
+  /* The signer-facing endpoints — scoped by the signing token, not a session. */
+  signerIntent: (c: Caller, token: string, fieldId: string, amount_cents?: number) =>
+    post<T.PaymentIntentResponse>(c, `/api/sign/${token}/payments/${fieldId}/intent`, { amount_cents: amount_cents ?? null }),
+  signerRefresh: (c: Caller, token: string, fieldId: string) =>
+    post<T.SignerPaymentResponse>(c, `/api/sign/${token}/payments/${fieldId}/refresh`),
+  signerPayment: (c: Caller, token: string, fieldId: string) =>
+    get<T.SignerPaymentResponse | null>(c, `/api/sign/${token}/payments/${fieldId}`),
+};
+
+/* ── sandbox ────────────────────────────────────────────────────────────── */
+
+/**
+ * Header that runs a single request against the caller's sandbox organization.
+ *
+ * Per-request and never sticky: nothing in the app sends it unless the caller
+ * asked for the sandbox, so "test mode" cannot silently become the state the
+ * whole UI is in.
+ */
+export const SANDBOX_HEADER = 'X-SignerPro-Sandbox';
+
+/** Merge the sandbox header into a request when `on` is true. */
+export const sandboxHeaders = (on: boolean): Record<string, string> =>
+  on ? { [SANDBOX_HEADER]: '1' } : {};
+
+export const sandbox = {
+  /**
+   * Which organization a request resolves to. Asked with `inSandbox` false it
+   * reports the live org, so a client can prove which side of the boundary it
+   * is on rather than trusting its own toggle.
+   */
+  status: (c: Caller, inSandbox: boolean) =>
+    c<T.SandboxStatusResponse>('/api/sandbox', { method: 'GET', headers: sandboxHeaders(inSandbox) }),
+  /** Additive: contacts and documents across the statuses worth testing. */
+  seed: (c: Caller) =>
+    c<T.SandboxStatusResponse>('/api/sandbox/seed', { method: 'POST', headers: sandboxHeaders(true) }),
+  /** Refused outright unless the request resolves to a sandbox organization. */
+  reset: (c: Caller) =>
+    c<T.SandboxResetResponse>('/api/sandbox/reset', { method: 'POST', headers: sandboxHeaders(true) }),
 };

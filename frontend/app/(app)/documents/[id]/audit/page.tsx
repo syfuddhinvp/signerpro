@@ -15,7 +15,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Audit from '@/components/sf/screens/Audit';
 import { serverCaller } from '@/lib/api/client';
-import { audit as auditApi, documents as documentsApi, recipients as recipientsApi } from '@/lib/api/resources';
+import { audit as auditApi, documents as documentsApi, payments as paymentsApi, recipients as recipientsApi } from '@/lib/api/resources';
 import {
   docStatusBucket, toAttestations, toAuditRows, toCertificateCard,
 } from '@/lib/sf/adapters';
@@ -39,17 +39,21 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   if (!documentResult.ok) notFound();
   const document = documentResult.data;
 
-  const [trailResult, verifyResult, certResult, recipientsResult] = await Promise.all([
+  const [trailResult, verifyResult, certResult, recipientsResult, paymentSummaryResult, paymentsResult] = await Promise.all([
     auditApi.documentTrail(api, documentId),
     auditApi.verifyChain(api, documentId),
     auditApi.certificate(api, documentId),
     recipientsApi.list(api, documentId),
+    paymentsApi.paymentRequest(api, documentId),
+    paymentsApi.documentPayments(api, documentId),
   ]);
 
   const entries: AuditTrailEntry[] = trailResult.ok ? trailResult.data : [];
   const verification: AuditChainVerification | null = verifyResult.ok ? verifyResult.data : null;
   const summary: CertificateSummaryResponse | null = certResult.ok ? certResult.data : null;
   const recipientList: RecipientResponse[] = recipientsResult.ok ? recipientsResult.data : [];
+  const paymentSummary = paymentSummaryResult.ok ? paymentSummaryResult.data : null;
+  const payments = paymentsResult.ok ? paymentsResult.data : [];
 
   const emailById: Dict<string> = {};
   for (const recipient of recipientList) emailById[recipient.id] = recipient.email;
@@ -73,6 +77,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       ) : null}
       <Audit
         documentId={documentId}
+        documentStatus={summary?.document_status ?? document.status}
         entries={toAuditRows(entries, emailById)}
         certificate={summary ? toCertificateCard(summary, statusKey, statusLabel) : null}
         chain={verification
@@ -82,6 +87,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         documentTitle={document.title}
         sealed={isSealedStatus(summary?.document_status ?? document.status)}
         verifyUrl={verifyUrl}
+        paymentSummary={paymentSummary}
+        payments={payments}
+        payers={recipientList.map(r => ({ id: r.id, name: r.name, email: r.email }))}
       />
     </>
   );

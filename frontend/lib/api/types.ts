@@ -31,6 +31,11 @@ export type DocumentStatus =
   | 'voided';
 /** `app/models/enums.py:WorkflowType` */
 export type WorkflowType = 'sequential' | 'parallel';
+
+/** How an uploaded image is laid onto the page it becomes — an image has no
+ *  page size of its own, so one is chosen for it. Mirrors
+ *  `conversion_service.IMAGE_FIT_MODES`. */
+export type ImageFit = 'fit' | 'fill' | 'actual';
 /** `app/models/enums.py:RecipientStatus` */
 export type RecipientStatus = 'waiting' | 'sent' | 'viewed' | 'completed' | 'declined' | 'expired';
 /** `app/models/enums.py:FieldType` */
@@ -44,7 +49,11 @@ export type FieldType =
   | 'stamp' | 'attachment' | 'datetime'
   // ANN-1: the sender's page annotations — a pen drawing and a text box. Always
   // read-only; see `lib/sf/annotations.ts` for the payload each one carries.
-  | 'drawing' | 'textbox';
+  | 'drawing' | 'textbox'
+  // PAY-1: a money obligation on the page — the signer pays this amount (a
+  // deposit or an invoice) during signing, into the tenant's own Stripe
+  // account. See `PaymentFieldConfig` / `PaymentRequestResponse` / `SignerPaymentResponse`.
+  | 'payment';
 /** `app/schemas/recipient.py:RecipientRole` */
 export type RecipientRole = 'sign' | 'approve' | 'copy' | 'inperson';
 /** `app/schemas/document.py` */
@@ -194,6 +203,8 @@ export type OrganizationResponse = {
   seats_licensed: number;
   accent_color: string | null;
   logo_url: string | null;
+  /** Field types the builder palette offers; `null` offers every type. */
+  enabled_field_types: string[] | null;
   smtp_host: string | null;
   smtp_port: number | null;
   smtp_username: string | null;
@@ -1007,6 +1018,9 @@ export type DirectoryPage = { items: DirectoryUser[]; total: number };
 export type PermissionRow = { label: string; allowed: boolean[] };
 export type PermissionMatrix = { columns: string[]; column_labels: string[]; permissions: PermissionRow[] };
 
+/** The backend's `POST /api/saas/tenants/{id}/impersonate` payload. Consumed
+ *  server-side by `app/api/auth/impersonate/route.ts`, which installs the
+ *  token in the session cookie — it is never handed to client JS. */
 export type ImpersonationSessionResponse = {
   id: UUID;
   access_token: string;
@@ -1015,6 +1029,8 @@ export type ImpersonationSessionResponse = {
   organization_name: string;
   impersonated_user_id: UUID;
   impersonated_user_email: string;
+  impersonated_user_name: string;
+  impersonated_user_role: string;
   justification: string;
   scopes: string[];
   expires_at: IsoDateTime;
@@ -1486,6 +1502,40 @@ export type ReportFieldCatalogueResponse = { fields: string[]; reports: string[]
 
 export type WebhookEventTypeResponse = { event_type: string; description: string };
 
+export type WebhookEndpointResponse = {
+  id: UUID;
+  organization_id: UUID;
+  url: string;
+  description: string | null;
+  /** `null` means "every event type", the backend's wildcard subscription. */
+  event_types: string[] | null;
+  is_active: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+};
+
+/** Create and rotate-secret only. The plaintext secret is shown exactly once. */
+export type WebhookEndpointCreated = WebhookEndpointResponse & { secret: string };
+
+export type WebhookDeliveryStatus = 'pending' | 'succeeded' | 'failed' | 'exhausted';
+
+export type WebhookDeliveryResponse = {
+  id: UUID;
+  endpoint_id: UUID;
+  event_id: UUID;
+  event_type: string;
+  document_id: UUID | null;
+  payload: Record<string, unknown> | null;
+  attempt: number;
+  status: WebhookDeliveryStatus;
+  status_code: number | null;
+  error: string | null;
+  delivered_at: IsoDateTime | null;
+  next_retry_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+};
+
 /* ── invitations (schemas/invitation.py) ────────────────────────────────── */
 
 export type InvitationResponse = {
@@ -1521,3 +1571,132 @@ export type SsoConnectionResponse = {
 };
 
 export type SsoConnectionRequest = SsoConnectionResponse & { idp_x509_cert: string };
+
+/** Which organization a request resolved to, and whether it is a sandbox. */
+export type SandboxStatusResponse = {
+  organization_id: string;
+  is_sandbox: boolean;
+  /** Set only on a sandbox: the live organization it shadows. */
+  live_organization_id: string | null;
+  document_count: number;
+  contact_count: number;
+  /** Outbound email, SMS and payment collection are suppressed. */
+  side_effects_suppressed: boolean;
+};
+
+export type SandboxResetResponse = SandboxStatusResponse & {
+  deleted_documents: number;
+  deleted_contacts: number;
+};
+
+/* ── payments (schemas/payment.py) ───────────────────────────────────────── */
+
+/** `app/models/enums.py:PaymentSplitMode` */
+export type PaymentSplitMode = 'single' | 'equal' | 'custom';
+/** `app/models/enums.py:SignerPaymentStatus` */
+export type SignerPaymentStatus = 'requires_payment' | 'processing' | 'succeeded' | 'failed' | 'refunded';
+
+/** `schemas/payment.py:PaymentAccountResponse` — the tenant's own Stripe
+ *  Connect account. `charges_enabled`, `payouts_enabled` and
+ *  `details_submitted` are independent: a linked account can sit in any
+ *  combination of them, and only `charges_enabled` says it can actually
+ *  collect money. */
+export type PaymentAccountResponse = {
+  id: UUID;
+  organization_id: UUID;
+  provider: string;
+  provider_account_id: string | null;
+  charges_enabled: boolean;
+  payouts_enabled: boolean;
+  details_submitted: boolean;
+  default_currency: string | null;
+  livemode: boolean;
+  onboarded_at: IsoDateTime | null;
+  last_synced_at: IsoDateTime | null;
+  disabled_reason: string | null;
+};
+
+/** `schemas/payment.py:PaymentAccountLinkResponse` — a one-time hosted
+ *  onboarding url (Stripe account link). */
+export type PaymentAccountLink = {
+  url: string;
+  expires_at: IsoDateTime;
+};
+
+/** `schemas/payment.py:PaymentFieldConfig` — the validated shape of a
+ *  `payment` field's `options` JSON. */
+export type PaymentFieldConfig = {
+  amount_mode: 'fixed' | 'signer_entered';
+  amount_cents: number | null;
+  min_cents: number | null;
+  max_cents: number | null;
+  currency: string;
+  memo: string | null;
+  payment_request_id: string | null;
+};
+
+/** `schemas/payment.py:PaymentAllocationInput` */
+export type PaymentAllocationInput = {
+  recipient_id: UUID;
+  amount_cents: number;
+};
+
+/** `schemas/payment.py:PaymentRequestCreate` */
+export type PaymentRequestPayload = {
+  total_cents: number;
+  currency?: string;
+  memo?: string | null;
+  split_mode?: PaymentSplitMode;
+  allocations?: PaymentAllocationInput[];
+};
+
+/** `schemas/payment.py:PaymentRequestResponse` */
+export type PaymentRequestResponse = {
+  id: UUID;
+  document_id: UUID;
+  organization_id: UUID;
+  total_cents: number;
+  currency: string;
+  memo: string | null;
+  split_mode: PaymentSplitMode;
+  created_by_user_id: UUID | null;
+  collected_cents: number;
+  paid_count: number;
+  allocation_count: number;
+};
+
+/** `schemas/payment.py:SignerPaymentResponse` — one payment attempt against a
+ *  `payment` field. */
+export type SignerPaymentResponse = {
+  id: UUID;
+  organization_id: UUID;
+  document_id: UUID;
+  recipient_id: UUID;
+  field_id: UUID;
+  payment_request_id: UUID | null;
+  amount_cents: number;
+  currency: string;
+  status: SignerPaymentStatus;
+  provider: string | null;
+  provider_payment_intent_id: string | null;
+  provider_charge_id: string | null;
+  receipt_url: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  paid_at: IsoDateTime | null;
+  refunded_at: IsoDateTime | null;
+  refunded_amount_cents: number;
+  description: string | null;
+  created_at: IsoDateTime;
+};
+
+/** `schemas/payment.py:PaymentIntentResponse` — what the signing client needs
+ *  to mount Stripe's payment element. */
+export type PaymentIntentResponse = {
+  client_secret: string;
+  publishable_key: string;
+  connected_account_id: string;
+  amount_cents: number;
+  currency: string;
+  description: string | null;
+};

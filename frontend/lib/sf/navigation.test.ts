@@ -290,9 +290,13 @@ describe('the account area', () => {
   it('lists every section as a row', () => {
     const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'account' }))
       .find(a => a.active)!.groups.flatMap(g => g.rows);
-    // Seven account sections, plus the notifications page above them.
-    expect(rows.length).toBe(8);
+    // Eight account sections, plus the notifications page above them.
+    // `Payments` joined the list when senders gained the ability to collect
+    // money on an envelope; it is a separate section from `Billing`, which is
+    // what the organization pays us rather than what a signer pays them.
+    expect(rows.length).toBe(9);
     expect(rows.map(r => r.href)).toContain('/account/organization');
+    expect(rows.map(r => r.href)).toContain('/account/payments');
     expect(rows.map(r => r.href)).toContain('/notifications');
   });
 

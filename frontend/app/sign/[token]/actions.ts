@@ -16,9 +16,16 @@
 import { revalidatePath } from 'next/cache';
 import { apiFetchPublic } from '@/lib/api/client';
 import { backendUrl } from '@/lib/auth/session';
+import { payments } from '@/lib/api/resources';
+import type { PaymentFieldConfig, PaymentIntentResponse, SignerPaymentResponse } from '@/lib/api/types';
 import type { CompletionResponse, ReassignResponse, SigningSessionResponse } from './types';
 
 export type ActionResult = { ok: boolean; message: string };
+
+/** A payment action needs the provider's response back, not just a toast — an
+ *  `ActionResult` alone would have nowhere to carry the client secret or the
+ *  reconciled status. */
+export type PaymentActionResult<T> = { ok: true; data: T } | { ok: false; message: string };
 
 const base = (token: string) => `/api/sign/${encodeURIComponent(token)}`;
 
@@ -106,6 +113,71 @@ export async function completeSigning(token: string): Promise<ActionResult> {
 export async function declineSigning(token: string, reason: string): Promise<ActionResult> {
   if (!reason.trim()) return { ok: false, message: 'A reason is required to decline' };
   return run<void>(token, `${base(token)}/decline`, { reason: reason.trim() }, 'Signing declined · sender notified');
+}
+
+/* ── payments (PAY-1) ────────────────────────────────────────────────────
+ * These do not call `refresh(token)` on success — the caller is a modal in the
+ * middle of its own flow, not a field value that should snap the whole page
+ * back to the server. `completeSigning`'s ordinary refresh, and the recipient
+ * simply re-opening the page, are what pick up a field's now-paid `value`. */
+
+/** `POST /api/sign/{token}/payments/{fieldId}/intent`. The amount is only ever
+ *  a proposal for a `signer_entered` field — the backend clamps or ignores it
+ *  per `signer_payment_service.create_intent`. */
+export async function createPaymentIntent(
+  token: string,
+  fieldId: string,
+  amountCents?: number,
+): Promise<PaymentActionResult<PaymentIntentResponse>> {
+  const result = await payments.signerIntent(apiFetchPublic, token, fieldId, amountCents);
+  if (!result.ok) return { ok: false, message: result.error.message };
+  return { ok: true, data: result.data };
+}
+
+/** `POST /api/sign/{token}/payments/{fieldId}/refresh` — reconciles against
+ *  Stripe's own view of the intent. See `signer_payment_service.refresh_payment`
+ *  for why this exists: a webhook can arrive late or never in development. */
+export async function refreshPayment(
+  token: string,
+  fieldId: string,
+): Promise<PaymentActionResult<SignerPaymentResponse>> {
+  const result = await payments.signerRefresh(apiFetchPublic, token, fieldId);
+  if (!result.ok) return { ok: false, message: result.error.message };
+  refresh(token);
+  return { ok: true, data: result.data };
+}
+
+/** `GET /api/sign/{token}/payments/{fieldId}` — the field's current attempt,
+ *  or `null` if the signer has never started one. */
+export async function getPayment(
+  token: string,
+  fieldId: string,
+): Promise<PaymentActionResult<SignerPaymentResponse | null>> {
+  const result = await payments.signerPayment(apiFetchPublic, token, fieldId);
+  if (!result.ok) return { ok: false, message: result.error.message };
+  return { ok: true, data: result.data };
+}
+
+/**
+ * A payment field's own configuration — amount mode, fixed amount (if any),
+ * bounds, currency, memo. `SignerField` (`lib/sf/adapters.ts#toSignerField`)
+ * only carries `options` in the shape a dropdown/radio field needs (an array
+ * of choices), so a payment field's config is refetched here straight from
+ * `GET /api/sign/{token}`, which returns every field's raw `options`.
+ */
+export async function getPaymentFieldConfig(
+  token: string,
+  fieldId: string,
+): Promise<PaymentActionResult<PaymentFieldConfig>> {
+  const result = await apiFetchPublic<{ fields: { id: string; options: unknown }[] }>(
+    `/api/sign/${encodeURIComponent(token)}`,
+  );
+  if (!result.ok) return { ok: false, message: result.error.message };
+  const field = result.data.fields.find(f => f.id === fieldId);
+  if (!field || !field.options || typeof field.options !== 'object' || Array.isArray(field.options)) {
+    return { ok: false, message: 'This payment field has no configuration yet.' };
+  }
+  return { ok: true, data: field.options as PaymentFieldConfig };
 }
 
 export async function reassignSigning(

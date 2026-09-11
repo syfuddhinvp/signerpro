@@ -108,6 +108,20 @@ services:
       # AES256 belongs.
       S3_SERVER_SIDE_ENCRYPTION: ""
       ENVIRONMENT: development
+      # Billing / signer-payment Stripe config. NOT passed through here at all
+      # previously -- devs exercising Stripe locally had to run the backend
+      # outside compose (against backend/.env) or add these lines themselves.
+      # Left as ${VAR:-} so the stack still comes up with BILLING_PROVIDER=null
+      # when unset; the signer-payment endpoints 409 until these are set.
+      BILLING_PROVIDER: ${BILLING_PROVIDER:-null}
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:-dev-billing-webhook-secret}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      # Separate secret from STRIPE_WEBHOOK_SECRET above -- see
+      # backend/.env.example for why crossing the two is the likeliest
+      # misconfiguration.
+      STRIPE_CONNECT_WEBHOOK_SECRET: ${STRIPE_CONNECT_WEBHOOK_SECRET:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       # The entrypoint runs `alembic upgrade head` under an advisory lock before
       # starting, so a fresh `docker compose up` gets a migrated database.
       RUN_MIGRATIONS: "1"

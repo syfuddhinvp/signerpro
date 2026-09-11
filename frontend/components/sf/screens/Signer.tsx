@@ -6,12 +6,14 @@ import { useDocumentTitle, useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import type { Recipient, SFField } from '@/lib/sf/state';
 import type { SignerField } from '@/lib/sf/adapters';
-import { btn } from '@/lib/sf/ui';
+import { btn, TEXT_MUTED } from '@/lib/sf/ui';
 import { drawingOptions, strokePath, textboxFontStack, textboxOptions } from '@/lib/sf/annotations';
 import { effectiveValidation, fieldValueProblem, fitsNativeInput, nativeInputType } from '@/lib/sf/fieldValidation';
 import LazyPdfPages from '@/components/sf/pdf/LazyPdfPages';
 import { useElementWidth } from '@/components/sf/pdf/useElementWidth';
 import { typeFaceStack } from '@/lib/sf/fonts';
+import type { PaymentFieldConfig, SignerPaymentResponse } from '@/lib/api/types';
+import Icon, { type IconName } from '@/components/sf/Icon';
 
 export type SignerProps = {
   /**
@@ -82,6 +84,18 @@ export type SignerProps = {
    * bar and a Finish button that would do nothing.
    */
   viewOnly?: boolean;
+  /**
+   * Open the payment ceremony for a `payment` field (PAY-1). Omitted on the
+   * sender's preview, where the Pay button renders disabled rather than
+   * inert — the preview must never be able to trigger a real charge.
+   */
+  onPay?: (fieldId: string) => void;
+  /** Each payment field's own configuration (amount, currency, memo…),
+   *  keyed by field id — `SignerField.options` does not carry it (see
+   *  `getPaymentFieldConfig`), so the caller fetches and supplies it. */
+  paymentConfigs?: Record<string, PaymentFieldConfig | null | undefined>;
+  /** The latest known `SignerPayment` per payment field, keyed by field id. */
+  paymentStatuses?: Record<string, SignerPaymentResponse | null | undefined>;
 };
 
 /** `backend/app/schemas/signer.py:AnnotationResponse`. Geometry in points. */
@@ -113,6 +127,16 @@ export type OtherPlacement = {
  * whatever field list this instance was given (props on the public signing
  * route, the store on the sender's in-app preview).
  */
+/** Cents → a locale money string, falling back to a plain number if the
+ *  currency code is somehow not one `Intl` recognises. */
+function formatPayCents(cents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: (currency || 'usd').toUpperCase() }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${(currency || 'usd').toUpperCase()}`;
+  }
+}
+
 function signableOf(fields: (SignerField | SFField)[], values: Record<string, unknown>) {
   return fields.filter(f => {
     if (f.readOnly) return false;
@@ -130,6 +154,7 @@ export default function Signer({
   fields, recipients, pageCount, title, readOnly = false, initialValues,
   onSaveValue, onOpenSignature, onDisclosure, onDecline, onReassign, onFinish, onDownload,
   pdfUrl, otherPlacements, annotations, onUploadAttachment, stampEndpoint, viewOnly = false,
+  onPay, paymentConfigs, paymentStatuses,
 }: SignerProps = {}) {
   const { s, set, flash, accent, recip, meta, signable, isDone } = useSF();
   const { go } = useNav();
@@ -287,6 +312,7 @@ export default function Signer({
     const isNext = target ? target.id === f.id : false;
     const filled = isDone(f);
     const options = (f as SignerField).options ?? [];
+    const radio = (f as SignerField).radio ?? null;
     const problem = fieldValueProblem(f, v);
     const kind = effectiveValidation(f);
     return {
@@ -303,14 +329,52 @@ export default function Signer({
         position: 'absolute', top: '-9px', left: '-1px', height: '17px', padding: '0 6px', borderRadius: '5px',
         background: problem ? '#dc2626' : (filled ? '#10b981' : r.color), color: '#fff', fontSize: '.59375rem', fontWeight: 700, display: 'flex', alignItems: 'center', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap'
       } as CSSProperties,
-      tagText: (problem ? '! ' : (filled ? '✓ ' : (isNext ? '➜ ' : (f.required ? '* ' : '')))) + t.label,
+      /* The tag's state mark is an SVG, not a glyph: '✓'/'➜' rendered at
+         whatever weight the fallback font supplied, and at 9.5px that read as
+         noise beside the label. `data-mark` keeps the state assertable. */
+      tagMark: (problem ? 'alert' : (filled ? 'check' : (isNext ? 'arrowRight' : (f.required ? 'asterisk' : null)))) as IconName | null,
+      tagText: t.label,
       aria: t.label + ' — ' + f.label + (f.required ? ' (required)' : '') + (isNext ? ' — next' : ''),
       isSig, isCheck: f.type === 'checkbox',
       /* A Radio Group is a set of radio buttons, not a dropdown. Both used to
          render the same `<select>`, so a field the sender placed as a radio
          group asked the signer to "Select…" from a menu. */
       isSelect: f.type === 'dropdown',
-      isRadio: f.type === 'radio',
+      /** A radio field authored before groups existed: one box, every choice. */
+      isRadio: f.type === 'radio' && !radio,
+      /**
+       * One button of a radio group, drawn where the sender put it. The group's
+       * answer is a single value every member of the group carries, so picking
+       * this button writes its choice to all of them — which is what makes the
+       * choice exclusive, and what lets each button's own `required` be met.
+       */
+      radio,
+      radioChecked: radio ? v === radio.choice : false,
+      radioName: radio ? 'radio-' + radio.group : f.id,
+      radioLabel: radio ? radio.groupLabel + ' — ' + radio.choice : '',
+      radioAria: radio
+        ? radio.groupLabel + ': ' + radio.choice + ' (' + (radio.choices.indexOf(radio.choice) + 1)
+          + ' of ' + radio.choices.length + ')' + (f.required ? ' — required' : '')
+        : '',
+      radioBtn: {
+        width: '100%', height: '100%', margin: 0, cursor: readOnly ? 'default' : 'pointer',
+        accentColor: r.color,
+      } as CSSProperties,
+      /** Pick this button — for the whole group. */
+      onPickButton: () => {
+        if (readOnly) { flash('This envelope is complete · no further edits'); return; }
+        if (!radio) return;
+        const members = signList.filter(item => {
+          const other = (item as SignerField).radio;
+          return other ? other.group === radio.group : false;
+        });
+        set(st => {
+          const next = Object.assign({}, st.signValues);
+          for (const member of members) next[member.id] = radio.choice;
+          return { signValues: next };
+        });
+        if (onSaveValue) for (const member of members) onSaveValue(member, radio.choice);
+      },
       isAttachment: f.type === 'attachment',
       /* A stamp is a mark on the page — a seal, a chop, a logo — so it is an
          image upload, and the executed PDF draws the image. It used to render
@@ -318,9 +382,23 @@ export default function Signer({
          belonged. */
       isStamp: f.type === 'stamp',
       isText: !isSig && f.type !== 'checkbox' && f.type !== 'dropdown' && f.type !== 'radio'
-        && f.type !== 'attachment' && f.type !== 'stamp',
+        && f.type !== 'attachment' && f.type !== 'stamp' && f.type !== 'payment',
       /** Images only; a PDF cannot be drawn into the stamp's box. */
       fileAccept: f.type === 'stamp' ? 'image/png,image/jpeg,image/gif,image/webp' : undefined,
+      /**
+       * A money obligation on the page (PAY-1). The field's own config
+       * (amount, currency, memo) is fetched separately and handed in by the
+       * caller — see `SignerProps.paymentConfigs` — because `SignerField`
+       * only carries dropdown/radio-shaped options.
+       */
+      isPayment: f.type === 'payment',
+      payConfig: (paymentConfigs?.[f.id] ?? null) as PaymentFieldConfig | null,
+      payStatus: (paymentStatuses?.[f.id] ?? null) as SignerPaymentResponse | null,
+      onPayClick: () => {
+        if (readOnly) { flash('This envelope is complete · no further edits'); return; }
+        if (!onPay) { flash('Preview only · no real charge is made from here'); return; }
+        onPay(f.id);
+      },
       required: f.required ? true : false,
       /** Why the typed value is not acceptable yet, or null. */
       problem,
@@ -347,7 +425,6 @@ export default function Signer({
       /** Real dropdown choices when the field was authored with them. */
       options,
       checked: v === true,
-      checkMark: v === true ? '✓' : '',
       checkStyle: { width: '100%', height: '100%', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1rem', color: '#047857', fontWeight: 700 } as CSSProperties,
       onCheck: () => {
         if (readOnly) { flash('This envelope is complete · no further edits'); return; }
@@ -505,7 +582,7 @@ export default function Signer({
       const ink = drawingOptions(a.options ?? null);
       if (!ink.strokes.length) return null;
       return (
-        <svg key={a.id} aria-hidden="true" viewBox={'0 0 ' + Math.max(1, w) + ' ' + Math.max(1, h)}
+        <svg key={a.id} data-sf-ink="1" aria-hidden="true" viewBox={'0 0 ' + Math.max(1, w) + ' ' + Math.max(1, h)}
           style={Object.assign({}, box, { overflow: 'visible' })}>
           {ink.strokes.map((stroke, i) => (
             <path key={i} d={strokePath(stroke, w, h)} fill="none" stroke={ink.color}
@@ -546,7 +623,7 @@ export default function Signer({
         ))}
       {fieldsOnPage(page, scale).map(f => (
         <div key={f.id} ref={(el) => { if (el) signEls.current[f.id] = el; else delete signEls.current[f.id]; }} style={f.box}>
-          <span style={f.tag}>{f.tagText}</span>
+          <span style={f.tag} data-mark={f.tagMark ?? ''}>{f.tagMark ? <Icon name={f.tagMark} size={9} style={{ marginRight:'3px' }} /> : null}{f.tagText}</span>
           {f.isSig ? (
             <button type="button" onClick={f.onSign} aria-label={f.aria} style={f.sigBtn}>
               {f.hasImage ? (
@@ -559,7 +636,7 @@ export default function Signer({
             </button>
           ) : null}
           {f.isCheck ? (
-            <button type="button" role="checkbox" aria-checked={f.checked} aria-label={f.aria} onClick={f.onCheck} style={f.checkStyle}>{f.checkMark}</button>
+            <button type="button" role="checkbox" aria-checked={f.checked} aria-label={f.aria} onClick={f.onCheck} style={f.checkStyle}>{f.checked ? <Icon name="check" size={14} /> : null}</button>
           ) : null}
           {f.isSelect ? (
             /* The choices are the ones the sender authored, and only those.
@@ -578,6 +655,21 @@ export default function Signer({
                 No choices were set for this field — ask the sender to add them.
               </span>
             )
+          ) : null}
+          {f.radio ? (
+            /* The button *is* the field: no label beside it, because the words
+               it answers are printed on the page the sender placed it on. */
+            <input
+              type="radio"
+              name={f.radioName}
+              value={f.radio.choice}
+              checked={f.radioChecked}
+              onChange={f.onPickButton}
+              disabled={readOnly}
+              required={f.required}
+              aria-label={f.radioAria}
+              style={f.radioBtn}
+            />
           ) : null}
           {f.isRadio ? (
             f.options.length ? (
@@ -624,7 +716,7 @@ export default function Signer({
           ) : null}
           {f.isAttachment ? (
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', height: '100%', padding: '0 7px', cursor: readOnly ? 'default' : 'pointer', fontSize: '.71875rem', color: '#334155', overflow: 'hidden' }}>
-              <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{f.value ? '✓ ' + f.value : 'Choose file'}</span>
+              <span style={{ fontWeight: 600, whiteSpace: 'nowrap', display:'inline-flex', alignItems:'center', gap:'4px' }}>{f.value ? <><Icon name="check" size={11} />{f.value}</> : 'Choose file'}</span>
               <input
                 type="file"
                 onChange={f.onFile}
@@ -635,6 +727,54 @@ export default function Signer({
               />
             </label>
           ) : null}
+          {f.isPayment ? (() => {
+            const status = f.payStatus;
+            const config = f.payConfig;
+            const paid = status?.status === 'succeeded';
+            const processing = status?.status === 'processing';
+            const failed = status?.status === 'failed';
+            const cents = status?.amount_cents ?? config?.amount_cents ?? null;
+            const currency = status?.currency ?? config?.currency ?? 'usd';
+            const amountLabel = cents !== null
+              ? formatPayCents(cents, currency)
+              : (config?.amount_mode === 'signer_entered' ? 'Enter amount' : '…');
+            const memo = status?.description ?? config?.memo ?? null;
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', width: '100%', height: '100%', padding: '2px 6px', textAlign: 'center', overflow: 'hidden' }}>
+                {paid ? (
+                  <>
+                    <span style={{ fontSize: '.71875rem', fontWeight: 700, color: '#047857', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Icon name="check" size={12} />{'Paid ' + formatPayCents(status!.amount_cents, status!.currency)}
+                    </span>
+                    {status?.receipt_url ? (
+                      <a href={status.receipt_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '.625rem', color: '#0f766e' }}>
+                        View receipt
+                      </a>
+                    ) : null}
+                  </>
+                ) : processing ? (
+                  <span role="status" style={{ fontSize: '.6875rem', fontWeight: 600, color: '#b45309' }}>Confirming your payment…</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={f.onPayClick}
+                    disabled={readOnly || !onPay}
+                    aria-label={f.aria}
+                    style={{
+                      border: 'none', background: 'transparent', cursor: (readOnly || !onPay) ? 'default' : 'pointer',
+                      display: 'flex', flexDirection: 'column', gap: '2px', width: '100%', height: '100%',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '.75rem', fontWeight: 700, color: !onPay ? TEXT_MUTED : '#0f172a' }}>{'Pay ' + amountLabel}</span>
+                    {memo ? <span style={{ fontSize: '.625rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{memo}</span> : null}
+                    {!onPay ? <span style={{ fontSize: '.5625rem', color: TEXT_MUTED }}>Preview only · no charge</span> : null}
+                    {failed ? <span style={{ fontSize: '.5625rem', color: '#b91c1c' }}>Card declined · try again</span> : null}
+                  </button>
+                )}
+              </div>
+            );
+          })() : null}
           {f.isText ? (
             <input
               type={f.inputType}
@@ -747,7 +887,7 @@ export default function Signer({
             boxShadow: '0 10px 24px -10px rgba(15,23,42,.55)',
           }}
         >
-          <span aria-hidden="true">{guideDir === 'up' ? '↑' : '↓'}</span>
+          <Icon name={guideDir === 'up' ? 'arrowUp' : 'arrowDown'} size={12} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {(guideDir === 'up' ? 'Back to ' : 'Next: ') + guideLabel}
           </span>

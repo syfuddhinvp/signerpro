@@ -94,7 +94,21 @@ class SigningService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This recipient is not ready to sign yet")
         return signing_token, document, recipient
 
-    def session_response(self, *, raw_token: str, signing_token: SigningToken, document: Document, recipient: Recipient) -> SigningSessionResponse:
+    def session_response(
+        self,
+        *,
+        raw_token: str,
+        signing_token: SigningToken,
+        document: Document,
+        recipient: Recipient,
+        # Required, not optional. A payment field can only be judged settled by
+        # querying ``SignerPayment``, so a ``db``-less call would silently
+        # report a signer who has genuinely paid as still owing -- which leaves
+        # their submit button disabled with nothing on screen explaining why.
+        # That bug shipped once already because this was defaulted; keeping it
+        # mandatory makes it unrepresentable rather than merely tested for.
+        db: Session,
+    ) -> SigningSessionResponse:
         read_only = (
             recipient.status == RecipientStatus.completed
             or document.status == DocumentStatus.completed
@@ -110,7 +124,7 @@ class SigningService:
             if field.recipient_id == recipient.id and not is_annotation(field.type)
         ]
         required_fields = self._outstanding_required_fields(document, recipient)
-        completed = sum(1 for field in required_fields if self._field_has_value(field))
+        completed = sum(1 for field in required_fields if self._field_has_value(field, db))
 
         # SIGN-1: a signing session must never carry another recipient's field
         # payload. ``fields`` is now strictly this recipient's own fields;
@@ -208,7 +222,7 @@ class SigningService:
             crm_integration_service.trigger_document_viewed(db, document=document, recipient=recipient)
             db.commit()
             db.refresh(document)
-        return self.session_response(raw_token=raw_token, signing_token=signing_token, document=document, recipient=recipient)
+        return self.session_response(raw_token=raw_token, signing_token=signing_token, document=document, recipient=recipient, db=db)
 
     def save_field_value(
         self,
@@ -227,6 +241,18 @@ class SigningService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Use the signature endpoint for signature and initials fields",
+            )
+        if field.type == FieldType.payment:
+            # PAY-1: this is the hole that ``assert_payments_settled`` in
+            # ``complete()`` exists to defend against. A payment field's value
+            # is only ever written by ``signer_payment_service`` once Stripe
+            # itself confirms the charge (webhook or `refresh_payment`) --
+            # never through the generic value endpoint every other field type
+            # shares, which would let a signer simply type "paid:..." in and
+            # sign for free.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment fields are settled through the payment endpoint, not written directly",
             )
         if field.type == FieldType.attachment:
             raise HTTPException(
@@ -447,9 +473,39 @@ class SigningService:
         # rule through ``field_service.condition_is_met``, so they can never
         # disagree again.
         outstanding = self._outstanding_required_fields(document, recipient)
-        missing = [field.label for field in outstanding if not self._field_has_value(field)]
+        # Payment fields are deliberately excluded from this generic
+        # "incomplete" 400: they are gated separately, below, by
+        # `assert_payments_settled`, which raises a 402 -- a distinct status
+        # that tells the client "you owe money" rather than "you forgot a
+        # field", which matters to how the signing UI presents it.
+        missing = [
+            field.label
+            for field in outstanding
+            if field.type != FieldType.payment and not self._field_has_value(field, db)
+        ]
         if missing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Required fields are incomplete: {', '.join(missing)}")
+        # PAY-1: this is a SECOND, independent check on top of the
+        # required-field gate above. `Field.value` is writable through the
+        # ordinary field-value endpoint that every other field type shares
+        # (blocked for payment fields, but that block is enforced elsewhere
+        # and defence in depth matters for money), so it can never be the
+        # sole proof that money actually arrived. The `SignerPayment` table,
+        # populated only by Stripe's own confirmation, is the authority.
+        from app.services.signer_payment_service import signer_payment_service
+
+        signer_payment_service.assert_payments_settled(db, document=document, recipient=recipient)
+        for payment_field in signer_payment_service.outstanding_payment_fields(document, recipient):
+            settled = signer_payment_service.settled_payment(db, field=payment_field)
+            if settled is not None:
+                audit_service.log(
+                    db,
+                    document_id=document.id,
+                    recipient_id=recipient.id,
+                    event_type="payment_succeeded",
+                    event_message=f"Payment for '{payment_field.label}' settled before {recipient.email} signed.",
+                    metadata={"field_id": payment_field.id, "payment_id": settled.id, "amount_cents": settled.amount_cents},
+                )
         # A value captured before the controlling answer changed would still
         # be stamped into the executed PDF even though the field is hidden.
         # Hidden means "not part of the record", so it is dropped here.
@@ -707,9 +763,17 @@ class SigningService:
             and field_service.condition_is_met(document, field)
         ]
 
-    def _field_has_value(self, field: Field) -> bool:
+    def _field_has_value(self, field: Field, db: Session) -> bool:
         if field.type == FieldType.checkbox:
             return str(field.value).lower() == "true"
+        if field.type == FieldType.payment:
+            # A payment field's ``value`` is only ever a breadcrumb written by
+            # ``signer_payment_service`` once Stripe confirms the charge; the
+            # progress counters must not call it "done" from that breadcrumb
+            # alone, only from a genuinely settled `SignerPayment` row.
+            from app.services.signer_payment_service import signer_payment_service
+
+            return signer_payment_service.settled_payment(db, field=field) is not None
         return bool(field.value and str(field.value).strip())
 
     def _ensure_otp_not_locked(self, recipient: Recipient) -> None:

@@ -18,6 +18,7 @@ import {
   type Dict,
   type Tone,
 } from './data';
+import { radioOptions, type RadioOptions } from './radioGroups';
 import type { Contact, Recipient, SFField } from './state';
 import type * as PlatformApi from '@/lib/api/types';
 import type {
@@ -42,6 +43,7 @@ import type {
   InvoiceResponse,
   OrganizationOverview,
   OrganizationResponse,
+  PaymentFieldConfig,
   PaymentMethodResponse,
   PlanChangePreview,
   PlanResponse,
@@ -638,6 +640,7 @@ const API_FIELD_TYPE: Dict<ApiFieldType> = {
   datetime: 'datetime',
   textbox: 'textbox',
   drawing: 'drawing',
+  payment: 'payment',
 };
 
 const BUILDER_FIELD_TYPE: Record<ApiFieldType, string> = {
@@ -661,6 +664,7 @@ const BUILDER_FIELD_TYPE: Record<ApiFieldType, string> = {
   datetime: 'datetime',
   textbox: 'textbox',
   drawing: 'drawing',
+  payment: 'payment',
 };
 
 export function builderFieldType(apiType: string): string {
@@ -669,6 +673,58 @@ export function builderFieldType(apiType: string): string {
 
 export function apiFieldType(builderType: string): ApiFieldType {
   return API_FIELD_TYPE[builderType] ?? 'text';
+}
+
+/**
+ * PAY-1: a `payment` field's `options` JSON, defaulted so the inspector and
+ * the envelope-level payment panel never read `undefined` out of it. Mirrors
+ * `schemas/payment.py:PaymentFieldConfig` exactly — the backend is the
+ * authority on what these keys mean and validates them again on save.
+ */
+export function paymentFieldOptions(options: unknown): PaymentFieldConfig {
+  const o = (options && typeof options === 'object' ? options : {}) as Record<string, unknown>;
+  return {
+    amount_mode: o.amount_mode === 'signer_entered' ? 'signer_entered' : 'fixed',
+    amount_cents: typeof o.amount_cents === 'number' ? o.amount_cents : null,
+    min_cents: typeof o.min_cents === 'number' ? o.min_cents : null,
+    max_cents: typeof o.max_cents === 'number' ? o.max_cents : null,
+    currency: typeof o.currency === 'string' && o.currency ? o.currency : 'USD',
+    memo: typeof o.memo === 'string' ? o.memo : null,
+    payment_request_id: typeof o.payment_request_id === 'string' ? o.payment_request_id : null,
+  };
+}
+
+/**
+ * Currency-unit ↔ integer-cents conversions for every amount a sender types.
+ * The wire format (`amount_cents`, `total_cents`, …) is always integer cents
+ * — a float dollar amount is exactly how money bugs happen — but nobody wants
+ * to type "5000" for fifty dollars, so the inspector and the split UI edit in
+ * "50.00" and convert at the boundary.
+ */
+export function centsFromAmountInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100);
+}
+
+export function amountInputFromCents(cents: number | null | undefined): string {
+  return cents == null ? '' : (cents / 100).toFixed(2);
+}
+
+/**
+ * Divide `totalCents` across `count` payers to the exact penny, handing the
+ * remainder to the earliest payers one cent at a time — the same rule
+ * `signer_payment_service._split_equal` applies server-side, so the sender
+ * sees in the builder exactly what will be charged (e.g. $100.00 over 3
+ * people is 33.34 / 33.33 / 33.33, never three even $33.33s that drop a cent).
+ */
+export function splitEqualCents(totalCents: number, count: number): number[] {
+  if (count <= 0) return [];
+  const base = Math.floor(totalCents / count);
+  const remainder = totalCents - base * count;
+  return Array.from({ length: count }, (_, i) => base + (i < remainder ? 1 : 0));
 }
 
 /**
@@ -1071,6 +1127,13 @@ export type SignerField = SFField & {
   savedValue: string | null;
   /** What the sender pre-filled, shown when the signer has saved nothing yet. */
   defaultValue: string | null;
+  /**
+   * When this field is one button of a radio group, the group it belongs to
+   * and the choice it stands for (see `lib/sf/radioGroups.ts`). A `radio` row
+   * authored before groups existed — or through the API — has null here and
+   * stays one box listing every choice.
+   */
+  radio?: RadioOptions | null;
 };
 
 /**
@@ -1122,6 +1185,7 @@ export function toSignerField(api: FieldResponse): SignerField {
     options: fieldOptions(api.options),
     savedValue: api.value,
     defaultValue: api.default_value ?? null,
+    radio: api.type === 'radio' ? radioOptions(api.options) : null,
   };
 }
 
@@ -1327,6 +1391,10 @@ export type SupportTicketRow = {
   envelope: string;
   documentId: string | null;
   created: string;
+  /** Raw `updated_at`, already relative ("2 hours ago") for the row meta. */
+  updated: string;
+  /** `message_count` from the list row — the thread size without loading it. */
+  messageCount: number;
   sla: string;
   slaBreached: boolean;
   tags: string[];
@@ -1361,6 +1429,8 @@ export function toSupportTicket(api: TicketResponse | TicketDetailResponse): Sup
     envelope: api.document_id ? envelopeRef(api.document_id) : '',
     documentId: api.document_id,
     created: formatDateTimeShort(api.created_at),
+    updated: formatRelative(api.updated_at),
+    messageCount: api.message_count ?? 0,
     sla: api.sla_label || EMPTY,
     slaBreached: api.sla_breached === true,
     tags: api.tags ?? [],
@@ -2195,6 +2265,11 @@ export type PaymentMethodRow = {
   brand: string;
   label: string;
   meta: string;
+  /** `•••• •••• •••• 4242`, masked to the end when the provider withheld last4. */
+  number: string;
+  /** `MM/YY`, or `••/••` until the provider reports an expiry. */
+  expiry: string;
+  holder: string;
   isDefault: boolean;
 };
 
@@ -2204,13 +2279,22 @@ export type PaymentMethodRow = {
  * exactly what the prototype's `ACH` row did.
  */
 export function toPaymentMethodRows(items: PaymentMethodResponse[]): PaymentMethodRow[] {
-  return items.map(pm => ({
-    id: pm.id,
-    brand: (pm.brand || pm.type || 'card').toUpperCase().slice(0, 5),
-    label: pm.label || titleCase(pm.type),
-    meta: pm.meta || [pm.holder_name, pm.country].filter(Boolean).join(' · ') || EMPTY,
-    isDefault: pm.is_default === true,
-  }));
+  return items.map(pm => {
+    const mm = pm.exp_month ? String(pm.exp_month).padStart(2, '0') : null;
+    const yy = pm.exp_year ? String(pm.exp_year).slice(-2) : null;
+    return {
+      id: pm.id,
+      brand: (pm.brand || pm.type || 'card').replace(/_/g, ' ').toUpperCase(),
+      label: pm.label || titleCase(pm.type),
+      meta: pm.meta || [pm.holder_name, pm.country].filter(Boolean).join(' · ') || EMPTY,
+      /* Only a PAN-bearing instrument gets a masked number; a wallet (Link)
+         or an invoice has no last4, and inventing one would be a lie. */
+      number: pm.last4 ? '•••• •••• •••• ' + pm.last4 : '',
+      expiry: mm && yy ? mm + '/' + yy : '••/••',
+      holder: (pm.holder_name || EMPTY).toUpperCase(),
+      isDefault: pm.is_default === true,
+    };
+  });
 }
 
 /** The `Visa •••• 4242` chip the checkout modal shows above its CTA. */

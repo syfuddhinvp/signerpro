@@ -1,4 +1,5 @@
 /* SignerPro design data — ported verbatim from the prototype app.js. */
+import type { IconName } from '@/components/sf/Icon';
 import { pathAllowed } from '@/lib/auth/access';
 import { pathFor, type ScreenKey } from './routes';
 
@@ -17,25 +18,28 @@ export const ACCENT_DEFAULT = '#4f46e5';
  *
  * `currency` is not offered here — see `RETIRED_TYPES`.
  */
-export const TYPES: { id: string; label: string; icon: string; w: number; h: number; note?: string }[] =[
+export const TYPES: { id: string; label: string; icon: string; svg?: IconName; w: number; h: number; note?: string }[] =[
     { id:'signature', label:'Signature', icon:'S', w:200, h:56 },
     { id:'initials', label:'Initials', icon:'IN', w:88, h:48 },
+    { id:'datetime', label:'Date and Time', icon:'D+', w:196, h:40 },
     { id:'date', label:'Date Signed', icon:'D', w:152, h:40 },
     { id:'name', label:'Full Name', icon:'N', w:196, h:40 },
     { id:'email', label:'Email', icon:'@', w:216, h:40 },
     { id:'text', label:'Text Input', icon:'T', w:196, h:40 },
-    { id:'checkbox', label:'Checkbox', icon:'☑', w:32, h:32 },
-    { id:'radio', label:'Radio Group', icon:'◉', w:176, h:72 },
-    { id:'dropdown', label:'Dropdown', icon:'▾', w:196, h:40 },
-    { id:'stamp', label:'Stamp', icon:'✦', w:112, h:112 },
-    { id:'attachment', label:'Attachment', icon:'⇪', w:196, h:64 },
+    { id:'checkbox', label:'Checkbox', icon:'', svg:'checkbox', w:32, h:32 },
+    { id:'radio', label:'Radio Group', icon:'', svg:'radio', w:176, h:72 },
+    { id:'dropdown', label:'Dropdown', icon:'', svg:'caretDown', w:196, h:40 },
+    { id:'stamp', label:'Stamp', icon:'', svg:'stamp', w:112, h:112 },
+    { id:'attachment', label:'Attachment', icon:'', svg:'upload', w:196, h:64 },
     { id:'number', label:'Number', icon:'#', w:140, h:40 },
-    { id:'datetime', label:'Date and Time', icon:'D+', w:196, h:40 },
+    // PAY-1: renders on the signing surface as a Pay button, not a fill-in
+    // control, so it is sized like one — wider and taller than a text input.
+    { id:'payment', label:'Payment', icon:'$', w:160, h:48 },
     // ANN-1: the sender's own marks. Unlike every entry above, these are not
     // something a recipient fills in — they are drawn onto the page and burned
     // into the final PDF. `lib/sf/annotations.ts` holds what they carry.
     { id:'textbox', label:'Text Box', icon:'Tx', w:220, h:44 },
-    { id:'drawing', label:'Pen Drawing', icon:'✎', w:220, h:120 }
+    { id:'drawing', label:'Pen Drawing', icon:'', svg:'pencil', w:220, h:120 }
   ];
 
 /**
@@ -49,7 +53,7 @@ export const TYPES: { id: string; label: string; icon: string; w: number; h: num
  * `backend/app/services/currency_service.py`), so documents already authored
  * with it keep working — it is simply no longer offered to new authors.
  */
-export const RETIRED_TYPES: { id: string; label: string; icon: string; w: number; h: number; note?: string }[] = [
+export const RETIRED_TYPES: { id: string; label: string; icon: string; svg?: IconName; w: number; h: number; note?: string }[] = [
   { id:'currency', label:'Currency', icon:'$', w:160, h:40 }
 ];
 
@@ -150,7 +154,7 @@ export const TOUR: TourStep[] = [
       ws:'tenant', screen:'billing', target:null },
     { title:'Use it as an add-on', body:'Expose users, contacts and documents over REST, mint an origin-locked embed session, then land your users straight on the preparation surface with document and contact metadata already attached.',
       ws:'tenant', screen:'api', target:null },
-    { title:'Sandbox and guides', body:'Compose a call against seeded test data, read the response and copy the snippet in cURL, TypeScript, Python or PHP — with quickstart, reference, embedding, webhook and migration guides alongside.',
+    { title:'API console and guides', body:'Compose a call against your live workspace, read the real response and copy it back out as cURL, TypeScript or Python — with quickstart, reference, embedding, webhook and migration guides alongside.',
       ws:'tenant', screen:'sandbox', target:null },
     { title:'Support, both sides', body:'Tenants raise tickets with SLA-aware priorities; the platform queue adds assignment, escalation and internal notes that stay invisible to the customer.',
       ws:'tenant', screen:'support', target:null },
@@ -159,45 +163,134 @@ export const TOUR: TourStep[] = [
   ];
 
 export const DOCS_PAGES: Dict<{ title: string; lede: string; sections: { h: string; p?: string; code?: string; items?: string[] }[] }> ={
-    quickstart: { title:'Quickstart guide', lede:'Send your first envelope in about ten minutes — create a key, upload a document, place fields, invite a signer.',
+    quickstart: { title:'Quickstart guide', lede:'Issue a key, authenticate, read your first document and its audit trail — then subscribe to the event that tells you an agreement is done.',
       sections:[
-        { h:'1 · Create an API key', p:'Keys are scoped per environment. Test keys never send real email and never charge a card.', code:'curl https://api.signerpro.com/v1/keys \\\n  -H "Authorization: Bearer sk_test_…" \\\n  -d label="Quickstart" -d mode=test' },
-        { h:'2 · Upload a document', p:'Upload a PDF or reference a template. The response returns page dimensions you need for field placement.', code:'POST /v1/documents\n{\n  "title": "Master Services Agreement",\n  "file_url": "https://files.acme.io/msa.pdf",\n  "external_id": "hostcrm:deal_8842"\n}' },
-        { h:'3 · Place fields', p:'Coordinates are in points from the top-left of each page. Snap to an 8-point grid to match the builder.', code:'POST /v1/documents/{id}/fields\n{\n  "fields": [\n    { "type": "signature", "page": 1, "x": 96, "y": 600, "w": 200, "h": 56, "recipient": "ct1", "required": true },\n    { "type": "date", "page": 1, "x": 328, "y": 600, "w": 152, "h": 40, "recipient": "ct1" }\n  ]\n}' },
-        { h:'4 · Invite signers', p:'Sequential routing notifies recipient 2 only after recipient 1 completes. Parallel notifies everyone at once.', code:'POST /v1/documents/{id}/invite\n{\n  "routing": "sequential",\n  "recipients": [\n    { "contact_id": "ct1", "role": "sign", "order": 1 },\n    { "contact_id": "ct2", "role": "approve", "order": 2 }\n  ],\n  "reminders": "48h",\n  "expires_in_days": 14\n}' },
-        { h:'5 · Listen for completion', p:'Subscribe to envelope.completed and fetch the sealed PDF plus certificate when it fires.', items:['envelope.sent','document.viewed','field.signed','envelope.completed','envelope.declined'] }
+        { h:'Before you start', p:'You need an organization admin session to issue a key. Every call below runs against the deployment you are signed in to; there is no separate test tenant, so a key of either mode reads and writes your real data. Read the last section on this page first if you are planning to create and send envelopes over the API — that part of the surface is not public yet.' },
+        { h:'1 · Create an API key', p:'Issue keys from Apps & keys, or with a session-authenticated call as an organization admin. Ask for the narrowest set of scopes that does the job — GET /api/api-keys/scopes returns the catalogue with descriptions. The secret is returned exactly once, in this response, and only a SHA-256 hash of it is stored: if you lose it, roll the key rather than hunting for it.', code:'POST /api/api-keys\n{\n  "label": "Quickstart",\n  "mode": "test",\n  "scopes": ["documents:read", "audit:read"]\n}\n\n201 Created\n{\n  "id": "key_8f2c41ab",\n  "label": "Quickstart",\n  "mode": "test",\n  "prefix": "sk_test_9f2b",\n  "last_four": "d41c",\n  "scopes": ["audit:read", "documents:read"],\n  "secret": "sk_test_9f2b…d41c"   // shown once, never again\n}' },
+        { h:'2 · Know which tenant your key writes to', p:'A test-mode key resolves to your sandbox organization and a live-mode key to your real one. This is enforced in the backend, not a label: a sk_test_ key cannot read or write a live record, and email, SMS and payment collection are suppressed on everything it touches. Start in test.', code:'GET /api/sandbox\n{\n  "is_sandbox": true,\n  "organization_id": "org_…_sandbox",\n  "live_organization_id": "org_…",\n  "side_effects_suppressed": true\n}' },
+        { h:'2 · Authenticate and confirm what you hold', p:'The public surface lives under /api/v1 and authenticates with the X-API-Key header — not an Authorization bearer. Call whoami first: it costs nothing, needs no scope beyond a valid key, and tells you which organization and scopes the key actually resolved to, which is the fastest way to catch a key pasted from the wrong environment.', code:'curl https://your-deployment.example.com/api/v1/whoami \\\n  -H "X-API-Key: sk_test_9f2b…d41c"\n\n{\n  "organization_id": "org_8842",\n  "mode": "test",\n  "scopes": ["audit:read", "documents:read"],\n  "key_id": "key_8f2c41ab",\n  "is_platform_admin": false\n}' },
+        { h:'3 · Read your documents', p:'Requires documents:read. Returns a JSON array, newest first, scoped to the key\'s organization — there is no way for a key to read across tenants. Filter with status, which takes one of the document status values.', code:'GET /api/v1/documents?status=sent\nX-API-Key: sk_test_9f2b…d41c\n\n# a single document, including fields and recipients\nGET /api/v1/documents/{document_id}' },
+        { h:'4 · Pull the audit trail', p:'Requires audit:read. Each entry carries its own checksum plus the checksum of the entry before it, so the trail is a hash chain: recompute it and you can prove no entry was inserted, removed or edited. This is the endpoint to use when you are mirroring evidence into your own system of record.', code:'GET /api/v1/documents/{document_id}/audit-logs\n\n[\n  {\n    "event_type": "document_signed",\n    "event_message": "Casey Example signed.",\n    "actor_email": "casey@example.com",\n    "ip_address": "203.0.113.42",\n    "created_at": "2026-09-08T11:47:03Z",\n    "checksum": "9f2b7c41a0e5…",\n    "previous_checksum": "41ab8f2c0d7e…",\n    "kind": "signature"\n  }\n]' },
+        { h:'5 · Hear about completion', p:'Do not poll for it. Register a webhook endpoint and subscribe to document.completed; the delivery is signed, retried six times and replayable from the dashboard. See the Webhooks page for the verification recipe — it is not the naive HMAC-of-the-body that most examples show, because the signature covers a timestamp too.', code:'POST /api/webhooks\n{\n  "url": "https://hooks.example.com/signerpro",\n  "event_types": ["document.completed", "document.declined", "recipient.signed"]\n}' },
+        { h:'What the public API does not do yet', p:'Reading is public; writing mostly is not. Creating a document, placing fields, adding recipients and sending for signature are session-authenticated app endpoints (/api/documents, /api/fields, /api/recipients, /api/templates), not /api/v1 routes, and no API-key scope reaches them today — envelopes:send and documents:write exist in the catalogue ahead of the routes that will honour them. To drive preparation or signing from your own application right now, mint an embed session server-side and load the returned URL: that is the supported path, and it is covered on the Embedding page.' }
       ] },
-    reference: { title:'API reference', lede:'REST over HTTPS, JSON in and out, cursor pagination, idempotency keys on every write.',
+    sandbox: { title:'Sandbox & test mode', lede:'A separate organization for testing, with outbound side effects suppressed.',
       sections:[
-        { h:'Base URL and auth', p:'All requests require a bearer key. Keys carry scopes; a 403 lists the scope you are missing.', code:'https://api.signerpro.com/v1\nAuthorization: Bearer sk_live_…\nIdempotency-Key: 8f2c41ab' },
-        { h:'Resources', items:['GET /v1/users — tenant users with role and MFA state','GET /v1/contacts — address book, writable with contacts:write','GET /v1/documents — envelopes with recipients and progress','POST /v1/documents/{id}/invite — start routing','GET /v1/documents/{id}/audit — tamper-evident log','GET /v1/documents/{id}/certificate — sealed PDF','POST /v1/embed/sessions — origin-locked embed token','GET /v1/templates — template inventory'] },
-        { h:'Pagination', p:'Cursor based. Pass the last id as starting_after; has_more tells you when to stop.', code:'GET /v1/documents?limit=50&starting_after=ENV-2291-KD' },
-        { h:'Errors', p:'Errors return a stable code plus a human message. 429 includes retry_after in seconds.', code:'{\n  "error": {\n    "code": "field_required",\n    "message": "Field \'Printed name\' has no value",\n    "field": "f3"\n  }\n}' }
+        { h:'What it is', p:'Your sandbox is a real, separate tenant paired with your live organization — not a flag on your live records. Because every query is scoped to an organization, nothing in the sandbox can read or write a live document, contact or template, and nothing live can see sandbox data.' },
+        { h:'Two ways in', p:'Use a test-mode API key, or send the sandbox header on a session-authenticated call. Both resolve the request to the same sandbox organization; the header is per-request, so a live call is never one forgotten toggle away.', code:'# a test-mode key\ncurl https://app.example.com/api/v1/contacts \\\n  -H "X-API-Key: sk_test_…"\n\n# or one session call, sandboxed\ncurl https://app.example.com/api/contacts \\\n  -b "$SIGNERPRO_SESSION_COOKIE" \\\n  -H "X-SignerPro-Sandbox: 1"' },
+        { h:'What is suppressed', items:['Outbound email — a signing link is generated but never delivered','Outbound SMS — including signer OTP messages','Payment collection — no invoice can be charged and no provider is contacted'] },
+        { h:'Confirm which side you are on', p:'Rather than trusting a toggle, ask. Called without the header it reports your live organization with is_sandbox false.', code:'GET /api/sandbox\n{\n  "organization_id": "org_…_sandbox",\n  "is_sandbox": true,\n  "live_organization_id": "org_…",\n  "document_count": 4,\n  "contact_count": 4,\n  "side_effects_suppressed": true\n}' },
+        { h:'Seed and reset', p:'Seeding is additive and gives you contacts and documents across the statuses worth testing against — draft, sent, viewed and completed. Reset empties the sandbox. Both are refused outright unless the request resolved to a sandbox, so neither verb has a path to a live record.', code:'POST /api/sandbox/seed     # 201, additive\nPOST /api/sandbox/reset    # 200, deletes sandbox documents and contacts' },
+        { h:'What it is not', items:['Not a separate API — the same paths serve both, and the same code runs','Not browsable in the app UI yet; the sandbox is reachable through the API and the API console','Not a billing environment — subscriptions and invoices belong to the live organization'] }
       ] },
-    embed: { title:'Embedding SignerPro', lede:'Run preparation and signing inside your own application with an origin-locked session.',
+    reference: { title:'API reference', lede:'REST over HTTPS, JSON in and out, one header for auth, per-key rate limiting. This page lists what is actually deployed rather than what is planned.',
       sections:[
-        { h:'Mint a session server-side', p:'Never expose a secret key to the browser. Create the session on your server and pass only the session id to the client.', code:'POST /v1/embed/sessions\n{\n  "landing": "builder",\n  "document": { "template_id": "TPL-014", "external_id": "hostcrm:deal_8842" },\n  "contacts": ["ct1", "ct2"],\n  "return_url": "https://app.hostcrm.com/deals/8842"\n}' },
-        { h:'Mount the iframe', p:'The helper handles resizing, focus and postMessage events for you.', code:'SignerPro.mount("#agreement", {\n  session: "es_example",\n  onComplete: (envelope) => host.save(envelope.id),\n  onCancel: () => host.close()\n});' },
-        { h:'Allowed origins', p:'Sessions are rejected unless the parent frame origin is on the allow-list configured under Apps & keys.' }
+        { h:'Base path and authentication', p:'Every public route is prefixed /api/v1 on your own deployment host. Authenticate with the X-API-Key header. A missing or unknown key is 401; a valid key without the required scope is 403, and the message names every scope you are missing so you can fix it in one attempt rather than by bisection.', code:'GET /api/v1/documents\nX-API-Key: sk_live_9f2b…d41c\n\n403 Forbidden\n{ "detail": "API key is missing required scope(s): documents:read" }' },
+        { h:'Scopes', items:['users:read — read organization members','contacts:read — read the address book','contacts:write — create and update contacts','documents:read — read documents, fields and recipients','documents:write — create and update documents, fields and recipients','envelopes:send — send documents for signature','audit:read — read audit trails'] },
+        { h:'A note on the write scopes', p:'contacts:write, documents:write and envelopes:send can be granted to a key today, but no /api/v1 route consults them yet — the write surface is app-session authenticated. Granting them changes nothing about what the key can do, so grant them when the routes ship, not in advance.' },
+        { h:'Endpoints', items:['GET /api/v1/whoami — organization, mode, scopes and key id for the calling key. No scope required.','GET /api/v1/documents — every document in the tenant, newest first. Optional status filter. Requires documents:read.','GET /api/v1/documents/{id} — one document with its fields and recipients. Requires documents:read.','GET /api/v1/documents/{id}/audit-logs — the hash-chained audit trail, oldest first. Requires audit:read.','GET /api/v1/users — members with role and status. Requires users:read.','GET /api/v1/contacts — address-book entries. Requires contacts:read.'] },
+        { h:'Response shape', p:'List endpoints return a bare JSON array, not an envelope object, and are not paginated yet: there is no limit, cursor or has_more, and a tenant with 10,000 documents gets 10,000 rows. Treat that as the current contract and keep your own high-water mark — filter on status and reconcile by document id rather than assuming a page size. Pagination will arrive as an additive change.' },
+        { h:'Rate limits', p:'600 requests per rolling 60 seconds, counted per API key id rather than per IP, so one tenant\'s traffic can never throttle another\'s and two keys in the same organization get their own budgets. Exceeding it returns 429 with a Retry-After header in seconds — read the header, do not guess a backoff. This ceiling is separate from your plan\'s monthly call quota, which is metered and billed independently.', code:'429 Too Many Requests\nRetry-After: 23\n{ "detail": "API rate limit exceeded for this key. Please slow down." }' },
+        { h:'Errors', p:'Errors return the HTTP status plus a JSON body with a single detail string. There is no stable machine-readable error code today, so branch on the status, not on the message text.', items:['400 — malformed request or a validation failure.','401 — missing, unknown, revoked or expired key.','403 — valid key, missing scope.','404 — the resource does not exist, or belongs to another tenant. Cross-tenant reads are deliberately indistinguishable from missing rows so the API cannot be used to probe for the existence of another customer\'s document.','422 — the body parsed but failed schema validation; the detail names the field.','429 — rate limited, with Retry-After.'] },
+        { h:'Idempotency', p:'There is no Idempotency-Key header on this surface — an earlier draft of this page claimed one. Because every public route is a GET, retries are safe by construction. When the write routes ship they will need an idempotency story, and this section is where it will be documented.' },
+        { h:'Managing keys', items:['GET /api/api-keys/scopes — the scope catalogue with descriptions.','GET /api/api-keys/usage — call volume against your quota.','POST /api/api-keys/{id}/roll — issue a new secret for an existing key; returns the secret once.','POST /api/api-keys/{id}/revoke and /restore — disable or re-enable a key without deleting its history.','PATCH /api/api-keys/{id}/scopes, plus /scopes/grant and /scopes/revoke — change what a live key can reach.'] }
       ] },
-    webhooks: { title:'Webhooks', lede:'Signed, retried, replayable event delivery.',
+    embed: { title:'Embedding SignerPro', lede:'Run preparation and signing inside your own application with a short-lived, origin-locked session. This is the supported way to write, while the public write API is still session-only.',
       sections:[
-        { h:'Verify the signature', p:'Compute an HMAC of the raw body with your endpoint secret and compare in constant time.', code:'const sig = req.headers["signerpro-signature"];\nconst expected = hmacSha256(rawBody, endpointSecret);\nif (!timingSafeEqual(sig, expected)) return res.status(400).end();' },
-        { h:'Retry schedule', items:['Immediately','+30 seconds','+5 minutes','+1 hour','+6 hours, then the endpoint is marked failing'] },
-        { h:'Idempotency', p:'Every delivery carries a stable event id. Store processed ids — retries repeat the same id.' }
+        { h:'Mint a session server-side', p:'Never expose a secret to the browser. Create the session from your server with an app session or an API key carrying documents:write, then hand the browser only the URL that comes back. The signed URL appears in this response and is never retrievable again — not from the list endpoint, not from support.', code:'POST /api/embed/sessions\n{\n  "landing": "builder",\n  "document": { "document_id": "doc_8842", "external_id": "hostcrm:deal_8842" },\n  "contacts": [{ "id": "ct1", "name": "Casey Example", "email": "casey@example.com", "role": "sign" }],\n  "return_url": "https://app.hostcrm.com/deals/8842",\n  "ttl_minutes": 30\n}' },
+        { h:'What comes back', p:'Keep the id if you want to inspect or revoke the session later, and hand only the url to the browser.', code:'201 Created\n{\n  "id": "es_example",\n  "url": "https://app.example.com/embed/builder?session=…",\n  "landing": "builder",\n  "document_id": "doc_8842",\n  "external_id": "hostcrm:deal_8842",\n  "return_url": "https://app.hostcrm.com/deals/8842",\n  "allowed_origins": ["https://app.hostcrm.com"],\n  "expires_at": "2026-09-08T12:30:00Z",\n  "consumed_at": null,\n  "expired": false\n}' },
+        { h:'Landing surfaces', items:['builder — prepare fields and recipients','routing — set the signing order','signing — sign as one recipient; recipient_id is required'] },
+        { h:'Load it in an iframe', p:'Give the frame real height — the builder and the signing surface both scroll internally, and a short frame produces a nested scrollbar that signers routinely fail to notice.', code:'<' + 'iframe\n  src="{url}"\n  allow="clipboard-write"\n  style="width:100%;height:800px;border:0"\n><' + '/iframe>' },
+        { h:'Allowed origins', p:'Maintain the parent-frame allow-list under Apps & keys, or with PATCH /api/organizations/me/api-settings. The token is exchanged by GET /api/embed/resolve, which refuses the call unless the Origin header matches an entry on the list. With no allow-list configured, only the first-party app origin may exchange a session — so a fresh deployment fails closed rather than open.' },
+        { h:'Session lifetime and control', items:['ttl_minutes defaults to 30 and caps at 1440 (24 hours).','A session is single-use: consumed_at is stamped at exchange, and an expired or consumed token is refused at exchange time, not at render time.','POST /api/embed/sessions/{id}/revoke invalidates one immediately — call it when a deal is cancelled rather than waiting for the TTL.','GET /api/embed/sessions lists the sessions minted for your organization, and GET /api/embed/sessions/{id} inspects one.'] },
+        { h:'Operating it safely', items:['Mint the session at the moment the user clicks, not when the page renders — a token minted on page load is already burning its TTL.','Set the shortest TTL that fits the task; 30 minutes is right for signing, and an hour is generous for preparation.','Keep the allow-list to exact origins you control. It is matched against the Origin header, so a wildcard is not available and should not be wanted.','Treat return_url as user-visible navigation: it is where the "Return to host app" action sends the signer.'] }
       ] },
-    sdks: { title:'SDKs & sample apps', lede:'Official clients for TypeScript, Python, PHP, Go and Java, plus runnable examples.',
+    webhooks: { title:'Webhooks', lede:'Signed, timestamped, retried and replayable event delivery — with the exact verification recipe, because getting this wrong silently accepts forged events.',
       sections:[
-        { h:'Install', code:'npm i @signerpro/node\npip install signerpro\ncomposer require signerpro/signerpro-php' },
-        { h:'TypeScript', code:'import { SignerPro } from "@signerpro/node";\n\nconst sf = new SignerPro(process.env.SIGNERPRO_KEY);\nconst env = await sf.documents.create({\n  title: "MSA — Acme",\n  templateId: "TPL-014"\n});\nawait sf.documents.invite(env.id, { recipients: [{ contactId: "ct1", role: "sign" }] });' },
-        { h:'Sample apps', items:['Next.js — embedded builder with App Router server actions','Laravel — queue-driven bulk send from CSV','NestJS — webhook receiver with signature verification','Postman collection — every endpoint with environment variables'] }
+        { h:'Register an endpoint', p:'Creating an endpoint returns its signing secret exactly once. The URL is validated on creation and re-validated at every delivery attempt, and addresses that resolve into private or link-local ranges are refused — so a URL that resolves publicly today cannot be re-pointed at internal metadata later.', code:'POST /api/webhooks\n{\n  "url": "https://hooks.example.com/signerpro",\n  "event_types": ["document.completed", "recipient.signed"]\n}\n\n201 Created\n{\n  "id": "whe_8842",\n  "url": "https://hooks.example.com/signerpro",\n  "event_types": ["document.completed", "recipient.signed"],\n  "secret": "whsec_…"   // shown once\n}' },
+        { h:'The headers on every delivery', code:'X-SignFlow-Timestamp: 1717171717        # unix seconds\nX-SignFlow-Signature: sha256=<hex digest>\nX-SignFlow-Event: document.completed\nX-SignFlow-Delivery: whd_8f2c41ab\nX-SignFlow-Attempt: 1\nUser-Agent: SignFlow-Webhooks/1.0' },
+        { h:'Verify the signature', p:'The signature covers the timestamp and the raw body joined by a dot — not the body alone. Verify against the exact bytes you received: the body is serialised with compact separators and sorted keys, so parsing and re-serialising it will change the bytes and every signature will fail. Compare in constant time, and reject anything older than five minutes to stop replay.', code:'const raw = await readRawBody(req);           // Buffer, not JSON.parse output\nconst ts = Number(req.headers["x-signflow-timestamp"]);\nconst sig = String(req.headers["x-signflow-signature"]).split("=", 2)[1];\n\nif (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) {\n  return res.status(400).end();                // replay guard\n}\nconst expected = createHmac("sha256", endpointSecret)\n  .update(`${ts}.`).update(raw).digest("hex");\nif (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {\n  return res.status(400).end();\n}\nres.status(200).end();                         // ack fast, then process' },
+        { h:'Events you can subscribe to', items:['document.created — created, still a draft and not yet sent','document.sent — sent out for signature','document.viewed — a recipient opened it for the first time','document.completed — every recipient has signed and the final PDF is sealed','document.declined — a recipient declined; the document is terminated','document.voided — the sender voided it','document.expired — it passed its expiry without completing','recipient.signed — one recipient finished their fields','recipient.declined — one recipient declined','recipient.reminded — a reminder was sent to a pending recipient','webhook.test — a synthetic event from the endpoint test button'] },
+        { h:'Delivery guarantees', p:'At-least-once. Each (event, endpoint) pair is written to the database inside the same transaction as the business change, so a queued delivery survives a restart, and attempts are made after that transaction commits, off the request path. A broken or slow endpoint of yours can therefore never prevent a document from completing.' },
+        { h:'Retries and backoff', p:'Six attempts in total. After a failure the next attempt is scheduled at 30 seconds, then doubling — 60s, 2m, 4m, 8m — capped at six hours, and after the sixth the delivery is marked exhausted and logged to the document audit trail. Any 2xx counts as success; everything else, including a timeout at ten seconds, is a failure.', items:['Attempt 1 — immediately after commit','Attempt 2 — +30 seconds','Attempt 3 — +1 minute','Attempt 4 — +2 minutes','Attempt 5 — +4 minutes','Attempt 6 — +8 minutes, then exhausted'] },
+        { h:'Idempotency', p:'Every retry reuses the same X-SignFlow-Delivery id, and a replay from the dashboard reuses it too. Store the ids you have processed and return 200 for one you have seen before — do not derive your own key from the payload, because the payload of a retry is byte-identical and tells you nothing about whether you already acted on it.' },
+        { h:'Inspect, test and replay', items:['GET /api/webhooks/event-types — the catalogue, with a description per event.','POST /api/webhooks/{id}/test — send a webhook.test delivery to prove the endpoint and your verification code work.','GET /api/webhooks/{id}/deliveries — attempt history with status codes and error text.','POST /api/webhooks/deliveries/{id}/replay — re-send one delivery after you have fixed your handler.','POST /api/webhooks/{id}/rotate-secret — new secret, returned once. Accept both secrets during the changeover, then drop the old one.'] },
+        { h:'Operating it', p:'Retries are drained by a scheduled task (scripts/run_webhook_retries.py), not by a background thread inside the web process — if nothing is calling it on your deployment, first attempts still go out but nothing is ever retried. Check that before concluding an endpoint is broken.' }
       ] },
-    migration: { title:'Migration guide', lede:'Move templates, contacts and completed archives from another provider.',
+    migration: { title:'Migration guide', lede:'Move contacts, templates and completed archives from another provider — using the import paths that exist today.',
       sections:[
-        { h:'What transfers', items:['Templates with field geometry and roles','Contacts with groups and tags','Completed PDFs with their original certificates attached as evidence','In-flight envelopes — recipients are re-invited with a new link'] },
-        { h:'Bulk import', p:'Upload a manifest and we validate before writing anything. Dry-run reports are retained for 30 days.', code:'POST /v1/imports\n{\n  "source": "other-provider",\n  "manifest_url": "https://files.acme.io/manifest.json",\n  "dry_run": true\n}' },
-        { h:'Cutover checklist', items:['Freeze template edits in the old system','Run a dry-run import and review the report','Import contacts, then templates, then archives','Repoint webhooks and API keys','Send one live test envelope per template'] }
-      ] }
+        { h:'Order of operations', p:'Contacts first, then templates, then archives. Templates reference roles rather than people so they do not depend on contacts, but recipients you add while testing a template will — and importing archives last keeps the noisy, high-volume step out of the way while you are still validating field placement.' },
+        { h:'Import contacts', p:'Two routes, both session-authenticated as a member of the workspace, and both accepting dry_run so you can see the outcome before anything is written. Run every import as a dry run first and read the errors: a CSV that reports 40 skipped rows is telling you the column mapping is wrong, not that 40 contacts are duplicates.', code:'POST /api/contacts/import?dry_run=true\n{\n  "contacts": [\n    { "name": "Casey Example", "email": "casey@example.com", "company": "Example Industries", "default_role": "sign", "group": "customers" }\n  ],\n  "dry_run": true\n}\n\n# or a CRM-style export, multipart/form-data\nPOST /api/contacts/import/csv?dry_run=true' },
+        { h:'CSV columns', p:'Recognised headers: name, email, company, title, phone, default_role, group, source, tags (semicolon separated), color, external_id. Only email is required, and anything else is ignored rather than rejected. Keep external_id populated with the record id from the old system — it is what lets you re-run an import without creating duplicates, and what lets you trace a contact back afterwards.' },
+        { h:'Templates', p:'There is no template import endpoint, and field geometry does not transfer between providers in any useful form — coordinate systems, page origins and role models all differ. Rebuild each template once in the builder from the source PDF, then use POST /api/templates/from-document/{id} to capture it, /duplicate for variants and /{id}/use to spin up an envelope. It is slower than it sounds you want, and it is the step that surfaces the templates nobody actually uses.' },
+        { h:'Completed archives', p:'Upload the sealed PDFs from the old provider as documents and file them in the Archive folder. Attach the provider\'s original certificate of completion alongside each one: your SignerPro audit trail starts at import and cannot vouch for events that happened elsewhere, so the imported certificate is the evidence for anything signed before cutover. Do not re-send an already-executed agreement to collect a SignerPro signature on it.' },
+        { h:'In-flight envelopes', p:'These do not migrate. An unsigned envelope in the old system has to be voided there and sent again here, which means recipients get a new link and any partial signatures are lost. Plan the cutover for a quiet window and count what is in flight first — that number decides whether you cut over in one move or run both systems for a fortnight.' },
+        { h:'Cutover checklist', items:['Freeze template edits in the old system and export contacts.','Dry-run the contact import; fix the column mapping until the error list is empty.','Import contacts for real, then rebuild and save each template.','Send one live test envelope per template, to yourself, and check field placement on the sealed PDF — not just in the builder.','Import the completed archive with original certificates attached.','Register webhook endpoints here, verify one test delivery, then disable the old provider\'s endpoints.','Issue new API keys, roll out the X-API-Key header, and revoke the old provider\'s credentials.','Count remaining in-flight envelopes in the old system; void and re-send them.'] }
+      ] },
+    overview: { title:'What SignerPro does', lede:'A plain-language tour of the product: the words we use, what happens to a document from upload to seal, and where to click for each step.',
+      sections:[
+        { h:'The five words worth knowing', items:['Document — the PDF you upload.','Envelope — the document once it has recipients and is out for signature. One document sent twice is two envelopes.','Field — a box a recipient fills: signature, initials, date, text, checkbox.','Recipient — a person on the envelope. A recipient signs, approves, or only receives a copy.','Routing — the order recipients are notified in: sequential (one after another) or parallel (everyone at once).'] },
+        { h:'The path a document takes', items:['Upload — drag a PDF in, or start from a template.','Prepare — add recipients, then drag fields onto the pages and assign each one to a recipient.','Send — SignerPro emails each recipient a private link. Nobody needs a SignerPro account to sign.','Sign — recipients open the link, fill their fields, and confirm.','Seal — when the last recipient finishes, the PDF is flattened, hashed and locked, and a certificate of completion is attached. Everyone on the envelope gets the sealed copy by email.'] },
+        { h:'Where things live', items:['Dashboard — what needs your attention today, and what you are waiting on.','Library — every document, grouped into Documents, Templates, Archive and Trash, with filters for status, type, date and owner.','Contacts — your address book. Recipients you add here can be reused without retyping an email.','Settings — signature appearance, notification cadence, branding and security for your workspace.'] },
+        { h:'What it costs you in time', p:'A first envelope takes about five minutes end to end. A repeat send from a saved template takes under a minute, because the fields and roles are already placed.' },
+        { h:'If you would rather be shown', p:'Open the product tour from the help menu. It walks the same path in the real interface, on your own workspace, and you can leave it at any point without losing work.' }
+      ] },
+    send: { title:'Send a document for signature', lede:'The core task, step by step — from a PDF on your desktop to an envelope in someone else\'s inbox.',
+      sections:[
+        { h:'1 · Upload the document', p:'From the Dashboard or Library, choose New, then Upload. PDF is the native format; Word, Excel and image files are converted to PDF on upload and the conversion is what gets signed. Keep a single file under 25 MB and 250 pages. If you have several files that should be signed together, upload them into one envelope — they are merged in the order you add them, and you can reorder pages afterwards.' },
+        { h:'2 · Add your recipients', p:'Add each person by email, or pick them from Contacts. Then set what each one has to do.', items:['Needs to sign — must complete every field assigned to them.','Approver — reviews and approves, without signing.','Receives a copy — gets the sealed PDF at the end and is never asked to act.','In-person signer — you host the signing on your own device, with them next to you.'] },
+        { h:'3 · Choose the signing order', p:'Sequential means recipient 2 is only emailed once recipient 1 finishes — use it when a countersignature has to come last. Parallel emails everyone at once and is faster when the order does not matter. You can mix the two by giving several recipients the same order number: they are notified together, and the next number waits for all of them.' },
+        { h:'4 · Place the fields', p:'Drag a field from the left palette onto the page, then set who it belongs to. Each field is colour-coded by recipient, so a glance tells you whether anyone has been left with nothing to do. Fields snap to an 8-point grid; hold Alt while dragging to place one freely.', items:['Mark a field required and the recipient cannot finish without it.','Use a text field with validation (email, date, number) to stop bad data at the source rather than chasing a correction later.','Copy a field to the same spot on every page with Duplicate to all pages — useful for initials.','Conditional fields appear only when an earlier answer matches, which keeps a long form short for most signers.'] },
+        { h:'5 · Set reminders and an expiry', p:'Reminders nudge anyone who has not acted, on the cadence you choose (24 hours, 48 hours, weekly, or never). An expiry voids the envelope automatically if it is still unsigned by then, which keeps stale agreements out of your Library. Both can be changed after sending.' },
+        { h:'6 · Send, then watch it move', p:'After sending, the envelope appears in Outbox. Its row shows how far it has got — sent, viewed, partially signed, completed. Open it to see per-recipient status and the audit trail. From there you can resend the invitation, correct a field, reassign a recipient, or void the envelope with a reason.' },
+        { h:'Before you send, check these three things', items:['Every signing recipient has at least one required field assigned to them.','The email addresses are right — a private link sent to the wrong address is the most common support ticket we see.','The routing order matches how the agreement actually gets approved internally.'] }
+      ] },
+    sign: { title:'Signing a document you received', lede:'For anyone who has been sent an envelope — including people who have never used SignerPro. No account, no download, no app.',
+      sections:[
+        { h:'Open your link', p:'The email from the sender contains a private link that is tied to your address. Open it on a phone, tablet or computer in any current browser. If the sender turned on extra verification you will be asked for a one-time code, or for an access code they gave you separately — we never send that code in the same email as the link.' },
+        { h:'Agree to sign electronically', p:'The first screen is the electronic record and signature disclosure. It explains that you are consenting to sign and receive records electronically, and that you can withdraw consent and ask the sender for paper instead. You have to agree once per envelope, and your agreement is recorded with a timestamp.' },
+        { h:'Fill your fields', p:'Choose Start, or scroll, and the document jumps to the first field waiting on you. Required fields are marked; the progress counter at the top tells you how many are left. Fields assigned to other recipients are visible but locked, so you can read the whole agreement without being able to change their answers.' },
+        { h:'Make your signature', items:['Draw — sign with a finger, stylus or trackpad. Clear and redraw as often as you like.','Type — pick a handwriting style; your typed name becomes the mark.','Upload — use an image of your existing signature on a plain background.','Saved — reuse the signature you made last time. On a supported device you can lock it to a passkey, so a fingerprint or face check applies it.'] },
+        { h:'Finish', p:'Choose Finish and your part is complete. If others are still to sign, you will be emailed the sealed PDF once the last person is done; otherwise it arrives straight away. Either way you can download a copy from the confirmation screen immediately.' },
+        { h:'If something is wrong', items:['Wrong information in the document — do not sign. Choose Decline and give a reason; the sender is notified and the envelope is voided for everyone.','Not the right person to sign — some envelopes let you reassign to a colleague; if not, reply to the sender and ask them to correct the recipient.','Need more time — the link stays live until the expiry date shown on it. If it has expired, ask the sender to resend.','Lost the email — search for the sender name, check spam, then ask for a resend. Links cannot be forwarded to another address.'] },
+        { h:'Is an electronic signature actually binding', p:'In most jurisdictions, yes — electronic signatures are recognised under laws such as the US ESIGN Act and UCITA, the EU eIDAS regulation, and equivalent legislation elsewhere. Each completed envelope carries a certificate recording who signed, when, from which IP address, and a hash of the exact document they saw, which is what makes it evidential. This is general information, not legal advice.' }
+      ] },
+    templates: { title:'Templates and reusable setups', lede:'If you send the same agreement more than twice, make it a template — the fields, roles, reminders and message are saved once and reused.',
+      sections:[
+        { h:'Make one', p:'Prepare a document as usual, then choose Save as template instead of Send. Give it a name your team will recognise and describe when to use it. You can also save any envelope you have already sent as a template from its detail view.' },
+        { h:'Use roles, not people', p:'A template names roles — Customer, Sales lead, Legal — rather than individual recipients. When someone sends from the template they fill each role in with a real person, so the same setup works for every deal. Assign fields to roles at build time and they land on the right signer automatically.' },
+        { h:'Prefill what you already know', p:'Fields can carry a default value, and text fields can be locked so the sender fills them but the signer cannot change them — the right shape for a price, a term length or a contract number.' },
+        { h:'Share it with the team', items:['Private — only you can send from it.','Team — anyone in your team can send from it, and only the owner can edit it.','Workspace — available to everyone, typically owned by legal or operations.'] },
+        { h:'Keep them honest', p:'Templates drift. Review the workspace set once a quarter: archive anything unused for six months, and check that clause references still match the current contract text. Editing a template never changes envelopes already sent from it.' }
+      ] },
+    team: { title:'Team, roles and permissions', lede:'Who can see and do what — and how to add people without giving away more than you meant to.',
+      sections:[
+        { h:'The four roles', items:['Super admin — platform-wide. Manages every tenant, feature flags and billing. Rare, and usually not you.','Org admin — owns one workspace: invites and removes people, sets branding, security policy and integrations, and can see every envelope in the workspace.','Sender — prepares and sends envelopes, and sees the ones they own or that were shared with them.','Viewer — read-only. Can open and download what has been shared with them, and cannot send.'] },
+        { h:'Invite someone', p:'From Settings, then Users, choose Invite and enter the address and role. The invitation is valid for seven days and can be revoked before it is accepted. Grant Sender by default and promote later — admin rights are the ones that are hard to take back quietly.' },
+        { h:'When someone leaves', p:'Deprovision rather than delete. Deprovisioning revokes access immediately but keeps their name on completed envelopes and in audit trails, which is what makes those records hold up later. Reassign their in-flight envelopes first, or they stall.' },
+        { h:'Single sign-on and directory sync', p:'On Business and Enterprise, an org admin can connect SAML single sign-on so people use your identity provider, and SCIM so joiners, movers and leavers are applied automatically. Once SAML is enforced, password sign-in is refused for the workspace — set up and test the connection with a second admin account available before you enforce it.' },
+        { h:'Two-factor authentication', p:'Enable it for yourself under your account, or require it workspace-wide from Settings, then Security. Authenticator apps and passkeys are supported; SMS is not, because it is the weakest of the three.' }
+      ] },
+    security: { title:'Security, audit trail and compliance', lede:'What we record, what an auditor will ask for, and where to find it.',
+      sections:[
+        { h:'The audit trail', p:'Every envelope carries an append-only log: created, sent, delivered, opened, each field completed, signed, declined, voided, downloaded. Each entry records the actor, an ISO 8601 timestamp, the IP address and the user agent. Nothing in the log can be edited or removed, including by an admin.' },
+        { h:'The certificate of completion', p:'Attached to the sealed PDF and downloadable on its own from an envelope. It lists every recipient with their signing method and verification, the full event history, and the SHA-256 hash of the sealed document. If a signature is ever challenged, this is the document you produce.' },
+        { h:'Proving a copy is unaltered', p:'Hash the PDF you hold and compare it with the hash on the certificate. If the two match, the file is byte-for-byte the one that was signed. A mismatch means the copy has been re-saved or edited and is not the executed original.' },
+        { h:'How data is protected', items:['In transit — TLS 1.2 or better, on every connection.','At rest — AES-256, with documents in per-tenant storage.','Access — scoped API keys, short-lived embed sessions locked to an origin, and optional IP allow-listing for admin surfaces.','Isolation — every query is tenant-scoped; no request can read across workspaces.'] },
+        { h:'Retention and deletion', p:'An org admin sets a retention window per document type. Documents past the window are purged on a nightly job, while the audit log and certificate are kept, so a deletion does not destroy the evidence that the agreement existed. Deleting a document from Trash is immediate and cannot be undone.' },
+        { h:'What to send an auditor', items:['The sealed PDF for each agreement in scope.','Its certificate of completion.','The exported audit trail (CSV or JSON) from the envelope.','Your workspace security settings — password policy, two-factor requirement, SSO status, retention windows.'] }
+      ] },
+    faq: { title:'Troubleshooting and FAQ', lede:'The questions support answers most often, with the fix rather than the theory.',
+      sections:[
+        { h:'A recipient says they never got the email', p:'Check the envelope detail view: it records whether the message was delivered, and to which address. If delivery failed, the address is usually wrong or a corporate filter blocked it — correct the recipient and resend. If it was delivered, ask them to search for the sender name and check spam and quarantine. As a last resort, copy the signing link from the envelope and send it to them yourself, but only to the same address.' },
+        { h:'I sent it with a mistake in the document', p:'Void the envelope with a reason, fix the PDF, and send again. Void is the honest option: it notifies everyone and records why. Correct is for smaller repairs — a mistyped email, a field in the wrong place, a missing recipient — and can be used while an envelope is still in flight.' },
+        { h:'A field is in the wrong place on the signed PDF', p:'Almost always a rotated page. Fields are stored against the page as the signer saw it, so if you rotate a page after placing fields, re-check the placement before sending. Rotate first, place second.' },
+        { h:'The signer cannot finish', items:['Progress counter still shows fields left — they are usually on a page that has scrolled past; Next field jumps to it.','A field rejects their input — it has validation attached and the format does not match, for example a date typed as 3/4 rather than 03/04/2026.','Nothing responds — a browser extension blocking scripts, or a very old browser. Ask them to try a private window, or another device.'] },
+        { h:'Can I change a document after it has been signed', p:'No, and that is the point — the sealed PDF is hashed at completion. Send a new envelope for the amended version, and keep the original: the pair of them is the record of what changed and when.' },
+        { h:'Can someone sign without an account', p:'Yes. Recipients never need an account, a password or an app. Accounts are only needed to send.' },
+        { h:'What happens when a plan runs out of envelopes', p:'Sending is blocked while signing continues — envelopes already out stay live and can still be completed. An org admin can raise the limit from Plans and usage.' },
+        { h:'Still stuck', p:'Open the Support screen and raise a ticket from the envelope in question: the envelope id, its audit trail and your workspace details are attached automatically, which is what lets support answer in one reply instead of three.' }
+      ] },
   };
 
 /* ── field inspector ── */
@@ -290,30 +383,47 @@ export const CONTACT_PALETTE: string[] = ['#10b981','#6366f1','#f59e0b','#0ea5e9
    `ApiScreen` labels the block "Example response" so a developer cannot read
    it as their own directory. */
 export const API_DEFS: Dict<{ method: string; path: string; desc: string; params: [string, string, string][]; sample: string }> ={
-      users: { method:'GET', path:'/v1/users?limit=25&status=active',
-        desc:'Returns every user in the authenticated tenant with role, MFA state and last activity. Use this to map host-application accounts to SignerPro identities before launching an embed session.',
-        params:[['limit','integer','Page size, 1–100. Defaults to 25.'],['status','enum','active | invited | deprovisioned'],['role','enum','super | orgadmin | sender | viewer'],['updated_after','ISO 8601','Incremental sync cursor.']],
-        sample:'{\n  "object": "list",\n  "has_more": false,\n  "data": [\n    {\n      "id": "usr_8f2c41ab",\n      "name": "Ada Example",\n      "email": "ada@example.com",\n      "role": "orgadmin",\n      "tenant": "acme",\n      "mfa": "totp",\n      "status": "active",\n      "last_active_at": "2026-08-28T11:47:03Z"\n    },\n    {\n      "id": "usr_91bd7c02",\n      "name": "Blake Example",\n      "email": "blake@example.com",\n      "role": "sender",\n      "tenant": "acme",\n      "mfa": "totp",\n      "status": "active",\n      "last_active_at": "2026-08-28T08:12:44Z"\n    }\n  ]\n}' },
-      contacts: { method:'GET', path:'/v1/contacts?group=customers',
-        desc:'Address-book entries available as envelope recipients. Writable with contacts:write — POST the same shape to create, PATCH /v1/contacts/{id} to update.',
-        params:[['group','enum','customers | internal | counsel | vendors'],['q','string','Free-text match on name, email, company or tag.'],['source','enum','crm | scim | api | manual'],['expand','array','history, envelopes']],
-        sample:'{\n  "object": "list",\n  "has_more": false,\n  "data": [\n    {\n      "id": "ct1",\n      "name": "Casey Example",\n      "email": "casey@example.com",\n      "company": "Example Industries",\n      "default_role": "sign",\n      "group": "customers",\n      "source": "crm",\n      "tags": ["MSA", "Renewal 2026"],\n      "envelope_count": 14\n    }\n  ]\n}' },
-      documents: { method:'GET', path:'/v1/documents?status=action_required',
-        desc:'Envelope metadata with recipients, field counts and progress. Pair with GET /v1/documents/{id}/audit for the tamper-evident log and /certificate for the sealed PDF.',
-        params:[['status','enum','draft | sent | action_required | completed | voided'],['contact_id','string','Filter by a contact appearing as recipient.'],['include','array','fields, recipients, audit'],['created_after','ISO 8601','Range filter.']],
-        sample:'{\n  "object": "list",\n  "has_more": true,\n  "data": [\n    {\n      "id": "env_example_0001",\n      "title": "Master Services Agreement — Example Industries",\n      "status": "action_required",\n      "page_count": 3,\n      "field_count": 9,\n      "recipients": [\n        { "contact_id": "ct1", "role": "sign", "routing_order": 1, "status": "viewed" },\n        { "contact_id": "ct2", "role": "approve", "routing_order": 2, "status": "sent" }\n      ],\n      "expires_at": "2026-09-11T00:00:00Z",\n      "hash": "sha256:9f2b7c41a0e5…"\n    }\n  ]\n}' },
-      embed: { method:'POST', path:'/v1/embed/sessions',
-        desc:'Mints a short-lived, origin-locked session token. The host app opens the returned url in an iframe and SignerPro lands directly on the preparation surface with the document and contacts you passed in.',
-        params:[['document','object','title, file_url or template_id, external_id'],['contacts','array','Contact ids or inline {name, email, role}'],['landing','enum','builder | routing | signing'],['return_url','string','Where the “Return to host app” action navigates.']],
-        sample:'{\n  "object": "embed_session",\n  "id": "es_example",\n  "url": "https://embed.signerpro.example/s/es_example",\n  "expires_at": "2026-08-28T12:34:00Z",\n  "landing": "builder",\n  "document": {\n    "title": "Master Services Agreement — Example Industries",\n    "external_id": "hostcrm:deal_8842",\n    "page_count": 3\n  },\n  "contacts": [\n    { "id": "ct1", "role": "sign", "routing_order": 1 },\n    { "id": "ct2", "role": "approve", "routing_order": 2 }\n  ]\n}' }
+      whoami: { method:'GET', path:'/api/v1/whoami',
+        desc:'Resolves the calling key: which organization it belongs to, which scopes it actually holds, and its mode label. Needs no scope beyond a valid key, so it is the call to make first when a request is failing and you are not certain which key you pasted. API keys never carry platform-admin powers, and this route says so explicitly.',
+        params:[],
+        sample:'{\n  "organization_id": "org_8842",\n  "mode": "test",\n  "scopes": ["audit:read", "documents:read"],\n  "key_id": "key_8f2c41ab",\n  "is_platform_admin": false\n}' },
+      documents: { method:'GET', path:'/api/v1/documents?status=sent',
+        desc:'Every document in the calling key’s organization, newest first, as a bare JSON array — there is no cursor, limit or has_more on this surface yet. Requires documents:read. GET /api/v1/documents/{id} returns one, and a document belonging to another tenant answers 404 rather than 403 so the API cannot be used to probe for its existence.',
+        params:[['status','enum','draft | prepared | sent | viewed | partially_completed | completed | declined | expired | voided']],
+        sample:'[\n  {\n    "id": "doc_example_0001",\n    "organization_id": "org_8842",\n    "sender_id": "usr_8f2c41ab",\n    "title": "Master Services Agreement — Example Industries",\n    "status": "sent",\n    "workflow_type": "sequential",\n    "is_template": false,\n    "page_count": 3,\n    "original_sha256": "9f2b7c41a0e5…",\n    "final_sha256": null,\n    "sent_at": "2026-09-08T11:02:00Z",\n    "completed_at": null,\n    "expires_at": "2026-09-22T11:02:00Z",\n    "reminder_cadence": "48h",\n    "recipients_total": 2,\n    "recipients_completed": 1,\n    "created_at": "2026-09-08T10:58:14Z",\n    "updated_at": "2026-09-08T11:47:03Z"\n  }\n]' },
+      audit: { method:'GET', path:'/api/v1/documents/{document_id}/audit-logs',
+        desc:'The hash-chained audit trail for one document, oldest first. Requires audit:read. Each entry carries its own checksum and the checksum of the entry before it, so recomputing the chain proves that nothing was inserted, edited or removed — this is the endpoint to mirror into your own system of record when you need evidence rather than status.',
+        params:[],
+        sample:'[\n  {\n    "id": "aud_0001",\n    "event_type": "document_sent",\n    "event_message": "Sent to 2 recipients.",\n    "actor_email": "ada@example.com",\n    "ip_address": "203.0.113.7",\n    "created_at": "2026-09-08T11:02:00Z",\n    "checksum": "41ab8f2c0d7e…",\n    "previous_checksum": null,\n    "kind": "lifecycle"\n  },\n  {\n    "id": "aud_0002",\n    "event_type": "document_signed",\n    "event_message": "Casey Example signed.",\n    "actor_email": "casey@example.com",\n    "ip_address": "203.0.113.42",\n    "created_at": "2026-09-08T11:47:03Z",\n    "checksum": "9f2b7c41a0e5…",\n    "previous_checksum": "41ab8f2c0d7e…",\n    "kind": "signature"\n  }\n]' },
+      users: { method:'GET', path:'/api/v1/users',
+        desc:'Members of the calling key’s organization, oldest first. Requires users:read. Use it to map host-application accounts onto SignerPro identities before minting an embed session. The projection is deliberately narrow — no MFA state, no last-active timestamp — so a read-only integration key cannot be turned into a security-posture report on your staff.',
+        params:[],
+        sample:'[\n  {\n    "id": "usr_8f2c41ab",\n    "name": "Ada Example",\n    "email": "ada@example.com",\n    "role": "orgadmin",\n    "status": "active"\n  },\n  {\n    "id": "usr_91bd7c02",\n    "name": "Blake Example",\n    "email": "blake@example.com",\n    "role": "sender",\n    "status": "invited"\n  }\n]' },
+      contacts: { method:'GET', path:'/api/v1/contacts',
+        desc:'Address-book entries, oldest first. Requires contacts:read. Read-only on this surface: contacts:write exists in the scope catalogue but no /api/v1 route consults it yet, so creating and updating contacts is done through the session-authenticated app routes (POST /api/contacts, or /api/contacts/import and /import/csv for bulk).',
+        params:[],
+        sample:'[\n  {\n    "id": "ct1",\n    "name": "Casey Example",\n    "email": "casey@example.com"\n  },\n  {\n    "id": "ct2",\n    "name": "Devon Example",\n    "email": "devon@example.com"\n  }\n]' },
+      embed: { method:'POST', path:'/api/embed/sessions',
+        desc:'Mints a short-lived, origin-locked embed session. The host app loads the returned url in an iframe and SignerPro lands directly on the chosen surface with the document and contacts you passed in. The url appears in this response only. Note the path: this is an app route, not an /api/v1 one, and it is the supported way to drive preparation or signing from your own application while the public write surface is still session-only.',
+        params:[['landing','enum','builder | routing | signing — defaults to builder'],['document','object','document_id or template_id, plus optional title, file_url and external_id'],['recipient_id','string','Required when landing is signing.'],['contacts','array','Inline {id, name, email, role} entries'],['return_url','string','Where the “Return to host app” action navigates. Falls back to the organization default.'],['ttl_minutes','integer','1–1440, defaults to 30.']],
+        sample:'{\n  "id": "es_example",\n  "url": "https://app.example.com/embed/builder?session=…",\n  "landing": "builder",\n  "document_id": "doc_8842",\n  "external_id": "hostcrm:deal_8842",\n  "return_url": "https://app.hostcrm.com/deals/8842",\n  "allowed_origins": ["https://app.hostcrm.com"],\n  "contacts": [\n    { "id": "ct1", "name": "Casey Example", "email": "casey@example.com", "role": "sign" }\n  ],\n  "expires_at": "2026-09-08T12:30:00Z",\n  "consumed_at": null,\n  "created_at": "2026-09-08T12:00:00Z",\n  "expired": false\n}' }
     };
 
-export const API_TABS: [string, string][] = [['users','Users'],['contacts','Contacts'],['documents','Documents'],['embed','Embed session']];
+export const API_TABS: [string, string][] = [['whoami','Whoami'],['documents','Documents'],['audit','Audit trail'],['users','Users'],['contacts','Contacts'],['embed','Embed session']];
 export const EMBED_SNIPPET: string =
+  '// your server — the key never reaches the browser\n' +
+  'const res = await fetch("https://app.example.com/api/embed/sessions", {\n' +
+  '  method: "POST",\n' +
+  '  headers: { "X-API-Key": process.env.SIGNERPRO_KEY, "Content-Type": "application/json" },\n' +
+  '  body: JSON.stringify({\n' +
+  '    landing: "builder",\n' +
+  '    document: { document_id: "doc_8842", external_id: "hostcrm:deal_8842" },\n' +
+  '    return_url: "https://app.hostcrm.com/deals/8842"\n' +
+  '  })\n' +
+  '});\n' +
+  'const { url } = await res.json();   // single-use, expires in ttl_minutes\n\n' +
   '<!-- host application -->\n' +
-  '<' + 'script' + ' src="https://embed.signerpro.com/v1.js">' + '<' + '/script>' + '\n' +
-  '<' + 'script' + '>\n  SignerPro.mount("#agreement", {\n    session: "es_example",      // POST /v1/embed/sessions\n    landing: "builder",\n    metadata: {\n      document: { external_id: "hostcrm:deal_8842" },\n      contacts: ["ct1", "ct2"]\n    },\n    onComplete: (envelope) => host.save(envelope.id)\n  });\n' +
-  '<' + '/script>';
+  '<' + 'iframe src="{url}" allow="clipboard-write" style="width:100%;height:800px;border:0">' + '<' + '/iframe>';
 
 /* ── support ── */
 
@@ -396,7 +506,11 @@ export const ACCOUNT_NAV: [string, string][] =[
       ['security','Settings · login & security'],
       ['notifications','Notifications & email'],
       ['integrations','Integrations'],
-      ['organization','Organization & teams'], ['audit','Audit trail']
+      ['organization','Organization & teams'], ['audit','Audit trail'],
+      /* Stripe Connect status for this org — its own screen at
+         `/account/payments`, same reason `billing` is: it needs more than
+         the `[section]` catch-all route gives it. */
+      ['payments','Payments']
 ];
 
 export const ACCOUNT_TITLES: Dict<[string, string]> ={
@@ -413,12 +527,29 @@ export const ACCOUNT_TITLES: Dict<[string, string]> ={
 
 export const HELP_ITEMS: [string, string | null][] =[
       ['Start product tour', 'tour'], ['Support centre', 'support'], ['Contact support', 'support'],
-      ['Guides & docs', 'guides'], ['API sandbox', 'sandbox'], ['Keyboard shortcuts', null]
+      ['Guides & docs', 'guides'], ['API console', 'sandbox'], ['Keyboard shortcuts', null]
 ];
 /* ── sandbox & guides ── */
 
-export const SB_LANG_TABS: [string, string][] = [['curl','cURL'],['node','TypeScript'],['python','Python'],['php','PHP']];
-export const DOC_NAV: [string, string][] = [['quickstart','Quickstart guide'],['reference','API reference'],['embed','Embedding'],['webhooks','Webhooks'],['sdks','SDKs & samples'],['migration','Migration guide']];
+export const SB_LANG_TABS: [string, string][] = [['curl','cURL'],['node','TypeScript'],['python','Python']];
+/* `DOC_NAV` is grouped: the third element is the heading a page sits under.
+   Everyday users land on `overview`, so the plain-language pages come first
+   and the developer reference sits below them rather than in front. */
+export const DOC_NAV: [string, string, string][] = [
+  ['overview','What SignerPro does','Getting started'],
+  ['send','Send a document','Getting started'],
+  ['sign','Sign a document','Getting started'],
+  ['templates','Templates','Everyday use'],
+  ['team','Team & permissions','Everyday use'],
+  ['security','Security & audit trail','Everyday use'],
+  ['faq','Troubleshooting & FAQ','Everyday use'],
+  ['quickstart','Quickstart guide','Developers'],
+  ['sandbox','Sandbox & test mode','Developers'],
+  ['reference','API reference','Developers'],
+  ['embed','Embedding','Developers'],
+  ['webhooks','Webhooks','Developers'],
+  ['migration','Migration guide','Developers']
+];
 
 /* ── nav ──
    The rail and the screen→rail map live in `lib/sf/navigation.ts` and

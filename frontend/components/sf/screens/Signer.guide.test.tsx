@@ -36,7 +36,7 @@ vi.mock('@/components/sf/pdf/LazyPdfPages', () => ({
 }));
 
 const field = (over: Partial<SignerField> & { id: string }): SignerField => ({
-  id: over.id, to: 'r1', type: 'text', label: 'Field', page: 1,
+  to: 'r1', type: 'text', label: 'Field', page: 1,
   x: 100, y: 100, w: 180, h: 28, required: true, readOnly: false,
   ...over,
 } as SignerField);
@@ -67,8 +67,8 @@ describe('the signing surface guide', () => {
   it('points at the next field on the page itself', () => {
     mount([field({ id: 'f1', label: 'Full name' }), field({ id: 'f2', label: 'Job title', y: 300 })]);
     const tags = screen.getAllByText(/Text/);
-    expect(tags[0].textContent).toMatch(/^➜/);
-    expect(tags[1].textContent).not.toMatch(/^➜/);
+    expect(tags[0].getAttribute('data-mark')).toBe('arrowRight');
+    expect(tags[1].getAttribute('data-mark')).not.toBe('arrowRight');
   });
 
   it('scrolls the document — not the page box — to reach a field on a later page', () => {

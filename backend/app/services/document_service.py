@@ -1,15 +1,18 @@
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from io import BytesIO
 from typing import Iterable
 
 from fastapi import HTTPException, UploadFile, status
-from pypdf import PdfReader
-from sqlalchemy import func, or_, select
+from pypdf import PdfReader, PdfWriter
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.hashing import sha256_bytes, sha256_json
 from app.core.storage import storage
+from app.models.audit_log import AuditLog
+from app.models.dlp_finding import DocumentDlpFinding
 from app.models.document import Document
 from app.models.document_favorite import DocumentFavorite
 from app.models.folder import Folder
@@ -20,11 +23,14 @@ from app.models.enums import (
     FieldType,
     RecipientRole,
     RecipientStatus,
+    SignerPaymentStatus,
     WorkflowType,
     is_signing_role,
 )
 from app.models.field import Field
+from app.models.notification import Notification
 from app.models.recipient import Recipient
+from app.models.signer_payment import SignerPayment
 from app.models.user import User
 from app.schemas.document import (
     DocumentCounts,
@@ -35,7 +41,7 @@ from app.schemas.document import (
     RoutingUpdate,
     SendDocumentResponse,
 )
-from app.services import conversion_service
+from app.services import conversion_service, dlp_service, platform_service
 from app.services.audit_service import audit_service
 from app.services.crm_service import crm_integration_service
 from app.services.email_service import signflow_email_service
@@ -48,8 +54,14 @@ from app.services.token_service import token_service
 #: materialising an entire tenant's library into memory and into one JSON body.
 LIST_HARD_LIMIT = 500
 
+#: Ceiling on how far a document can be grown by adding pages -- a runaway
+#: loop of appends would otherwise be limited only by the storage quota.
+MAX_DOCUMENT_PAGES = 2000
+
 EDITABLE_STATUSES = {DocumentStatus.draft, DocumentStatus.prepared}
 ACTIVE_STATUSES = {DocumentStatus.sent, DocumentStatus.viewed, DocumentStatus.partially_completed}
+
+logger = logging.getLogger(__name__)
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -260,7 +272,9 @@ class DocumentService:
         if document.status not in EDITABLE_STATUSES:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document cannot be edited in its current status")
 
-    async def upload_pdf(self, db: Session, *, document: Document, user: User, upload: UploadFile) -> Document:
+    async def upload_pdf(
+        self, db: Session, *, document: Document, user: User, upload: UploadFile, fit: str = "fit"
+    ) -> Document:
         self.ensure_editable(document)
         if document.original_file_path:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Original PDF cannot be overwritten")
@@ -278,7 +292,10 @@ class DocumentService:
         # assumes a PDF, so a non-PDF upload is converted here and only the PDF
         # is stored and hashed.
         converted_from = conversion_service.extension_of(filename).lstrip(".") if not filename.lower().endswith(".pdf") else None
-        content = conversion_service.convert_to_pdf(filename=filename, content=content)
+        # An image has no page size of its own, so one is chosen for it (US
+        # Letter, the shape of every other document here) rather than letting
+        # its pixel count decide -- see `conversion_service.IMAGE_FIT_MODES`.
+        content = conversion_service.convert_to_pdf(filename=filename, content=content, fit=fit)
         if not content.startswith(b"%PDF"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is not a valid PDF")
         try:
@@ -288,6 +305,9 @@ class DocumentService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF could not be read") from exc
         if page_count < 1:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF must contain at least one page")
+
+        if platform_service.dlp_enabled(db):
+            self._scan_for_dlp(db, document=document, reader=reader)
 
         relative_path = f"documents/{document.id}/original.pdf"
         storage.write_bytes(relative_path, content)
@@ -320,6 +340,281 @@ class DocumentService:
         db.refresh(document)
         return document
 
+    async def add_pages(
+        self,
+        db: Session,
+        *,
+        document: Document,
+        user: User,
+        upload: UploadFile | None = None,
+        blank_count: int = 0,
+        at: int | None = None,
+        fit: str = "fit",
+        crop: conversion_service.CropRect | None = None,
+    ) -> Document:
+        """Grow the document: insert blank pages, or the pages of an uploaded
+        file, at page number ``at`` (default: after the last page).
+
+        The counterpart to :meth:`rearrange_pages`. A sender who has to add an
+        exhibit, a signature sheet or a photographed addendum otherwise has no
+        way forward -- the API refuses a second original, so without this the
+        only route is deleting the envelope and starting again.
+
+        Whatever arrives is converted to PDF first (an image or a .docx becomes
+        pages like any other upload). Blank pages, and the page an image is
+        laid onto, are cut to the size of the page they follow, so a phone
+        photo joins the document as one more sheet of the same size instead of
+        the several-feet-tall page its own pixel count would make. ``fit``
+        chooses how the image sits on that sheet -- see
+        ``conversion_service.IMAGE_FIT_MODES`` -- and ``crop`` narrows it to
+        the part of the picture the sender selected first.
+        Fields at or after the insertion point move down with their page; no
+        field is ever left pointing at a page that now holds different content.
+        """
+        self.ensure_editable(document)
+        if not document.original_file_path:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload the document before adding pages to it")
+        total = document.page_count
+        position = total + 1 if at is None else at
+        if position < 1 or position > total + 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Pages can only be added within the document")
+
+        settings = get_settings()
+        added_from: str | None = None
+        source: PdfReader | None = None
+        try:
+            existing = PdfReader(BytesIO(storage.read_bytes(document.original_file_path)))
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF could not be read") from exc
+        # The page the new ones follow (or the first page, when they go in
+        # front of it) is the shape everything added here is cut to.
+        model_box = existing.pages[min(max(position - 2, 0), len(existing.pages) - 1)].mediabox
+        page_size = (float(model_box.width), float(model_box.height))
+        if upload is not None:
+            filename = upload.filename or "document.pdf"
+            if not conversion_service.is_supported(filename):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Unsupported file type. Upload a PDF, an image, or a document such as .docx.",
+                )
+            content = await upload.read(settings.max_upload_bytes + 1)
+            if len(content) > settings.max_upload_bytes:
+                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds size limit")
+            content = conversion_service.convert_to_pdf(
+                filename=filename, content=content, page_size=page_size, fit=fit, crop=crop
+            )
+            if not content.startswith(b"%PDF"):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is not a valid PDF")
+            try:
+                source = PdfReader(BytesIO(content))
+                source_pages = len(source.pages)
+            except Exception as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF could not be read") from exc
+            if source_pages < 1:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF must contain at least one page")
+            added_from = filename
+            added = source_pages
+        else:
+            if blank_count < 1:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Say how many pages to add, or send a file")
+            added = blank_count
+        if total + added > MAX_DOCUMENT_PAGES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A document cannot have more than {MAX_DOCUMENT_PAGES} pages",
+            )
+
+        # The upload is scanned before it becomes part of the document, on the
+        # same terms as an original: pages added later must not be a way past
+        # the policy the first upload was held to.
+        if source is not None and platform_service.dlp_enabled(db):
+            self._scan_for_dlp(db, document=document, reader=source)
+
+        try:
+            reader = existing
+            writer = PdfWriter()
+            for n in range(1, position):
+                writer.add_page(reader.pages[n - 1])
+            if source is not None:
+                for page in source.pages:
+                    writer.add_page(page)
+            else:
+                for _ in range(added):
+                    writer.add_blank_page(width=page_size[0], height=page_size[1])
+            for n in range(position, total + 1):
+                writer.add_page(reader.pages[n - 1])
+            buffer = BytesIO()
+            writer.write(buffer)
+            content = buffer.getvalue()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Pages could not be added") from exc
+
+        for field in document.fields:
+            if field.page_number >= position:
+                field.page_number += added
+
+        relative_path = f"documents/{document.id}/original-{len(document.versions) + 1}.pdf"
+        storage.write_bytes(relative_path, content)
+        original_hash = sha256_bytes(content)
+        document.original_file_path = relative_path
+        document.original_sha256 = original_hash
+        document.page_count = total + added
+        db.add(
+            DocumentVersion(
+                document_id=document.id,
+                version_type=DocumentVersionType.original,
+                file_path=relative_path,
+                sha256=original_hash,
+            )
+        )
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="document_pages_added",
+            event_message=(
+                f"{added} blank page(s) added at page {position}."
+                if added_from is None
+                else f"{added} page(s) from {added_from} added at page {position}."
+            ),
+            metadata={
+                "sha256": original_hash,
+                "at": position,
+                "added": added,
+                "filename": added_from,
+                "fit": fit if added_from else None,
+                "crop": list(crop) if crop else None,
+                "page_count": document.page_count,
+            },
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+
+    def rearrange_pages(self, db: Session, *, document: Document, user: User, order: list[int]) -> Document:
+        """Rewrite the original PDF to ``order`` -- the page numbers to keep, in
+        the order they should end up in.
+
+        This is both operations the builder offers: a page left out of ``order``
+        is removed, and a page in a different position is renumbered. Fields are
+        the reason this cannot be a pure file rewrite -- every field carries the
+        page it was placed on, so the ones on kept pages are renumbered with
+        their page and the ones on a removed page go with it. Doing it any other
+        way would leave a field pointing at a page that no longer exists, or at
+        somebody else's page.
+
+        The rewritten file is stored under its own path and recorded as a new
+        ``original`` version rather than overwriting the previous bytes, so the
+        hash chain of what was uploaded stays verifiable.
+        """
+        self.ensure_editable(document)
+        if not document.original_file_path:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document has no PDF to rearrange")
+        total = document.page_count
+        if not order:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A document must keep at least one page")
+        if len(set(order)) != len(order):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A page cannot appear twice")
+        if any(n < 1 or n > total for n in order):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Page numbers must be pages of this document")
+
+        try:
+            reader = PdfReader(BytesIO(storage.read_bytes(document.original_file_path)))
+            writer = PdfWriter()
+            for n in order:
+                writer.add_page(reader.pages[n - 1])
+            buffer = BytesIO()
+            writer.write(buffer)
+            content = buffer.getvalue()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF could not be rearranged") from exc
+
+        # old page number -> new page number, for every page that survives.
+        renumber = {old: index + 1 for index, old in enumerate(order)}
+        removed_fields = [f for f in document.fields if f.page_number not in renumber]
+        for field in document.fields:
+            if field.page_number in renumber:
+                field.page_number = renumber[field.page_number]
+        for field in removed_fields:
+            db.delete(field)
+
+        relative_path = f"documents/{document.id}/original-{len(document.versions) + 1}.pdf"
+        storage.write_bytes(relative_path, content)
+        original_hash = sha256_bytes(content)
+        document.original_file_path = relative_path
+        document.original_sha256 = original_hash
+        document.page_count = len(order)
+        db.add(
+            DocumentVersion(
+                document_id=document.id,
+                version_type=DocumentVersionType.original,
+                file_path=relative_path,
+                sha256=original_hash,
+            )
+        )
+        removed_pages = [n for n in range(1, total + 1) if n not in renumber]
+        audit_service.log(
+            db,
+            document_id=document.id,
+            user_id=user.id,
+            event_type="document_pages_rearranged",
+            event_message=(
+                f"Pages rearranged: {total} page(s) became {len(order)}."
+                if removed_pages
+                else f"Pages reordered across {len(order)} page(s)."
+            ),
+            metadata={
+                "sha256": original_hash,
+                "order": order,
+                "removed_pages": removed_pages,
+                "removed_fields": len(removed_fields),
+            },
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+
+    def _scan_for_dlp(self, db: Session, *, document: Document, reader: PdfReader) -> None:
+        """Run ``dlp_service`` over the text already extracted for page-count
+        validation above -- no separate PDF parse. Only reachable when the
+        "dlp" posture row is enabled (see caller); never logs or stores the
+        matched value, only pattern type and count.
+        """
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        findings = dlp_service.scan_text(text)
+        # Re-upload isn't possible once original_file_path is set, but keep
+        # this idempotent rather than assuming it's the only scan ever run.
+        db.execute(delete(DocumentDlpFinding).where(DocumentDlpFinding.document_id == document.id))
+        for finding in findings:
+            db.add(
+                DocumentDlpFinding(
+                    document_id=document.id,
+                    pattern_type=finding.pattern_type,
+                    count=finding.count,
+                    offsets=[list(pair) for pair in finding.offsets],
+                )
+            )
+        if findings:
+            summary = ", ".join(f"{f.pattern_type}={f.count}" for f in findings)
+            logger.info("dlp_scan document=%s findings=%s", document.id, summary)
+            audit_service.log(
+                db,
+                document_id=document.id,
+                event_type="dlp_findings",
+                event_message=(
+                    "DLP scan found "
+                    + ", ".join(f"{f.count} {dlp_service.FINDING_LABELS.get(f.pattern_type, f.pattern_type)}(s)" for f in findings)
+                    + ". Sending is blocked until this document is resolved."
+                ),
+                metadata={"findings": [{"type": f.pattern_type, "count": f.count} for f in findings]},
+            )
+        else:
+            logger.info("dlp_scan document=%s findings=none", document.id)
+
     def validate_for_send(self, document: Document) -> None:
         if not document.original_file_path:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload a PDF before sending")
@@ -335,7 +630,11 @@ class DocumentService:
             # hold a signature field is what forced counsel to sign a contract
             # they were only being sent for information. An `approve`
             # recipient signals approval by completing the envelope and does
-            # not need a signature block either.
+            # not need a signature block either. PAY-1: a required `payment`
+            # field is just as real an obligation as a signature -- a
+            # recipient whose only field is "pay $50" has plenty to do and
+            # must be sendable, which is why the check below is `required`
+            # OR signature, not signature alone.
             if recipient.role in {RecipientRole.copy, RecipientRole.approve}:
                 continue
             recipient_fields = [field for field in document.fields if field.recipient_id == recipient.id]
@@ -354,6 +653,63 @@ class DocumentService:
         if field.width == 0 or field.height == 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Field '{field.label}' must have size")
 
+    def _validate_payment_fields_for_send(self, db: Session, *, document: Document) -> None:
+        """PAY-1 send-time gate: refuse to ship a link that cannot be paid.
+
+        Three distinct ways a payment envelope can be un-completable, all
+        caught here rather than left for the signer to discover:
+
+        * no payable connected account -- a signing link with a payment field
+          and no working Stripe destination is a link that literally cannot
+          be completed;
+        * a malformed/missing amount config -- ``field_config`` already 400s
+          on this, so any bad field surfaces before the email goes out rather
+          than when the signer opens the pay sheet;
+        * a `copy` recipient holding a payment field -- a CC was never asked
+          to do anything, and "pay us" is exactly the kind of obligation
+          `validate_for_send` already refuses to hand them for signatures.
+        """
+        payment_fields = [field for field in document.fields if field.type == FieldType.payment]
+        if not payment_fields:
+            return
+
+        from app.services.signer_payment_service import signer_payment_service
+        from app.services.stripe_connect_service import stripe_connect_service
+
+        stripe_connect_service.require_payable_account(db, organization_id=document.organization_id)
+
+        recipients_by_id = {recipient.id: recipient for recipient in document.recipients}
+        for field in payment_fields:
+            signer_payment_service.field_config(field)  # raises 400 on a malformed/missing config
+            recipient = recipients_by_id.get(field.recipient_id)
+            if recipient is not None and recipient.role == RecipientRole.copy:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{recipient.name} receives a copy only and cannot be asked to pay.",
+                )
+
+    def _block_send_on_dlp_findings(self, db: Session, *, document: Document) -> None:
+        """Refuse to send while unresolved DLP findings exist for the document.
+
+        Only reachable when the "dlp" posture row is enabled; findings are
+        written once, at upload time, so this blocks send/finalize rather
+        than upload itself.
+        """
+        findings = [
+            f
+            for f in db.scalars(
+                select(DocumentDlpFinding).where(DocumentDlpFinding.document_id == document.id)
+            ).all()
+            if f.pattern_type in dlp_service.BLOCKING_FINDING_TYPES
+        ]
+        if not findings:
+            return
+        types = sorted({dlp_service.FINDING_LABELS.get(f.pattern_type, f.pattern_type) for f in findings})
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot send: DLP scan found possible {', '.join(types)}. Resolve or remove this content before sending.",
+        )
+
     def send(
         self,
         db: Session,
@@ -367,6 +723,9 @@ class DocumentService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Templates cannot be sent directly.")
         self.ensure_editable(document)
         self.validate_for_send(document)
+        self._validate_payment_fields_for_send(db, document=document)
+        if platform_service.dlp_enabled(db):
+            self._block_send_on_dlp_findings(db, document=document)
 
         field_payload = [
             {
@@ -425,6 +784,23 @@ class DocumentService:
             user_agent=user_agent,
             metadata={"workflow_type": document.workflow_type, "field_config_sha256": document.field_config_sha256},
         )
+        # PAY-1: a distinct audit line per payment field so a tenant can find
+        # "who was asked for money, and how much" in the money trail without
+        # cross-referencing the generic `document_sent` event.
+        recipients_by_id = {recipient.id: recipient for recipient in document.recipients}
+        for field in document.fields:
+            if field.type != FieldType.payment:
+                continue
+            recipient = recipients_by_id.get(field.recipient_id)
+            audit_service.log(
+                db,
+                document_id=document.id,
+                recipient_id=field.recipient_id,
+                user_id=user.id,
+                event_type="payment_requested",
+                event_message=f"Payment requested from {recipient.email if recipient else 'recipient'} for '{field.label}'.",
+                metadata={"field_id": field.id},
+            )
         crm_integration_service.trigger_document_sent(db, document=document)
         db.commit()
         db.refresh(document)
@@ -957,5 +1333,84 @@ class DocumentService:
         db.refresh(document)
         return document
 
+
+def _warn_of_held_payments_on_termination(db: Session, audit_log: AuditLog) -> None:
+    """Warn the sender when a voided/declined envelope still holds signer money.
+
+    Voiding (or a decline that terminates the envelope) must never *move*
+    money on its own -- a sender may legitimately keep a deposit, and a
+    silent auto-refund is worse than doing nothing. But leaving that money
+    collected with no prompt is a chargeback waiting to happen, so this turns
+    ``document_voided``/``document_declined`` into a second, distinct audit
+    event plus a bell notification whenever the envelope being terminated
+    still has any settled, non-fully-refunded `SignerPayment` rows. It never
+    touches the payment rows themselves -- refunding stays a deliberate,
+    one-click, admin-only action.
+
+    Wired via `audit_service.subscribe` (the same seam `notification_service`
+    uses) rather than a direct call from `void`/`decline`, because the
+    decline path lives in `signing_service`, not here: subscribing to the
+    audit trail itself is what lets one place catch both terminations.
+    """
+    if audit_log.event_type not in {"document_voided", "document_declined"} or not audit_log.document_id:
+        return
+    document = db.get(Document, audit_log.document_id)
+    if document is None:
+        return
+
+    held = [
+        payment
+        for payment in db.query(SignerPayment)
+        .filter(
+            SignerPayment.document_id == document.id,
+            SignerPayment.status == SignerPaymentStatus.succeeded,
+        )
+        .all()
+        if payment.amount_cents - payment.refunded_amount_cents > 0
+    ]
+    if not held:
+        return
+
+    held_cents = sum(payment.amount_cents - payment.refunded_amount_cents for payment in held)
+    recipient_ids = {payment.recipient_id for payment in held}
+    recipients = db.query(Recipient).filter(Recipient.id.in_(recipient_ids)).all()
+    payer_names = ", ".join(recipient.name for recipient in recipients) or f"{len(recipient_ids)} payer(s)"
+    currency = (held[0].currency or "usd").upper()
+    amount_str = f"{held_cents / 100:.2f} {currency}"
+    action = "voided" if audit_log.event_type == "document_voided" else "declined"
+
+    audit_service.log(
+        db,
+        document_id=document.id,
+        event_type="payment_held_on_termination",
+        event_message=(
+            f"{document.title} was {action} while {amount_str} remains collected from {payer_names}. "
+            "Refund from the payments panel if it should be returned."
+        ),
+        user_id=audit_log.user_id,
+        metadata={
+            "held_cents": held_cents,
+            "currency": currency,
+            "payment_ids": [payment.id for payment in held],
+            "terminating_event": audit_log.event_type,
+        },
+    )
+
+    owner_id = document.owner_user_id or document.sender_id
+    if owner_id:
+        db.add(
+            Notification(
+                user_id=owner_id,
+                organization_id=document.organization_id,
+                title="Payment held on terminated envelope",
+                detail=f"{document.title}: {amount_str} collected from {payer_names} was not refunded."[:512],
+                tone="warn",
+                screen="payments",
+                target_id=document.id,
+            )
+        )
+
+
+audit_service.subscribe(_warn_of_held_payments_on_termination)
 
 document_service = DocumentService()

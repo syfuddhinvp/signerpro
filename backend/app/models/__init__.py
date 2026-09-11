@@ -5,6 +5,7 @@ from app.models.contact import Contact, ContactGroup
 from app.models.document import Document
 from app.models.document_favorite import DocumentFavorite
 from app.models.document_version import DocumentVersion
+from app.models.dlp_finding import DocumentDlpFinding
 from app.models.embed_session import EmbedSession
 from app.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from app.models.field import Field
@@ -19,14 +20,18 @@ from app.models.notification import Notification, NotificationPreference
 from app.models.organization import Organization
 from app.models.passkey import Passkey
 from app.models.password_reset import PasswordResetToken
+from app.models.payment_account import PaymentAccount
 from app.models.payment_method import PaymentMethod
+from app.models.payment_request import PaymentRequest
 from app.models.plan import Plan
 from app.models.platform_audit import PlatformAuditEntry
-from app.models.platform_setting import Certification, SecurityPosture
+from app.models.platform_setting import Certification, IpAllowlistEntry, SecurityPosture
 from app.models.recipient import Recipient
 from app.models.report import CustomReport, ReportExport, ReportSchedule
 from app.models.saved_signature import SavedSignature
+from app.models.scim_token import ScimToken
 from app.models.signature import Signature
+from app.models.signer_payment import SignerPayment
 from app.models.signing_token import SigningToken
 from app.models.sso_connection import SsoConnection
 from app.models.subscription import ProcessedWebhookEvent, Subscription
@@ -49,6 +54,7 @@ __all__ = [
     "ContactGroup",
     "CustomReport",
     "Document",
+    "DocumentDlpFinding",
     "DocumentFavorite",
     "DocumentVersion",
     "EmbedSession",
@@ -68,7 +74,9 @@ __all__ = [
     "Organization",
     "Passkey",
     "PasswordResetToken",
+    "PaymentAccount",
     "PaymentMethod",
+    "PaymentRequest",
     "Plan",
     "PlatformAuditEntry",
     "ProcessedWebhookEvent",
@@ -76,8 +84,10 @@ __all__ = [
     "ReportExport",
     "ReportSchedule",
     "SavedSignature",
+    "ScimToken",
     "SecurityPosture",
     "Signature",
+    "SignerPayment",
     "SigningToken",
     "SsoConnection",
     "Subscription",

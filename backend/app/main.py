@@ -10,9 +10,11 @@ from fastapi.responses import JSONResponse
 from app.api.routes import audit, auth, billing, documents, fields, invitations, recipients, signing, organizations, saas, webhooks
 from app.api.routes import account, activity, invoices, revenue, support
 from app.api.routes import contacts, folders, teams, templates
-from app.api.routes import api_keys, embed, public_api, reports
-from app.api.routes import erasure, flags, logs, notifications, passkeys, sso, tenants, verification
+from app.api.routes import api_keys, embed, public_api, reports, sandbox
+from app.api.routes import erasure, flags, logs, notifications, passkeys, payments, scim, sso, tenants, verification
 from app.services import notification_service
+from app.services.billing_service import StripeApiError
+from app.services.scim_service import ScimException
 from app.services.audit_service import audit_service
 from app.core.config import expected_migration_head, get_settings, parse_cors_origins
 from app.core.logging import RequestLoggingMiddleware, configure_logging
@@ -52,6 +54,14 @@ async def lifespan(app: FastAPI):
     verify_billing_webhook_secret_configured()
     # …and a live Stripe key outside production would charge real cards.
     verify_payment_provider_configured()
+    # Re-open webhook dispatch. `drain()` below latches it shut, and that latch
+    # outlives the app object -- so any process that re-enters the lifespan
+    # (a restart in-process, or a test client per test) would otherwise spend
+    # the rest of its life delivering inline on the request path.
+    from app.services.webhook_service import webhook_service
+
+    webhook_service.resume()
+
     logger.info(
         "startup.complete",
         extra={"environment": settings.environment, "cors_origins": CORS_ORIGINS},
@@ -61,11 +71,14 @@ async def lifespan(app: FastAPI):
 
     logger.info("shutdown.begin")
     try:
-        from app.services import webhook_service
+        # Call the singleton's drain directly. This used to be a
+        # `getattr(module, "drain", None)` duck-type against the *module*,
+        # which has no such attribute -- so the graceful drain this docstring
+        # promises silently did nothing on every shutdown.
+        from app.services.webhook_service import webhook_service
 
-        drain = getattr(webhook_service, "drain", None)
-        if callable(drain):
-            drain()
+        abandoned = webhook_service.drain()
+        logger.info("shutdown.webhook_drained", extra={"abandoned": abandoned})
     except Exception:  # noqa: BLE001 - shutdown must never raise
         logger.warning("shutdown.webhook_drain_failed", exc_info=True)
     try:
@@ -114,6 +127,34 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
 
 
+@app.exception_handler(StripeApiError)
+async def stripe_api_error_handler(request: Request, exc: StripeApiError) -> JSONResponse:
+    """A Stripe API failure is an operator-facing error, not a server bug.
+
+    ``StripeApiError`` is not an ``HTTPException``, so left uncaught it
+    escaped FastAPI's routing as a raw 500 with a full stack trace -- exactly
+    how the real onboarding failure that prompted this handler surfaced.
+    Stripe's 4xx (bad params, declined, misconfiguration) map to a 4xx of
+    ours; anything Stripe-side 5xx, or a transport failure that reached us as
+    something else, becomes a 502. The message is Stripe's own -- useful to
+    an operator -- but never the secret key or the request body that carried
+    it, which this handler never touches.
+    """
+    logger.warning(
+        "stripe.api_error",
+        extra={"status_code": exc.status_code, "code": exc.code, "path": request.url.path},
+    )
+    response_status = exc.status_code if 400 <= exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY
+    return JSONResponse(status_code=response_status, content={"detail": str(exc)})
+
+
+@app.exception_handler(ScimException)
+async def scim_exception_handler(request: Request, exc: ScimException) -> JSONResponse:
+    """SCIM errors are a flat body per RFC 7644 §3.12, not FastAPI's usual
+    ``{"detail": ...}`` envelope."""
+    return JSONResponse(status_code=exc.status_code, content=exc.scim_body)
+
+
 # The bell feed is produced from audit events, wired once at import time so
 # every code path that logs an event raises the notification too (see
 # `services/notification_service.py`).
@@ -134,6 +175,7 @@ app.include_router(revenue.router)
 app.include_router(webhooks.router)
 app.include_router(invitations.router)
 app.include_router(billing.router)
+app.include_router(sandbox.router)
 app.include_router(tenants.router)
 app.include_router(flags.platform_router)
 app.include_router(flags.tenant_router)
@@ -155,6 +197,11 @@ app.include_router(templates.router)
 app.include_router(folders.router)
 app.include_router(teams.router)
 app.include_router(notifications.router)
+app.include_router(scim.router)
+app.include_router(scim.token_router)
+app.include_router(payments.router)
+app.include_router(payments.document_payments_router)
+app.include_router(payments.connect_webhook_router)
 
 
 @app.get("/api/health")

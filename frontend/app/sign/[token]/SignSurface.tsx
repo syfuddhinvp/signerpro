@@ -18,10 +18,13 @@ import type { SignerField } from '@/lib/sf/adapters';
 import { btn, inputStyle } from '@/lib/sf/ui';
 import type { OtherPlacement, PageAnnotation } from '@/components/sf/screens/Signer';
 import {
-  completeSigning, declineSigning, markViewed, reassignSigning, saveFieldValue, saveSignature,
-  uploadAttachment, type ActionResult,
+  completeSigning, createPaymentIntent, declineSigning, getPayment, getPaymentFieldConfig, markViewed,
+  reassignSigning, refreshPayment, saveFieldValue, saveSignature, uploadAttachment, type ActionResult,
 } from './actions';
 import { typeFaceStack } from '@/lib/sf/fonts';
+import Icon from '@/components/sf/Icon';
+import PaymentModal from '@/components/sf/PaymentModal';
+import type { PaymentFieldConfig, SignerPaymentResponse } from '@/lib/api/types';
 
 export type SignSurfaceProps = {
   token: string;
@@ -110,6 +113,42 @@ export default function SignSurface(props: SignSurfaceProps) {
     void markViewed(token);
   }, [token, readOnly]);
 
+  /* ── payments (PAY-1) ──────────────────────────────────────────────────
+   * `SignerField.options` only carries dropdown/radio-shaped choices (see
+   * `lib/sf/adapters.ts`), so a payment field's own config (amount mode,
+   * bounds, currency, memo) and its current settlement are both fetched
+   * separately, once per field, and handed to `Signer` for it to render. */
+  const paymentFieldIds = fields.filter(f => f.type === 'payment').map(f => f.id);
+  const paymentFieldIdsKey = paymentFieldIds.join(',');
+  const [paymentConfigs, setPaymentConfigs] = useState<Record<string, PaymentFieldConfig | null>>({});
+  const [paymentStatuses, setPaymentStatuses] = useState<Record<string, SignerPaymentResponse | null>>({});
+  const [paymentModalField, setPaymentModalField] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!paymentFieldIdsKey) return;
+    let cancelled = false;
+    (async () => {
+      for (const fieldId of paymentFieldIdsKey.split(',')) {
+        const [configResult, statusResult] = await Promise.all([
+          getPaymentFieldConfig(token, fieldId),
+          getPayment(token, fieldId),
+        ]);
+        if (cancelled) return;
+        if (configResult.ok) setPaymentConfigs(prev => ({ ...prev, [fieldId]: configResult.data }));
+        if (statusResult.ok) setPaymentStatuses(prev => ({ ...prev, [fieldId]: statusResult.data }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, paymentFieldIdsKey]);
+
+  const openPayment = (fieldId: string) => setPaymentModalField(fieldId);
+  const onPaymentSettled = (payment: SignerPaymentResponse) => {
+    setPaymentStatuses(prev => ({ ...prev, [payment.field_id]: payment }));
+    setPaymentModalField(null);
+    flash('Payment received · sealed with the envelope');
+    router.refresh();
+  };
+
   const apply = useCallback((run: () => Promise<ActionResult>, optimistic?: string) => {
     if (optimistic) flash(optimistic);
     startTransition(async () => {
@@ -197,7 +236,17 @@ export default function SignSurface(props: SignSurfaceProps) {
   };
 
   /* ── finish / decline / reassign ── */
-  const finish = () => apply(() => completeSigning(token));
+  const finish = () => {
+    startTransition(async () => {
+      const result = await completeSigning(token);
+      // A 402 here is `signer_payment_service.assert_payments_settled` naming
+      // the unpaid field(s) by label — surfaced verbatim, not behind a generic
+      // "Could not save" prefix, so the signer knows exactly what still blocks
+      // them rather than guessing which field misbehaved.
+      flash(result.message);
+      router.refresh();
+    });
+  };
   const confirmDecline = () => {
     if (!canDecline) { flash('This envelope can no longer be declined'); return; }
     setModal(null);
@@ -233,7 +282,22 @@ export default function SignSurface(props: SignSurfaceProps) {
         annotations={annotations}
         onUploadAttachment={onUploadAttachment}
         stampEndpoint={(fieldId) => `/sign/${encodeURIComponent(token)}/fields/${encodeURIComponent(fieldId)}/attachment`}
+        onPay={openPayment}
+        paymentConfigs={paymentConfigs}
+        paymentStatuses={paymentStatuses}
       />
+
+      {paymentModalField ? (
+        <PaymentModal
+          fieldId={paymentModalField}
+          label={fields.find(f => f.id === paymentModalField)?.label ?? 'Payment'}
+          config={paymentConfigs[paymentModalField] ?? null}
+          onClose={() => setPaymentModalField(null)}
+          onSettled={onPaymentSettled}
+          createIntent={(fieldId, amountCents) => createPaymentIntent(token, fieldId, amountCents)}
+          refreshPayment={(fieldId) => refreshPayment(token, fieldId)}
+        />
+      ) : null}
 
       {modal === 'signature' ? (
         <div role="dialog" aria-modal="true" aria-label="Adopt your signature" ref={dialogRef} data-sf-modal-open="" tabIndex={-1} style={overlay}>
@@ -243,7 +307,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Adopt your signature</span>
                 <span style={{ fontSize: '.75rem', color: '#64748b' }}>Draw or type — it is bound to this envelope with a SHA-256 hash</span>
               </div>
-              <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}>✕</button>
+              <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
             <div style={cardBody}>
               <div role="tablist" aria-label="Signature method" style={{ display: 'flex', gap: '4px', background: '#f5f6f8', padding: '4px', borderRadius: '11px' }}>
@@ -309,7 +373,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Electronic Record and Signature Disclosure</span>
                 <span style={{ fontSize: '.75rem', color: '#64748b' }}>{'Consent v' + consentVersion + ' · accepted for ' + documentTitle}</span>
               </div>
-              <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}>✕</button>
+              <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
             <div style={cardBody}>
               <div style={{ fontSize: '.78125rem', color: '#475569', lineHeight: 1.65, maxHeight: '240px', overflow: 'auto' }}>
@@ -331,7 +395,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Decline to sign</span>
                 <span style={{ fontSize: '.75rem', color: '#64748b' }}>The sender is notified and the envelope closes for everyone</span>
               </div>
-              <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}>✕</button>
+              <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
             <div style={cardBody}>
               <div style={{ fontSize: '.78125rem', color: '#475569', lineHeight: 1.65 }}>
@@ -362,7 +426,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Reassign this envelope</span>
                 <span style={{ fontSize: '.75rem', color: '#64748b' }}>Your link is retired and a new invitation is emailed</span>
               </div>
-              <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}>✕</button>
+              <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
             <div style={cardBody}>
               <input

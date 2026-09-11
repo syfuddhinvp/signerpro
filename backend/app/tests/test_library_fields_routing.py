@@ -1,7 +1,7 @@
 """Coverage for the SignerPro library (DOC-1…DOC-7), bulk field save (FLD-2/3)
 and recipient routing (RTE-1…RTE-4)."""
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -23,10 +23,19 @@ def _document(client: TestClient, headers: dict[str, str], title: str = "Doc") -
 
 def test_library_updated_range_is_inclusive_of_both_days(client: TestClient) -> None:
     """`updated_to` must include documents touched *on* that date — a naive
-    midnight bound would have excluded every one of them."""
+    midnight bound would have excluded every one of them.
+
+    The `updated_from`/`updated_to` filters are UTC dates (see
+    document_service.py), because timestamps are stored in UTC. Building
+    `stamp` from local `date.today()` is a timezone trap: on a machine whose
+    local day has already rolled over relative to UTC (or hasn't yet), the
+    document's UTC-stored `updated_at` can fall on a different calendar date
+    than the local "today", making this test flaky by timezone rather than
+    by the behaviour it's meant to guard. Use the UTC date instead.
+    """
     headers = auth_headers(client)
     today = _document(client, headers, "Touched today")
-    stamp = date.today()
+    stamp = datetime.now(timezone.utc).date()
 
     inside = client.get(
         "/api/documents/library",

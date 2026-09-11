@@ -11,7 +11,7 @@ export type ScreenKey =
   | 'contacts' | 'reports' | 'billing' | 'invoices'
   | 'api' | 'sandbox' | 'guides' | 'logs' | 'support'
   | 'platformHome' | 'platform' | 'revenue'
-  | 'account' | 'notifications';
+  | 'account' | 'notifications' | 'payments';
 
 export type AreaKey =
   | 'home' | 'documents' | 'contacts' | 'reports' | 'developer' | 'support'
@@ -30,6 +30,9 @@ export const SCREEN_PATH: Record<ScreenKey, string> = {
   billing: '/account/billing',
   /* Platform-only: the tenant's own invoices live on `/account/billing`. */
   invoices: '/platform/invoices',
+  /* Where a tenant connects their own Stripe account so signers can pay them
+     during signing. An account section like billing, with a screen of its own. */
+  payments: '/account/payments',
   api: '/developer/api',
   sandbox: '/developer/sandbox',
   guides: '/developer/guides',
@@ -157,8 +160,9 @@ const TENANT_AREA: Record<ScreenKey, AreaKey> = {
   tenantHome: 'home',
   dashboard: 'documents', builder: 'documents', routing: 'documents', sign: 'documents', audit: 'documents',
   contacts: 'contacts', reports: 'reports',
-  /* Billing is an account section — see ACCOUNT_SECTIONS. */
+  /* Billing and Payments are account sections — see ACCOUNT_SECTIONS. */
   billing: 'account',
+  payments: 'account',
   /* Not reachable in the tenant workspace: a tenant reads its own invoices on
      `/account/billing`. Mapped so the record is total. */
   invoices: 'platformRevenue',
@@ -172,6 +176,9 @@ const TENANT_AREA: Record<ScreenKey, AreaKey> = {
 const PLATFORM_AREA: Record<ScreenKey, AreaKey> = {
   platformHome: 'home', platform: 'platform',
   revenue: 'platformRevenue', invoices: 'platformRevenue', billing: 'platformRevenue',
+  /* Not reachable in the platform workspace: Stripe Connect is a tenant's own
+     account, not the platform's. Mapped so the record is total. */
+  payments: 'account',
   support: 'support',
   api: 'developer', logs: 'developer', sandbox: 'developer', guides: 'developer',
   account: 'account', notifications: 'account',

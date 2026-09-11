@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     billing_webhook_secret: str = Field(default="dev-billing-webhook-secret", alias="BILLING_WEBHOOK_SECRET")
     stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
     stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
+    stripe_connect_webhook_secret: str | None = Field(default=None, alias="STRIPE_CONNECT_WEBHOOK_SECRET")
+    #: Read through the ``stripe_publishable_key`` property below, never
+    #: directly -- the property layers a live ``os.environ`` lookup over this
+    #: declared value. Declared here all the same so ``.env`` and pydantic
+    #: resolve it exactly like every other setting.
+    stripe_publishable_key_configured: str | None = Field(default=None, alias="STRIPE_PUBLISHABLE_KEY")
 
     # Observability
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -126,6 +132,41 @@ class Settings(BaseSettings):
     pades_certificate_passphrase: str | None = Field(
         default=None, alias="PADES_CERTIFICATE_PASSPHRASE"
     )
+
+    @property
+    def stripe_publishable_key(self) -> str | None:
+        """``STRIPE_PUBLISHABLE_KEY``: the signer-payment publishable key.
+
+        Publishable by design -- it can only tokenize a card / mount Stripe
+        Elements, never read or charge anything, so it is safe to hand
+        straight to the browser. Handed to the signing client (in
+        ``PaymentIntentResponse``) so it can mount Elements against the
+        tenant's own connected account. Distinct from
+        ``NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`` (frontend/.env.example), which
+        is for the platform's own billing checkout and is baked into the
+        frontend bundle at build time; this one is read server-side.
+
+        Deliberately a live property rather than a plain ``Field`` like its
+        neighbours: ``get_settings()`` caches one ``Settings`` instance for
+        the process's lifetime, so a plain field would freeze this value to
+        whatever the environment held at the *first* call, and a later
+        ``os.environ`` change (a test's ``monkeypatch.setenv``/``delenv``, or
+        a secrets-manager sidecar rewriting the environment) would go
+        unnoticed without also calling ``get_settings.cache_clear()``. Every
+        other Stripe field here has never needed to change after startup, so
+        this is the only one where that mattered.
+        """
+        import os
+
+        # `os.environ` first, so a rotated secret or a test's
+        # `monkeypatch.setenv`/`delenv` is seen without clearing the
+        # `get_settings` cache; then the declared field, which pydantic has
+        # already resolved from the environment or `.env` at construction.
+        # An earlier version read `.env` from disk here on every access,
+        # which cost a filesystem hit per payment intent and -- worse --
+        # silently resolved to nothing whenever the process's working
+        # directory was not the one holding `.env`.
+        return os.environ.get("STRIPE_PUBLISHABLE_KEY") or self.stripe_publishable_key_configured
 
 
 #: The only environments that may run with insecure development defaults.
