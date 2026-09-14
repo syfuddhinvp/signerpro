@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import sys
 from datetime import datetime, timedelta, timezone
+import re
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -45,12 +47,27 @@ if str(ROOT) not in sys.path:
 #: Every seeded human gets the same local-development password.
 SEED_PASSWORD = "SignerPro!2026"
 
-#: Plaintext API keys, printed once. Only the SHA-256 hash is ever stored.
-SEED_API_KEYS: dict[str, str] = {
-    "Host app — production": "sk_seed_REDACTED_ROTATE_ME",
-    "Host app — sandbox": "sk_seed_REDACTED_ROTATE_ME",
-    "Zapier connector": "sk_seed_REDACTED_ROTATE_ME",
-}
+#: Plaintext API keys, minted fresh on each run and printed once; only the
+#: SHA-256 hash is ever stored. Generated rather than written down here: a key
+#: committed to the repository is a real credential for every database this
+#: seeder has been run against, and GitHub's scanner reads the product's own
+#: ``sk_live_…`` prefix as a Stripe key and blocks the push.
+#:
+#: Populated by ``_seed_api_keys``; the run summary prints whatever it holds.
+#: Set ``SEED_API_KEY_<LABEL>`` to pin one, for a fixture that needs a stable
+#: value -- the label upper-cased with non-alphanumerics as underscores, e.g.
+#: ``SEED_API_KEY_ZAPIER_CONNECTOR``.
+SEED_API_KEYS: dict[str, str] = {}
+
+
+def _seed_key_env_var(label: str) -> str:
+    return "SEED_API_KEY_" + re.sub(r"[^A-Za-z0-9]+", "_", label).strip("_").upper()
+
+
+def _mint_seed_key(label: str, mode: str) -> str:
+    """The same shape ``api_key_service._mint_secret`` produces: ``sk_<mode>_<32 hex>``."""
+    pinned = os.environ.get(_seed_key_env_var(label))
+    return pinned or f"sk_{mode}_{secrets.token_hex(16)}"
 
 PLATFORM_ORG_SLUG = "signforge"
 PLATFORM_ORG_NAME = "SignerPro (internal)"
@@ -1865,7 +1882,9 @@ def _seed_api_keys(s: Seeder) -> None:
     acme = s.orgs[PRIMARY_TENANT_SLUG]
     creator = s.users["jordan.mehta@northwind.com"]
     for spec in API_KEYS:
-        raw = SEED_API_KEYS[spec["label"]]
+        # setdefault, not assignment: a second run in the same process keeps
+        # the key it already printed.
+        raw = SEED_API_KEYS.setdefault(spec["label"], _mint_seed_key(spec["label"], spec["mode"]))
         _, mode, body = raw.split("_", 2)
         s.upsert(
             ApiKey,
