@@ -289,3 +289,27 @@ def test_contacts_are_isolated_per_organization(client: TestClient) -> None:
 
     acme_group_id = client.get("/api/contacts/groups", headers=acme).json()[0]["id"]
     assert client.patch(f"/api/contacts/groups/{acme_group_id}", headers=other, json={"label": "X"}).status_code == 404
+
+
+def test_address_description_and_owner_round_trip(client: TestClient) -> None:
+    """The CRM detail tab: two free-text fields, plus the creator as Owner."""
+    headers = register(client, org="Crm Co", name="Ada Owner", email="ada@crm.example.com")
+    created = make_contact(client, headers, address="12 Harbour St, Boston MA", description="Signs the quarterly LOIs")
+
+    assert created["address"] == "12 Harbour St, Boston MA"
+    assert created["description"] == "Signs the quarterly LOIs"
+    assert created["owner_email"] == "ada@crm.example.com"
+    assert created["owner_name"] == "Ada Owner"
+
+    patched = client.patch(
+        f"/api/contacts/{created['id']}",
+        json={"address": "New address", "description": None},
+        headers=headers,
+    )
+    assert patched.status_code == status.HTTP_200_OK, patched.text
+    assert patched.json()["address"] == "New address"
+    assert patched.json()["description"] is None
+    assert patched.json()["owner_email"] == "ada@crm.example.com"
+
+    listed = client.get("/api/contacts", headers=headers).json()["items"]
+    assert listed[0]["owner_email"] == "ada@crm.example.com"

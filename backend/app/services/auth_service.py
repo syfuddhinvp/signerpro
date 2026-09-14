@@ -257,13 +257,27 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated")
         if user.status == "erased":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated")
+        # A sandbox mirror user is a service-layer convenience, not an account.
+        # Its password hash is unusable, so the comparison above cannot succeed
+        # anyway -- this is the explicit second lock, so that the sandbox can
+        # never become a way to hold a session.
+        from app.services.sandbox_service import sandbox_service
+
+        if sandbox_service.is_mirror(user):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         # An organization that enforces SSO has decided its IdP is the only way
         # in. Leaving the password path open would make "enforce SSO" a
         # suggestion -- the offboarding an admin does in their IdP would not
         # actually lock anyone out.
+        #
+        # Break-glass: a platform admin is exempt. That flag is not something
+        # an org admin can grant themselves (see platform_service.set_role),
+        # so it is an existing privileged role, not a new bypass -- and it is
+        # the only way back into a workspace whose IdP has been misconfigured
+        # into locking everyone else out.
         from app.services.sso_service import sso_service
 
-        if sso_service.is_enforced(db, user.organization_id):
+        if not user.is_platform_admin and sso_service.is_enforced(db, user.organization_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This workspace requires single sign-on",
@@ -609,6 +623,7 @@ class AuthService:
                     f"This link can be used once and expires in {PASSWORD_RESET_TTL_MINUTES} minutes.\n"
                     "If you did not request this, you can safely ignore this email."
                 ),
+                category="auth",
             ),
             organization=organization,
         )
@@ -638,6 +653,18 @@ class AuthService:
         user = db.get(User, row.user_id)
         if not user:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This reset link is invalid or has expired")
+        # Setting a new password is exactly the thing SSO enforcement exists to
+        # rule out -- a reset link would otherwise be a standing bypass of it,
+        # letting a member mint a password login even though the org decided
+        # the IdP is the only path in. The break-glass exemption for platform
+        # admins mirrors login().
+        from app.services.sso_service import sso_service
+
+        if not user.is_platform_admin and sso_service.is_enforced(db, user.organization_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This workspace requires single sign-on; ask an admin for the workspace's SSO login link",
+            )
         row.used_at = _now()
         user.password_hash = hash_password(payload.password)
         self._revoke_all_sessions(db, user)

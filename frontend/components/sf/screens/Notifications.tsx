@@ -26,14 +26,10 @@ import type {
   NotificationWriteResponse,
 } from '@/lib/api/types';
 import { formatDateTimeShort, formatRelative } from '@/lib/sf/adapters';
-import { notificationHref } from '@/lib/sf/notifications';
+import { notificationHref, PAGE_SIZE } from '@/lib/sf/notifications';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 import Icon from '@/components/sf/Icon';
 import { btn, cardStyle, inputStyle, panelStyle, pill, selectStyle, tabBtn, TEXT_MUTED, TONE_BAD, TONE_GOOD, TONE_INFO, TONE_WARN } from '@/lib/sf/ui';
-
-/** How many rows a page holds. Paging is "show more", not numbered pages:
- *  a feed is read from the top down and nobody navigates to page 4 of it. */
-export const PAGE_SIZE = 50;
 
 const STATUSES: [NotificationStatusFilter, string][] = [
   ['all', 'All'], ['unread', 'Unread'], ['read', 'Read'],

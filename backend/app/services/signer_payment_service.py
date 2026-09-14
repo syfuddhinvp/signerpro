@@ -650,12 +650,20 @@ class SignerPaymentService:
         payment = self._latest_succeeded_or_processing(db, field_id=field.id)
         if payment is None or not payment.provider_payment_intent_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No payment attempt found for this field.")
-        if payment.status in _SETTLED_STATUSES:
+        # A settled payment is done -- except when it settled without a
+        # receipt URL (the charge was never expanded), which is worth exactly
+        # one more retrieve so the sender has something to show for the money.
+        needs_receipt = payment.status == SignerPaymentStatus.succeeded and not payment.receipt_url
+        if payment.status in _SETTLED_STATUSES and not needs_receipt:
             return payment
 
         body = self._request(
             "GET",
             f"/v1/payment_intents/{payment.provider_payment_intent_id}",
+            # `latest_charge` is a bare charge id unless it is expanded, and
+            # the receipt URL lives on the charge -- without this the poll
+            # settles the payment with no receipt to show anyone.
+            {"expand[0]": "latest_charge"},
             connected_account_id=payment.provider_account_id,
         )
         self._reconcile(db, payment=payment, body=body, field=field)
@@ -663,25 +671,51 @@ class SignerPaymentService:
         db.refresh(payment)
         return payment
 
-    def _latest_charge(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Pull a receipt/charge id out of a PaymentIntent body, either API shape."""
+    def _latest_charge(self, body: dict[str, Any], *, connected_account_id: str | None = None) -> dict[str, Any]:
+        """Pull the settling charge out of a PaymentIntent body, either API shape.
+
+        On the API version this service pins (2024-06-20) the legacy
+        ``charges`` list is gone and ``latest_charge`` is a bare charge *id*
+        string unless the caller expanded it -- which a webhook payload never
+        does. Returning ``{}`` for that shape is how a succeeded payment ended
+        up with no ``receipt_url`` and no ``provider_charge_id``, so a string
+        is followed with one retrieve rather than dropped. That fetch is
+        best-effort: a receipt is worth a round trip, never worth failing the
+        reconcile that marks the money as received.
+        """
         charges = (body.get("charges") or {}).get("data") or []
         if charges:
             return charges[-1] if isinstance(charges[-1], dict) else {}
         latest = body.get("latest_charge")
-        return latest if isinstance(latest, dict) else {}
+        if isinstance(latest, dict):
+            return latest
+        if isinstance(latest, str) and latest:
+            try:
+                return self._request("GET", f"/v1/charges/{latest}", connected_account_id=connected_account_id)
+            except Exception:  # noqa: BLE001 - a missing receipt must not block settlement
+                logger.warning("Could not retrieve Stripe charge %s for its receipt URL", latest, exc_info=True)
+            return {"id": latest}
+        return {}
 
     def _reconcile(
         self, db: Session, *, payment: SignerPayment, body: dict[str, Any], field: Field | None, event_type: str | None = None
     ) -> None:
         stripe_status = body.get("status")
         if stripe_status == "succeeded" or event_type == "payment_intent.succeeded":
-            if payment.status != SignerPaymentStatus.succeeded:
-                payment.status = SignerPaymentStatus.succeeded
-                payment.paid_at = _utcnow()
-                charge = self._latest_charge(body)
+            first_settlement = payment.status != SignerPaymentStatus.succeeded
+            # The charge lookup runs on a re-reconcile too, but only while the
+            # receipt is still missing: that is the backfill path for rows
+            # settled before the charge was resolved, and it stays out of the
+            # status transition so a *refunded* row is never walked back to
+            # succeeded by a redelivered `payment_intent.succeeded`.
+            if first_settlement or not payment.receipt_url:
+                charge = self._latest_charge(body, connected_account_id=payment.provider_account_id)
                 payment.provider_charge_id = charge.get("id") or payment.provider_charge_id
                 payment.receipt_url = charge.get("receipt_url") or payment.receipt_url
+                db.add(payment)
+            if first_settlement:
+                payment.status = SignerPaymentStatus.succeeded
+                payment.paid_at = _utcnow()
                 if field is not None:
                     # The existing required-field completion gate only knows
                     # how to check `Field.value`, so a settled payment has to
@@ -723,7 +757,11 @@ class SignerPaymentService:
         )
         if payment is None:
             return None
-        if payment.status in _SETTLED_STATUSES:
+        # A settled payment is done -- except when it settled without a
+        # receipt URL (the charge was never expanded), which is worth exactly
+        # one more retrieve so the sender has something to show for the money.
+        needs_receipt = payment.status == SignerPaymentStatus.succeeded and not payment.receipt_url
+        if payment.status in _SETTLED_STATUSES and not needs_receipt:
             return payment
 
         field = db.get(Field, payment.field_id)

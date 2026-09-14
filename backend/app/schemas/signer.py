@@ -75,6 +75,23 @@ class AnnotationResponse(BaseModel):
     options: dict[str, Any] | list[Any] | None = None
 
 
+class SignerBranding(BaseModel):
+    """The sender's brand, as a recipient sees it (ORG-7).
+
+    Every field is nullable and the whole object is optional: an unbranded
+    tenant, and an invalid token, both resolve to SignerPro's own chrome. The
+    signing page must render identically in both cases, so that a guessed token
+    cannot be told apart from a real one by what the header looks like.
+    """
+
+    organization_name: str | None = None
+    theme_name: str | None = None
+    logo_url: str | None = None
+    logo_position: str = "left"
+    primary_color: str | None = None
+    primary_text_color: str | None = None
+
+
 class SigningSessionResponse(BaseModel):
     document: PublicDocument
     recipient: PublicRecipient
@@ -101,6 +118,8 @@ class SigningSessionResponse(BaseModel):
     consent_version: str = "1.0"
     can_decline: bool = True
     can_reassign: bool = True
+    #: Sender branding (ORG-7). ``None`` when the tenant has no theme.
+    branding: SignerBranding | None = None
 
 
 class FieldValueRequest(BaseModel):

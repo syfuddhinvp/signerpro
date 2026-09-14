@@ -24,6 +24,7 @@ import { STRENGTH_COLORS, STRENGTH_WORDS } from '@/lib/sf/data';
 import { lbl, authInput, authPrimary as authPrimaryOf, linkBtn as linkBtnOf, TEXT_MUTED } from '@/lib/sf/ui';
 import { AUTH_PATHS } from '@/lib/sf/routes';
 import AuthLayout, { authErrorMessage, authErrorStyle } from './AuthLayout';
+import Icon from '@/components/sf/Icon';
 
 type DeadState = 'not_found' | 'gone' | 'conflict';
 
@@ -148,7 +149,7 @@ export default function InviteForm({ token }: { token: string }) {
         </div>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
         <button type="submit" disabled={pending} style={authPrimary}>{pending ? 'Joining…' : 'Accept invitation'}</button>
-        <Link href={AUTH_PATHS.signin} style={linkStyle}>← Already have an account? Sign in</Link>
+        <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkStyle, { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' })}><Icon name="arrowLeft" size={12} />Already have an account? Sign in</Link>
       </form>
     </AuthLayout>
   );

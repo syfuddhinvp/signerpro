@@ -18,6 +18,7 @@ import { STRENGTH_COLORS, STRENGTH_WORDS } from '@/lib/sf/data';
 import { lbl, authInput, authPrimary as authPrimaryOf, linkBtn as linkBtnOf, TEXT_MUTED } from '@/lib/sf/ui';
 import { AUTH_PATHS } from '@/lib/sf/routes';
 import AuthLayout, { authErrorMessage, authErrorStyle } from './AuthLayout';
+import Icon from '@/components/sf/Icon';
 
 export default function ResetPasswordForm() {
   const { flash, accent } = useSF();
@@ -99,7 +100,7 @@ export default function ResetPasswordForm() {
         </label>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
         <button type="submit" disabled={pending} style={authPrimary}>{pending ? 'Updating…' : 'Set new password'}</button>
-        <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkBtn, { textDecoration: 'none' })}>← Back to sign in</Link>
+        <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkBtn, { textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' })}><Icon name="arrowLeft" size={12} />Back to sign in</Link>
       </form>
     </AuthLayout>
   );

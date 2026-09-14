@@ -130,9 +130,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
 
   return (
     <>
-      {!overviewResult.ok || !tenantsResult.ok || !directoryResult.ok || !complianceResult.ok ? (
+      {!overviewResult.ok || !tenantsResult.ok || !directoryResult.ok || !complianceResult.ok || !postureResult.ok ? (
         <div style={{ padding: '22px 22px 0' }}>
-          <ApiUnavailable what="The tenant directory and posture" detail={(overviewResult.ok ? null : overviewResult.error.message) ?? (tenantsResult.ok ? null : tenantsResult.error.message) ?? (directoryResult.ok ? null : directoryResult.error.message) ?? (complianceResult.ok ? null : complianceResult.error.message)} />
+          <ApiUnavailable what="The tenant directory and posture" detail={(overviewResult.ok ? null : overviewResult.error.message) ?? (tenantsResult.ok ? null : tenantsResult.error.message) ?? (directoryResult.ok ? null : directoryResult.error.message) ?? (complianceResult.ok ? null : complianceResult.error.message) ?? (postureResult.ok ? null : postureResult.error.message)} />
         </div>
       ) : null}
       <Platform

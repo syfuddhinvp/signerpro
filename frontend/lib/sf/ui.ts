@@ -108,10 +108,12 @@ export function TITLES(fieldCount: number, isPlat: boolean): { [k: string]: [str
       reports: ['Reports', 'Analytics and exports across documents, templates and recipients'],
       contacts: ['Contacts', 'Address book · signers, approvers and CC recipients, synced from CRM, SCIM and API'],
       sandbox: ['API console', 'Compose a request against your live workspace and inspect the response'],
-      guides: ['Guides & documentation', 'Quickstart, reference, embedding, webhooks, SDKs and migration'],
+      guides: ['Guides & documentation', 'Quickstart, reference, embedding, webhooks and migration'],
       api: ['Developer API & add-on', 'Keys, endpoints for users / contacts / documents, embed sessions and scopes'],
       support: [isPlat ? 'Support queue' : 'Support', isPlat ? 'All tenant tickets · SLA, priority, assignment and internal notes' : 'Your tickets and conversations with support'],
       logs: [isPlat ? 'Platform logs' : 'Activity logs', isPlat ? 'API, webhook, auth, billing and admin events across tenants' : 'API, webhook, auth and signing events'],
+      mail: ['Mail outbox', 'Every message the platform has sent · delivery status, preview and compose'],
+      catalog: ['Form catalog', 'Ready-made forms every tenant can import · upload the PDF, place fields, publish'],
       audit: ['Audit trail & certificate', 'Event log for this document'],
       account: ['My account', 'Profile, security, notifications, teams and organizations'],
       notifications: ['Notifications', 'Everything raised on your envelopes, billing and support']

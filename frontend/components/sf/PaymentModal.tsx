@@ -128,8 +128,22 @@ export default function PaymentModal({
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [intent, setIntent] = useState<PaymentIntentResponse | null>(null);
+  /**
+   * Guards the poll against running on after the signer closes the modal.
+   *
+   * The flag is re-armed on *mount*, not just latched on unmount: React's
+   * StrictMode (`reactStrictMode: true` in `next.config.ts`) mounts, unmounts
+   * and remounts every effect in development, so a cleanup-only ref is set to
+   * `true` before the signer has even seen the card form — and nothing ever
+   * clears it. `pollForSettlement` would then bail on its first tick, leaving
+   * "Confirming your payment…" spinning forever on a charge Stripe had
+   * already taken, without ever calling `refresh_payment`.
+   */
   const pollCancelled = useRef(false);
-  useEffect(() => () => { pollCancelled.current = true; }, []);
+  useEffect(() => {
+    pollCancelled.current = false;
+    return () => { pollCancelled.current = true; };
+  }, []);
 
   const startIntent = useCallback(async () => {
     setErrorMessage(null);
@@ -156,7 +170,17 @@ export default function PaymentModal({
     for (const delay of POLL_DELAYS_MS) {
       await new Promise(resolve => setTimeout(resolve, delay));
       if (pollCancelled.current) return;
-      const result = await refreshPayment(fieldId);
+      // A server action can *reject* (a dropped connection, a redeploy mid-poll)
+      // rather than return `{ ok: false }`. Left uncaught that escapes the
+      // `void pollForSettlement()` call site as an unhandled rejection and the
+      // spinner never resolves, so a throw is treated like any other
+      // unsuccessful tick: retry on the next delay.
+      let result: PaymentActionOutcome<SignerPaymentResponse>;
+      try {
+        result = await refreshPayment(fieldId);
+      } catch {
+        continue;
+      }
       if (pollCancelled.current) return;
       if (!result.ok) continue;
       if (result.data.status === 'succeeded') { onSettled(result.data); return; }

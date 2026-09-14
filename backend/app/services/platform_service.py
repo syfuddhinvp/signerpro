@@ -74,17 +74,35 @@ PERMISSION_MATRIX: list[tuple[str, list[bool]]] = [
 #: response marks them ``implemented=False`` / ``enforced=False`` so nobody can
 #: read a toggle here as a control that is actually in force.
 SECURITY_POSTURE_DEFAULTS: list[dict[str, Any]] = [
-    {"key": "sso", "label": "SAML 2.0 / OIDC single sign-on", "detail": "Not implemented — no SSO handler exists; password login is the only path.", "enabled": False},
-    {"key": "scim", "label": "SCIM 2.0 provisioning", "detail": "Not implemented — no SCIM endpoint exists; deprovisioning is manual.", "enabled": False},
-    {"key": "ipAllow", "label": "IP allowlist for admin console", "detail": "Not implemented — no dependency checks the caller's address.", "enabled": False},
+    {
+        "key": "sso",
+        "label": "SAML 2.0 single sign-on",
+        "detail": (
+            "SAML 2.0 is implemented per organization (login, ACS, and connection config), "
+            "with enforcement that refuses password login, password reset, and invitation "
+            "acceptance for that organization once enabled. OIDC is not implemented."
+        ),
+        "enabled": False,
+    },
+    {"key": "scim", "label": "SCIM 2.0 provisioning", "detail": "Partially implemented — /scim/v2/Users supports list/filter, get, create, replace and PATCH/DELETE deactivation, bearer-token authenticated and scoped per organization; deactivation actually revokes sessions. Groups and role/attribute sync are not implemented, and tokens do not expire — revoking one is the only way to retire it.", "enabled": False},
+    {"key": "ipAllow", "label": "IP allowlist for admin console", "detail": "Enforced in require_platform_admin: when this row is enabled and at least one CIDR is configured, platform-admin requests from outside every configured range are refused. An empty allowlist never denies (it cannot lock the console out), and X-Forwarded-For is honoured only from a configured trusted proxy. Applies to the platform admin surface only, not tenant APIs.", "enabled": False},
     {"key": "residency", "label": "Regional data residency pinning", "detail": "Not implemented — all tenants share one region.", "enabled": False},
     {"key": "keyRotation", "label": "HSM key rotation (90 days)", "detail": "Not implemented — there is no rotation job and no HSM integration.", "enabled": False},
-    {"key": "dlp", "label": "DLP scanning on uploaded documents", "detail": "Not implemented — uploads are not scanned.", "enabled": False},
+    {"key": "dlp", "label": "DLP scanning on uploaded documents", "detail": "Scans text extracted from uploaded PDFs for four fixed patterns — Luhn-checked card numbers, US SSNs, IBANs and email addresses — and blocks the send on the first three. No OCR (image-only pages are not scanned), no ML classification; names, addresses and phone numbers are invisible to it. Matched values are never stored or logged.", "enabled": False},
 ]
 
-#: Posture keys backed by code that actually enforces something. Empty today;
-#: adding a key here is the signal that the control became real.
-IMPLEMENTED_SECURITY_CONTROLS: frozenset[str] = frozenset()
+#: Posture keys backed by code that actually enforces something. Adding a key
+#: here is the signal that the control became real -- the console renders a
+#: live switch for these and a static "Not implemented" state for the rest, so
+#: a key must not appear here until something refuses a request without it.
+#:
+#: "residency" and "keyRotation" are deliberately absent and cannot be added by
+#: writing application code: residency pinning is a property of where the
+#: deployment actually stores data (there is one region), and key rotation
+#: needs an HSM/KMS that this repo does not integrate with. Marking either one
+#: implemented would put a green control in front of an operator with nothing
+#: behind it.
+IMPLEMENTED_SECURITY_CONTROLS: frozenset[str] = frozenset({"sso", "scim", "ipAllow", "dlp"})
 
 
 def security_posture_view(row) -> dict[str, Any]:
@@ -772,3 +790,67 @@ def ensure_feature_flags(db: Session) -> list[FeatureFlag]:
     if created:
         db.commit()
     return list(db.scalars(select(FeatureFlag).order_by(FeatureFlag.key)).all())
+
+
+# --- Security-posture enforcement helpers -----------------------------------
+#
+# These read the posture rows that the platform console writes. They were lost
+# once to a concurrent whole-file overwrite; the callers live in
+# ``app/api/deps.py`` (ipAllow) and ``app/services/document_service.py`` (dlp).
+
+
+def ip_allowlist_enforced(db: Session) -> bool:
+    """Whether ``require_platform_admin`` should be checking the caller's IP.
+
+    Enforcement requires both the posture toggle *and* a non-empty list of
+    ranges — an admin who enables the toggle before configuring any CIDR must
+    never lock themselves (or everyone else) out.
+    """
+    from app.models.platform_setting import IpAllowlistEntry, SecurityPosture
+
+    row = db.scalar(select(SecurityPosture).where(SecurityPosture.key == "ipAllow"))
+    if row is None or not row.enabled:
+        return False
+    has_entries = db.scalar(select(func.count()).select_from(IpAllowlistEntry)) or 0
+    return has_entries > 0
+
+
+def ip_allowed(db: Session, ip: str | None) -> bool:
+    """Whether ``ip`` matches at least one configured CIDR range.
+
+    Only meaningful once ``ip_allowlist_enforced`` is True; callers should
+    check that first so an empty list is never treated as "deny all". An
+    unknown or unparseable address fails closed.
+    """
+    import ipaddress
+
+    from app.models.platform_setting import IpAllowlistEntry
+
+    if not ip:
+        return False
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    ranges = db.scalars(select(IpAllowlistEntry.cidr)).all()
+    for cidr in ranges:
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            continue
+        if address in network:
+            return True
+    return False
+
+
+def dlp_enabled(db: Session) -> bool:
+    """Whether uploads should be scanned by ``dlp_service``.
+
+    Unlike the IP allowlist there is nothing to configure, so the posture
+    toggle alone decides. Disabled means no scan runs at all, rather than a
+    scan whose findings are ignored.
+    """
+    from app.models.platform_setting import SecurityPosture
+
+    row = db.scalar(select(SecurityPosture).where(SecurityPosture.key == "dlp"))
+    return bool(row is not None and row.enabled)

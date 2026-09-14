@@ -113,6 +113,23 @@ export const organizations = {
     patch<T.ApiSettingsResponse>(c, '/api/organizations/me/api-settings', body),
 };
 
+/** Sender branding themes (ORG-7). Reads are open to any member; writes are
+ *  org-admin only, so a 403 here is a role problem, not a bug. */
+export const brandingThemes = {
+  list: (c: Caller) => get<T.BrandingThemeResponse[]>(c, '/api/branding-themes'),
+  get: (c: Caller, id: string) => get<T.BrandingThemeResponse>(c, `/api/branding-themes/${id}`),
+  create: (c: Caller, body: T.BrandingThemeCreate) =>
+    post<T.BrandingThemeResponse>(c, '/api/branding-themes', body),
+  update: (c: Caller, id: string, body: T.BrandingThemeUpdate) =>
+    patch<T.BrandingThemeResponse>(c, `/api/branding-themes/${id}`, body),
+  remove: (c: Caller, id: string) => del<void>(c, `/api/branding-themes/${id}`),
+  /** A data URL or bare base64 payload, like the profile photo upload. */
+  uploadLogo: (c: Caller, id: string, image_base64: string) =>
+    put<T.BrandingThemeResponse>(c, `/api/branding-themes/${id}/logo`, { image_base64 }),
+  removeLogo: (c: Caller, id: string) =>
+    del<T.BrandingThemeResponse>(c, `/api/branding-themes/${id}/logo`),
+};
+
 export const invitations = {
   list: (c: Caller) => get<T.InvitationResponse[]>(c, '/api/invitations/'),
   create: (c: Caller, body: { email: string; role: string }) =>
@@ -316,6 +333,62 @@ export const templates = {
   usage: (c: Caller, id: string) => get<T.TemplateUsageResponse>(c, `/api/templates/${id}/usage`),
 };
 
+/**
+ * The platform's catalog of ready-made forms. Read-only for a tenant apart
+ * from `import`, which copies an entry into the organization's own templates
+ * and returns that new template.
+ */
+export const catalog = {
+  browse: (c: Caller, params?: T.CatalogListParams) =>
+    get<T.CatalogListResponse>(c, '/api/templates/catalog', params),
+  get: (c: Caller, id: string) => get<T.CatalogTemplateResponse>(c, `/api/templates/catalog/${id}`),
+  import: (c: Caller, id: string, body?: { title?: string; folder_id?: string | null }) =>
+    post<T.TemplateResponse>(c, `/api/templates/catalog/${id}/import`, body ?? {}),
+};
+
+/**
+ * Curating that catalog. Platform admins only — every endpoint here 403s for
+ * a tenant administrator, however senior inside their own organization.
+ */
+export const platformCatalog = {
+  list: (c: Caller, params?: T.CatalogListParams & { include_unpublished?: boolean }) =>
+    get<T.CatalogListResponse>(c, '/api/platform/catalog-templates', params),
+  get: (c: Caller, id: string) => get<T.CatalogTemplateDetail>(c, `/api/platform/catalog-templates/${id}`),
+  create: (c: Caller, body: Record<string, unknown>) =>
+    post<T.CatalogTemplateDetail>(c, '/api/platform/catalog-templates', body),
+  update: (c: Caller, id: string, body: Record<string, unknown>) =>
+    patch<T.CatalogTemplateDetail>(c, `/api/platform/catalog-templates/${id}`, body),
+  remove: (c: Caller, id: string) => del<void>(c, `/api/platform/catalog-templates/${id}`),
+  /** `published=false` pulls an entry back out of every tenant's catalog. */
+  publish: (c: Caller, id: string, published: boolean) =>
+    post<T.CatalogTemplateResponse>(c, `/api/platform/catalog-templates/${id}/publish`, undefined, { published }),
+  /** Upsert the built-in blueprints. Idempotent; preserves curator edits. */
+  seed: (c: Caller) => post<T.CatalogListResponse>(c, '/api/platform/catalog-templates/seed'),
+  /**
+   * The curator's editable copy of an entry, opened in the ordinary document
+   * builder. Idempotent — the same draft comes back each time, so re-opening
+   * the builder cannot discard placement already done.
+   */
+  draftTemplate: (c: Caller, id: string) =>
+    post<T.TemplateResponse>(c, `/api/platform/catalog-templates/${id}/draft-template`),
+  /** Save a template's roles, field placement and PDF back into the entry. */
+  adopt: (c: Caller, id: string, templateId: string) =>
+    post<T.CatalogTemplateDetail>(c, `/api/platform/catalog-templates/${id}/adopt/${templateId}`),
+  /**
+   * `POST /api/platform/catalog-templates/{id}/file` — multipart. Attaches
+   * (or replaces) the authoritative PDF behind an entry. Converts office and
+   * image formats server-side, and refuses a file with fewer pages than the
+   * entry's field placement needs.
+   */
+  uploadFile: (c: Caller, id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('upload', file, file.name);
+    return c<T.CatalogTemplateDetail>(`/api/platform/catalog-templates/${id}/file`, {
+      method: 'POST', formData, timeoutMs: 120_000,
+    });
+  },
+};
+
 /* ── billing & invoices ─────────────────────────────────────────────────── */
 
 export const billing = {
@@ -421,6 +494,15 @@ export const logs = {
   platformDetail: (c: Caller, id: string) => get<T.SystemLogRow>(c, `/api/saas/logs/${id}`),
   platformAudit: (c: Caller, params?: { action?: string; organization_id?: string; q?: string; limit?: number; offset?: number }) =>
     get<T.PlatformAuditPage>(c, '/api/saas/audit', params),
+};
+
+/** The platform mail outbox (`/api/saas/mail`). Platform-admin only: the rows
+ *  span every tenant and quote message bodies. */
+export const mail = {
+  list: (c: Caller, params?: T.MailParams) => get<T.MailLogPage>(c, '/api/saas/mail', params),
+  /** The one row the preview pane opens — the only response carrying a body. */
+  detail: (c: Caller, id: string) => get<T.MailLogRow>(c, `/api/saas/mail/${id}`),
+  send: (c: Caller, body: T.MailSendRequest) => post<T.MailSendResult>(c, '/api/saas/mail/send', body),
 };
 
 export const notifications = {

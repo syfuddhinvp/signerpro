@@ -19,7 +19,7 @@ vi.mock('next/navigation', async () => (await import('@/test/navigation')).navig
 vi.mock('@/components/sf/SessionProvider', () => ({
   useSession: () => ({
     userId: 'u1', name: 'Ada Lovelace', email: 'ada@example.com', role: 'Admin',
-    organizationId: 'o1', organizationName: 'Northwind', isPlatformAdmin: true,
+    organizationId: 'o1', organizationName: 'Northwind', isPlatformAdmin: true, impersonation: null,
   }),
   signOut: vi.fn(),
   default: ({ children }: { children: React.ReactNode }) => children,

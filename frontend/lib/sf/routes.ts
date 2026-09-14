@@ -10,8 +10,8 @@ export type ScreenKey =
   | 'tenantHome' | 'dashboard' | 'builder' | 'routing' | 'sign' | 'audit'
   | 'contacts' | 'reports' | 'billing' | 'invoices'
   | 'api' | 'sandbox' | 'guides' | 'logs' | 'support'
-  | 'platformHome' | 'platform' | 'revenue'
-  | 'account' | 'notifications' | 'payments';
+  | 'platformHome' | 'platform' | 'revenue' | 'mail' | 'catalog'
+  | 'account' | 'notifications' | 'payments' | 'brand';
 
 export type AreaKey =
   | 'home' | 'documents' | 'contacts' | 'reports' | 'developer' | 'support'
@@ -41,9 +41,19 @@ export const SCREEN_PATH: Record<ScreenKey, string> = {
   platformHome: '/platform',
   platform: '/platform/tenants',
   revenue: '/platform/revenue',
+  /* Platform-only: the outbox spans every tenant and quotes message bodies, so
+     there is no tenant-side twin of this screen. */
+  mail: '/platform/mail',
+  /* Platform-only: the form catalog every tenant imports from. Curating it
+     (upload the form's PDF, publish it) is a platform job; browsing it is a
+     dialog inside the tenant's own template library. */
+  catalog: '/platform/catalog',
   /* The account area's landing section. Its other sections are `/account/<id>`
      and resolve to this screen key — see `screenForPath`. */
   account: '/account/profile',
+  /* Sender branding themes (ORG-7). An account section like billing, with a
+     screen of its own: the workflow screen's theme picker links here. */
+  brand: '/account/brand',
   /* Everything the header bell only shows the most recent of. Personal, like
      the account area, and not per-tenant — a row already carries the
      organization it was raised in. */
@@ -100,6 +110,14 @@ export function isDocumentScreen(screen: ScreenKey): screen is DocumentScreenKey
 export function documentPathFor(screen: DocumentScreenKey, documentId?: string | null): string {
   if (!documentId) return SCREEN_PATH[screen];
   return '/documents/' + encodeURIComponent(documentId) + '/' + DOCUMENT_SEGMENT[screen];
+}
+
+/**
+ * One contact's record: `/contacts/<id>`. Prefix matching in `screenForPath`
+ * already files it under the `contacts` screen, so the sidebar stays put.
+ */
+export function contactPathFor(contactId: string): string {
+  return '/contacts/' + encodeURIComponent(contactId);
 }
 
 const DOCUMENT_ROUTE = /^\/documents\/([^/]+)\/([^/]+)\/?$/;
@@ -163,6 +181,7 @@ const TENANT_AREA: Record<ScreenKey, AreaKey> = {
   /* Billing and Payments are account sections — see ACCOUNT_SECTIONS. */
   billing: 'account',
   payments: 'account',
+  brand: 'account',
   /* Not reachable in the tenant workspace: a tenant reads its own invoices on
      `/account/billing`. Mapped so the record is total. */
   invoices: 'platformRevenue',
@@ -170,15 +189,18 @@ const TENANT_AREA: Record<ScreenKey, AreaKey> = {
   support: 'support',
   account: 'account', notifications: 'account',
   /* Not reachable in the tenant workspace; mapped so the record is total. */
-  platformHome: 'platform', platform: 'platform', revenue: 'platformRevenue',
+  platformHome: 'platform', platform: 'platform', revenue: 'platformRevenue', mail: 'platform',
+  catalog: 'platform',
 };
 
 const PLATFORM_AREA: Record<ScreenKey, AreaKey> = {
-  platformHome: 'home', platform: 'platform',
+  platformHome: 'home', platform: 'platform', mail: 'platform', catalog: 'platform',
   revenue: 'platformRevenue', invoices: 'platformRevenue', billing: 'platformRevenue',
   /* Not reachable in the platform workspace: Stripe Connect is a tenant's own
      account, not the platform's. Mapped so the record is total. */
   payments: 'account',
+  /* Tenant-only too: the platform has no sender branding of its own. */
+  brand: 'account',
   support: 'support',
   api: 'developer', logs: 'developer', sandbox: 'developer', guides: 'developer',
   account: 'account', notifications: 'account',
@@ -261,6 +283,13 @@ export function accountSectionForPath(pathname: string): string {
 export const ACCOUNT_SECTIONS = [
   'profile', 'billing', 'security',
   'notifications', 'integrations', 'organization', 'audit',
+  /* Like `billing`: a sidebar section and a URL segment here, but a screen of
+     its own rather than one the `[section]` route renders. Leaving it out made
+     `/account/payments` resolve to `profile`, which lit the wrong row. */
+  'payments',
+  /* Same shape as `payments`: a sidebar row and a URL segment, rendered by its
+     own screen rather than by the `[section]` route. */
+  'brand',
 ] as const;
 export type AccountSection = (typeof ACCOUNT_SECTIONS)[number];
 
@@ -291,13 +320,15 @@ export const LEGACY_ACCOUNT_SECTIONS: Record<string, AccountSection> = {
 };
 
 /**
- * The sections `AccountArea` itself renders. Billing is an account section in
- * the sidebar and in the URL, but it is a full screen of its own with its own
- * server page at `/account/billing`, so the `[section]` route must not claim
- * it.
+ * The sections `AccountArea` itself renders. Billing and Payments are account
+ * sections in the sidebar and in the URL, but each is a full screen of its own
+ * with its own server page (`/account/billing`, `/account/payments`), so the
+ * `[section]` route must not claim either.
  */
-export const ACCOUNT_AREA_SECTIONS = ACCOUNT_SECTIONS.filter((s) => s !== 'billing');
-export type AccountAreaSection = Exclude<AccountSection, 'billing'>;
+const OWN_SCREEN_SECTIONS: readonly string[] = ['billing', 'payments', 'brand'];
+export const ACCOUNT_AREA_SECTIONS = ACCOUNT_SECTIONS
+  .filter((s) => !OWN_SCREEN_SECTIONS.includes(s));
+export type AccountAreaSection = Exclude<AccountSection, 'billing' | 'payments' | 'brand'>;
 
 export const AUTH_PATHS = {
   signin: '/login',

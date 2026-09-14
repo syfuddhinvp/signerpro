@@ -35,6 +35,14 @@ import { allowUnverifiedPrivilege, verifyAccessToken } from './verify';
 export { SESSION_COOKIE, backendUrl, encodeSession, decodeJwtPayload, sessionCookieOptions };
 export type { SessionUser };
 
+/** Who is really behind an impersonated session, and for how much longer. */
+export type ImpersonationContext = {
+  adminName: string;
+  adminEmail: string;
+  /** ISO 8601, from the impersonation token's own `exp`. */
+  expiresAt: string | null;
+};
+
 export type Session = {
   token: string;
   userId: string;
@@ -46,6 +54,8 @@ export type Session = {
   isPlatformAdmin: boolean;
   /** False when no signing secret is configured, so the cookie is untrusted. */
   verified: boolean;
+  /** Set only while a platform admin is acting as this tenant user. */
+  impersonation: ImpersonationContext | null;
 };
 
 async function parse(value: string): Promise<Session | null> {
@@ -63,6 +73,8 @@ async function parse(value: string): Promise<Session | null> {
   const userId = typeof claims.sub === 'string' ? claims.sub : envelope.u.id;
   if (!userId) return null;
 
+  const exp = typeof claims.exp === 'number' ? new Date(claims.exp * 1000).toISOString() : null;
+
   return {
     token: envelope.t,
     userId,
@@ -73,6 +85,13 @@ async function parse(value: string): Promise<Session | null> {
     organizationName: envelope.u.organization_name ?? '',
     isPlatformAdmin: envelope.u.is_platform_admin === true,
     verified: outcome === 'valid',
+    impersonation: envelope.imp
+      ? {
+          adminName: envelope.imp.u.name ?? '',
+          adminEmail: envelope.imp.u.email ?? '',
+          expiresAt: exp,
+        }
+      : null,
   };
 }
 

@@ -86,6 +86,39 @@ class SsoService:
         connection = self.get_connection(db, organization_id)
         return bool(connection and connection.enabled and connection.enforced)
 
+    def revoke_password_sessions(self, db: Session, *, organization_id: str) -> int:
+        """End every live session in an org, returning how many were ended.
+
+        Called when enforcement is switched on. ``UserSession`` records no
+        auth method, so a session minted by SAML cannot be told apart from one
+        minted by a password -- and ending an SSO user's session merely sends
+        them back through the IdP, while leaving a password session alive
+        defeats the control outright. The safe side of that trade is obvious.
+
+        ``revoked_at`` is set without ``rotated_at``, which ``auth_service``
+        treats as final: these sessions cannot be refreshed back to life.
+
+        Platform admins are skipped, matching their exemption in ``login`` --
+        they are the break-glass path back into a misconfigured workspace.
+        """
+        from app.models.user_session import UserSession
+        from app.models.mixins import now_utc
+
+        rows = db.scalars(
+            select(UserSession)
+            .join(User, User.id == UserSession.user_id)
+            .where(
+                User.organization_id == organization_id,
+                User.is_platform_admin.is_(False),
+                UserSession.revoked_at.is_(None),
+            )
+        ).all()
+        stamp = now_utc()
+        for row in rows:
+            row.revoked_at = stamp
+            db.add(row)
+        return len(rows)
+
     # -- SAML settings ------------------------------------------------------
 
     def _settings(self, connection: SsoConnection) -> dict:

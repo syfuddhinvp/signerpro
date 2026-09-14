@@ -10,6 +10,18 @@
 import type { FieldResponse, RecipientStatus } from '@/lib/api/types';
 import type { PageAnnotation } from '@/components/sf/screens/Signer';
 
+/** `backend/app/schemas/signer.py:SignerBranding` — the sender's brand, as a
+ *  recipient sees it. Every field is nullable: an unbranded tenant and an
+ *  invalid token both resolve to SignerPro's own chrome. */
+export type SignerBranding = {
+  organization_name: string | null;
+  theme_name: string | null;
+  logo_url: string | null;
+  logo_position: 'left' | 'center' | 'right';
+  primary_color: string | null;
+  primary_text_color: string | null;
+};
+
 export type PublicDocument = {
   title: string;
   status: string;
@@ -70,6 +82,8 @@ export type SigningSessionResponse = {
   consent_version: string;
   can_decline: boolean;
   can_reassign: boolean;
+  /** Sender branding (ORG-7); `null` when the tenant has no theme. */
+  branding?: SignerBranding | null;
 };
 
 export type CompletionResponse = {

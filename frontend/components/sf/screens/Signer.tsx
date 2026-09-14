@@ -203,7 +203,27 @@ export default function Signer({
      looks: counting it would let the signer reach 100% and press Finish only
      to be stopped by a 400 they were never warned about. */
   const problemFor = (f: SignerField | SFField) => fieldValueProblem(f, s.signValues[f.id]);
-  const complete = (f: SignerField | SFField) => isDone(f) && !problemFor(f);
+  /**
+   * A settled payment completes its field.
+   *
+   * `isDone` can only see `signValues`, and a payment is never typed into
+   * there: the *backend* marks the field paid (`field.value = "paid:<intent>"`
+   * in `signer_payment_service._reconcile`). That value does arrive on the
+   * next read, but `initialValues` is seeded once per mount (see `seeded`
+   * above), so the refresh that follows settlement never merges it in — the
+   * field showed "Paid $500.00" while the counter still called it outstanding
+   * and "Next required field" kept pointing at money already taken.
+   *
+   * Checked against the live status as well as the seeded `paid:` value so
+   * neither path alone has to win: the status covers a payment settled in this
+   * session, the value covers a reload where the status fetch has not landed.
+   */
+  const paymentSettled = (f: SignerField | SFField) =>
+    f.type === 'payment' && (
+      paymentStatuses?.[f.id]?.status === 'succeeded'
+      || String(s.signValues[f.id] ?? '').startsWith('paid:')
+    );
+  const complete = (f: SignerField | SFField) => paymentSettled(f) || (isDone(f) && !problemFor(f));
   const req = signList.filter(f => f.required);
   const done = req.filter(f => complete(f)).length;
   const pct = req.length ? Math.round((done / req.length) * 100) : 100;
@@ -229,7 +249,7 @@ export default function Signer({
    * short — the signer pressed "Next required field" and the document barely
    * moved.
    */
-  const scrollToField = (id: string) => {
+  const scrollToField = (id: string, opts?: { instant?: boolean }) => {
     const el = signEls.current[id];
     const box = signScroll.current;
     if (!el || !box) return;
@@ -238,7 +258,12 @@ export default function Signer({
     // Centred where there is room, but never above the sticky header's shadow.
     const inset = Math.max(96, (box.clientHeight - e.height) / 2);
     const top = box.scrollTop + (e.top - b.top) - inset;
-    const smooth = typeof window !== 'undefined'
+    /* Smooth is right when the signer asked to be moved — it shows them the
+       document going past. It is wrong for the landing on open: that jump can
+       be 25 pages long, and animating it means several seconds of scenery
+       before they can act. Place them, don't take them on a tour. */
+    const smooth = !opts?.instant
+      && typeof window !== 'undefined'
       && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (typeof box.scrollTo === 'function') box.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
     else box.scrollTop = Math.max(0, top);
@@ -286,7 +311,9 @@ export default function Signer({
   };
 
   const primaryBtn = btn(A, '#fff', A);
-  const successBtn = btn('#059669', '#fff', '#059669');
+  /* Finish is the sender's colour like every other primary action here: a
+     stock green beside a branded "Start signing" read as two products. */
+  const successBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
 
   const signPctStyle: CSSProperties = { fontSize: '.71875rem', fontWeight: 700, fontFamily: 'var(--font-sans)', color: pct === 100 ? '#047857' : A };
@@ -310,7 +337,9 @@ export default function Signer({
     /* The field the guide is pointing at, so "next" is visible on the page and
        not only in the header. */
     const isNext = target ? target.id === f.id : false;
-    const filled = isDone(f);
+    /* A paid payment field earns the same green "done" border as any other
+       completed field — see `paymentSettled`. */
+    const filled = isDone(f) || paymentSettled(f);
     const options = (f as SignerField).options ?? [];
     const radio = (f as SignerField).radio ?? null;
     const problem = fieldValueProblem(f, v);
@@ -336,6 +365,18 @@ export default function Signer({
       tagText: t.label,
       aria: t.label + ' — ' + f.label + (f.required ? ' (required)' : '') + (isNext ? ' — next' : ''),
       isSig, isCheck: f.type === 'checkbox',
+      /* The field the signer owes next, called out on the page itself. The
+         header line and the corner guide both name it, but neither helps
+         someone already looking straight at the document. */
+      isNext: isNext && !filled && !problem,
+      nextHint: (done === 0 ? 'Start here — ' : 'Next — ') + (isSig ? 'click to sign' : 'click to complete'),
+      nextStyle: {
+        position: 'absolute', left: '50%', top: '100%', transform: 'translateX(-50%)', marginTop: '7px',
+        display: 'inline-flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap', pointerEvents: 'none',
+        height: '22px', padding: '0 9px', borderRadius: '99px', background: A, color: '#fff',
+        fontSize: '.65625rem', fontWeight: 700, fontFamily: 'var(--font-sans)',
+        boxShadow: '0 8px 18px -10px rgba(15,23,42,.7)',
+      } as CSSProperties,
       /* A Radio Group is a set of radio buttons, not a dropdown. Both used to
          render the same `<select>`, so a field the sender placed as a radio
          group asked the signer to "Select…" from a menu. */
@@ -397,6 +438,11 @@ export default function Signer({
       onPayClick: () => {
         if (readOnly) { flash('This envelope is complete · no further edits'); return; }
         if (!onPay) { flash('Preview only · no real charge is made from here'); return; }
+        /* Marked active the way `openSig` does for a signature: the
+           auto-advance effect carries the signer on *from* the active field,
+           so without this a settled payment leaves the guide with no anchor
+           and the document never moves down to the next required field. */
+        set({ activeSignField: f.id });
         onPay(f.id);
       },
       required: f.required ? true : false,
@@ -509,25 +555,43 @@ export default function Signer({
   const availableWidth = Math.max(240, (viewportWidth || 816) - 28);
 
   /**
-   * Which way the next field lies when it is off screen, so the signer is never
-   * left guessing whether the thing they still owe is above or below them.
-   * `null` while it is in view — the guide only appears when it is needed.
+   * Where the next field lies relative to what the signer can see — above,
+   * below, or on screen right now — and which page they are actually reading,
+   * so the guide can say "next page" rather than show a bare arrow.
+   *
+   * It stays up for the whole ceremony rather than only while the field is off
+   * screen: a signer who cannot find where to sign is not helped by a pointer
+   * that hides itself the moment the field scrolls into view somewhere.
    */
-  const [guideDir, setGuideDir] = useState<'up' | 'down' | null>(null);
+  const [guideDir, setGuideDir] = useState<'up' | 'down' | 'here'>('here');
+  const [viewPage, setViewPage] = useState(1);
   const targetId = target ? target.id : null;
   useEffect(() => {
     const box = signScroll.current;
-    if (!box || !targetId) { setGuideDir(null); return; }
+    if (!box || !targetId) { setGuideDir('here'); return; }
     let frame = 0;
     const measure = () => {
       frame = 0;
+      const r = box.getBoundingClientRect();
+      /* Clamped to the window: when the whole document area is taller than the
+         viewport the *page* scrolls, so the box's own rect runs far below the
+         fold and every field measures as "in view". */
+      const vh = typeof window === 'undefined' ? r.bottom : window.innerHeight;
+      const b = { top: Math.max(r.top, 0), bottom: Math.min(r.bottom, vh) };
+      /* The page covering most of the viewport is the one being read. */
+      let best = 0, bestPage = 0;
+      box.querySelectorAll<HTMLElement>('[data-pdf-page]').forEach((node) => {
+        const r = node.getBoundingClientRect();
+        const overlap = Math.min(r.bottom, b.bottom) - Math.max(r.top, b.top);
+        if (overlap > best) { best = overlap; bestPage = Number(node.dataset.pdfPage) || 1; }
+      });
+      if (bestPage) setViewPage(bestPage);
       const el = signEls.current[targetId];
-      if (!el) { setGuideDir(null); return; }
+      if (!el) { setGuideDir('down'); return; }
       const e = el.getBoundingClientRect();
-      const b = box.getBoundingClientRect();
       if (e.bottom < b.top + 8) setGuideDir('up');
       else if (e.top > b.bottom - 8) setGuideDir('down');
-      else setGuideDir(null);
+      else setGuideDir('here');
     };
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();
@@ -543,30 +607,112 @@ export default function Signer({
     };
   }, [targetId, availableWidth, pages.length]);
 
+  /**
+   * Open the envelope *on* the first outstanding field rather than at the top
+   * of page 1.
+   *
+   * These documents run to 25 pages with one signature apiece, so a signer
+   * returning to a part-finished envelope landed on page 1 and had to press
+   * "Next required field" before anything moved — the guide named a field 12
+   * pages away and left them to find it. `pending[0]` is already sorted by
+   * `inReadingOrder`, so this lands on the topmost thing still owed.
+   *
+   * Deliberately not instant: pdf.js sizes the pages only after it parses the
+   * file, and every field moves when it does (the same reason the guide's
+   * `measure` re-runs on a settle timer above). Scrolling before then measures
+   * against a collapsed layout and lands nowhere near the field, so this waits
+   * for a laid-out target and a scrollable box, then goes once.
+   *
+   * It also yields to the signer: any scroll, key or pointer input before the
+   * land cancels it outright. Arriving to find the page yanked out from under
+   * you is worse than arriving at the top.
+   */
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current || readOnly || !targetId) return;
+    const box = signScroll.current;
+    if (!box) return;
+
+    const cancel = () => { landed.current = true; };
+    const opts = { passive: true, once: true } as const;
+    box.addEventListener('wheel', cancel, opts);
+    box.addEventListener('touchstart', cancel, opts);
+    window.addEventListener('keydown', cancel, opts);
+    box.addEventListener('pointerdown', cancel, opts);
+
+    let timer = 0;
+    let tries = 0;
+    const tryLand = () => {
+      if (landed.current) return;
+      const el = signEls.current[targetId];
+      const laidOut = el && el.getBoundingClientRect().height > 0;
+      const scrollable = box.scrollHeight > box.clientHeight;
+      if (laidOut && scrollable) { landed.current = true; scrollToField(targetId, { instant: true }); return; }
+      // ~6s, then give up: a late yank is worse than none at all.
+      if (++tries > 60) { landed.current = true; return; }
+      timer = window.setTimeout(tryLand, 100);
+    };
+    timer = window.setTimeout(tryLand, 100);
+
+    return () => {
+      window.clearTimeout(timer);
+      box.removeEventListener('wheel', cancel);
+      box.removeEventListener('touchstart', cancel);
+      window.removeEventListener('keydown', cancel);
+      box.removeEventListener('pointerdown', cancel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetId, readOnly]);
+
   const guideLabel = target
     ? target.label + ' · page ' + String(target.page || 1)
     : null;
 
+  /* What the guide says. "Next page" only when the field really is on another
+     sheet — otherwise the arrow is about scrolling, not paging. */
+  const targetPage = target ? (target.page || 1) : 1;
+  const guideIcon: IconName =
+    guideDir === 'up' ? 'arrowUp' : (guideDir === 'here' ? 'arrowRight' : 'arrowDown');
+  const guideText = !target ? null
+    : guideDir === 'here'
+      ? (target.type === 'signature' || target.type === 'initials' ? 'Sign here · ' : 'Complete · ') + target.label
+      : guideDir === 'up'
+        ? 'Back to ' + guideLabel
+        : (targetPage > viewPage ? 'Next page · ' : 'Next: ') + guideLabel;
+
   /**
-   * After a signature or initials is applied, carry the signer on to the next
-   * outstanding field. Only these two: they complete in one gesture, so there
-   * is no half-finished state to yank the page away from — a text field, which
-   * commits on blur, would move the document out from under someone still
-   * reading what they typed.
+   * After a signature, initials, or a payment is applied, carry the signer on
+   * to the next outstanding field — always `pending[0]`, which is sorted by
+   * `inReadingOrder`, so the guide walks the document top to bottom and comes
+   * to rest on the next signature or required field rather than wherever the
+   * signer last happened to click.
+   *
+   * Only these three: each completes in one deliberate gesture that closes its
+   * own modal, so there is no half-finished state to yank the page away from —
+   * a text field, which commits on blur, would move the document out from
+   * under someone still reading what they typed.
+   *
+   * A payment is keyed separately in the deps because it does not land in
+   * `signValues` at all (see `paymentSettled`): settlement arrives as a
+   * `paymentStatuses` prop, so without `settledPayments` this effect would
+   * never re-run when the charge went through and the guide would stall on the
+   * field it had just paid.
    */
+  const settledPayments = signList.filter(f => f.type === 'payment' && paymentSettled(f)).map(f => f.id).join(',');
   const advancedFrom = useRef<string | null>(null);
   useEffect(() => {
     const active = s.activeSignField;
     if (!active || advancedFrom.current === active) return;
     const f = signList.find(x => x.id === active);
-    if (!f || (f.type !== 'signature' && f.type !== 'initials') || !complete(f)) return;
+    const oneGesture = f && (f.type === 'signature' || f.type === 'initials' || f.type === 'payment');
+    if (!f || !oneGesture || !complete(f)) return;
     advancedFrom.current = active;
     const next = pending[0];
     if (!next || next.id === active) return;
     set({ activeSignField: next.id });
     scrollToField(next.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.activeSignField, s.signValues]);
+  }, [s.activeSignField, s.signValues, settledPayments]);
 
   /* One of the sender's marks, drawn at the same scale as everything else on
      the page. Inert in every sense: `pointerEvents: none` and `aria-hidden`
@@ -622,7 +768,7 @@ export default function Signer({
           ></div>
         ))}
       {fieldsOnPage(page, scale).map(f => (
-        <div key={f.id} ref={(el) => { if (el) signEls.current[f.id] = el; else delete signEls.current[f.id]; }} style={f.box}>
+        <div key={f.id} data-sf-field={f.id} ref={(el) => { if (el) signEls.current[f.id] = el; else delete signEls.current[f.id]; }} style={f.box}>
           <span style={f.tag} data-mark={f.tagMark ?? ''}>{f.tagMark ? <Icon name={f.tagMark} size={9} style={{ marginRight:'3px' }} /> : null}{f.tagText}</span>
           {f.isSig ? (
             <button type="button" onClick={f.onSign} aria-label={f.aria} style={f.sigBtn}>
@@ -791,6 +937,12 @@ export default function Signer({
               style={f.inputStyle}
             />
           ) : null}
+          {f.isNext ? (
+            <span style={f.nextStyle} aria-hidden="true">
+              <Icon name="arrowRight" size={9} />
+              {f.nextHint}
+            </span>
+          ) : null}
           {f.problem ? (
             <span
               id={f.id + '-problem'}
@@ -871,25 +1023,28 @@ export default function Signer({
       </div>
 
       <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      {/* The guide: shown only while the next required field is off screen, and
-          pinned to the edge it lies beyond, so it doubles as a direction. */}
-      {guideDir && guideLabel ? (
+      {/* The guide: parked in the bottom-left corner of the *viewport* for the
+          whole ceremony, pointing the way the outstanding field lies.
+          Fixed rather than absolute — the signing surface is not always the
+          thing that scrolls, and an absolute corner then sits below the fold,
+          which is precisely where a signer looking for help cannot see it. */}
+      {target && guideText ? (
         <button
           type="button"
           onClick={nextField}
+          aria-label={guideText}
           style={{
-            position: 'absolute', zIndex: 4, left: '50%', transform: 'translateX(-50%)',
-            ...(guideDir === 'up' ? { top: '12px' } : { bottom: '16px' }),
-            display: 'flex', alignItems: 'center', gap: '7px', maxWidth: 'calc(100% - 28px)',
+            position: 'fixed', zIndex: 40, left: '14px', bottom: '16px',
+            display: 'flex', alignItems: 'center', gap: '7px', maxWidth: 'calc(100vw - 28px)',
             height: '34px', padding: '0 14px', borderRadius: '99px', cursor: 'pointer',
             border: '1px solid ' + A, background: A, color: '#fff',
             fontSize: '.75rem', fontWeight: 600, fontFamily: 'var(--font-sans)',
             boxShadow: '0 10px 24px -10px rgba(15,23,42,.55)',
           }}
         >
-          <Icon name={guideDir === 'up' ? 'arrowUp' : 'arrowDown'} size={12} />
+          <Icon name={guideIcon} size={12} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {(guideDir === 'up' ? 'Back to ' : 'Next: ') + guideLabel}
+            {guideText}
           </span>
         </button>
       ) : null}

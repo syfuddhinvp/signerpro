@@ -11,13 +11,17 @@ export default function Guides() {
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
 
   const docPage = (DOCS_PAGES as any)[s.docsPage] || (DOCS_PAGES as any).quickstart;
-  const docNav = DOC_NAV.map(([id, label]) => {
+  const docNav = DOC_NAV.map(([id, label, group], i) => {
     const on = s.docsPage === id;
-    return { id, label, onClick: () => set({ screen: 'guides', docsPage: id } as any),
+    return { id, label, group, newGroup: i === 0 || DOC_NAV[i - 1][2] !== group,
+      onClick: () => set({ screen: 'guides', docsPage: id } as any),
       style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'8px 10px', borderRadius:'9px', border:'none', cursor:'pointer', textAlign:'left',
         background: on ? '#eef2ff' : 'transparent', color: on ? '#0f172a' : '#475569', fontSize:'.78125rem', fontWeight: on ? 600 : 500 } as CSSProperties,
       dot: { width:'7px', height:'7px', borderRadius:'99px', background: on ? A : BORDER_STRONG, flex:'0 0 7px' } as CSSProperties };
   });
+  const docIndex = DOC_NAV.findIndex(([id]) => id === s.docsPage);
+  const docPrev = docIndex > 0 ? DOC_NAV[docIndex - 1] : null;
+  const docNext = docIndex >= 0 && docIndex < DOC_NAV.length - 1 ? DOC_NAV[docIndex + 1] : null;
   const docSections = docPage.sections.map((sec: any) => ({
     h: sec.h, p: sec.p || '', hasP: !!sec.p,
     code: sec.code || '', hasCode: !!sec.code,
@@ -28,17 +32,24 @@ export default function Guides() {
   return (
     <section data-screen-label="Guides" style={{ display:'flex', height:'100%', minHeight:0, alignItems:'stretch', overflow:'hidden' }}>
       <div data-sf-scroll="1" style={{ width:'216px', flex:'0 0 216px', borderRight:'1px solid #e3e7ee', background:'#fff', padding:'16px 13px', display:'flex', flexDirection:'column', gap:'10px', overflow:'auto' }}>
-        <span style={railHead}>Documentation</span>
+        <span style={railHead}>Guides &amp; docs</span>
         <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
           {docNav.map(n => (
-            <button key={n.id} type="button" onClick={n.onClick} style={n.style}>
-              <span style={n.dot}></span><span style={{ flex:'1 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{n.label}</span>
-            </button>
+            <div key={n.id} style={{ display:'contents' }}>
+              {n.newGroup ? (
+                <span style={{ ...railHead, marginTop: n.group === 'Getting started' ? 0 : '12px' }}>{n.group}</span>
+              ) : null}
+              <button type="button" onClick={n.onClick} style={n.style} aria-current={n.id === s.docsPage ? 'page' : undefined}>
+                <span style={n.dot}></span><span style={{ flex:'1 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{n.label}</span>
+              </button>
+            </div>
           ))}
         </div>
         <div style={{ marginTop:'auto', borderTop:'1px solid #eef1f6', paddingTop:'12px', display:'flex', flexDirection:'column', gap:'7px' }}>
-          <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, lineHeight:1.5 }}>Try any call against seeded test data without leaving the app.</span>
-          <button type="button" onClick={() => set({ screen: 'sandbox' } as any)} style={ghostBtn}>Open sandbox</button>
+          <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, lineHeight:1.5 }}>Prefer to be shown? The tour walks the same steps in your own workspace.</span>
+          <button type="button" onClick={() => set({ tourStep: 0 } as any)} style={ghostBtn}>Start product tour</button>
+          <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, lineHeight:1.5 }}>Developers: run any call without leaving the app — against your live workspace, not a test tenant.</span>
+          <button type="button" onClick={() => set({ screen: 'sandbox' } as any)} style={ghostBtn}>Open API console</button>
         </div>
       </div>
 
@@ -67,6 +78,14 @@ export default function Guides() {
               {sec.hasCode ? (<pre style={jsonBoxStyle}>{sec.code}</pre>) : null}
             </div>
           ))}
+          <nav aria-label="Guide pages" style={{ display:'flex', gap:'10px', borderTop:'1px solid #e3e7ee', paddingTop:'18px' }}>
+            {docPrev ? (
+              <button type="button" onClick={() => set({ docsPage: docPrev[0] } as any)} style={ghostBtn}>&larr; {docPrev[1]}</button>
+            ) : null}
+            {docNext ? (
+              <button type="button" onClick={() => set({ docsPage: docNext[0] } as any)} style={{ ...ghostBtn, marginLeft:'auto' }}>{docNext[1]} &rarr;</button>
+            ) : null}
+          </nav>
         </div>
       </div>
     </section>

@@ -2,7 +2,7 @@ import io
 import zipfile
 from datetime import date
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -24,6 +24,7 @@ from app.schemas.document import (
     DocumentLibraryPage,
     DocumentListItem,
     DocumentMoveRequest,
+    DocumentPagesRequest,
     DocumentRenameRequest,
     DocumentResponse,
     DocumentUpdate,
@@ -372,7 +373,7 @@ def unfavorite_document(document_id: str, db: Session = Depends(get_db), user: U
 @router.get("/{document_id}/routing", response_model=RoutingResponse)
 def get_routing(document_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> RoutingResponse:
     document = document_service.get_for_user(db, document_id=document_id, user=user)
-    return document_service.routing(document)
+    return document_service.routing(document, db=db)
 
 
 @router.put("/{document_id}/routing", response_model=RoutingResponse)
@@ -387,14 +388,108 @@ def update_routing(
 
 
 
+@router.put("/{document_id}/pages", response_model=UploadPdfResponse)
+def rearrange_pages(
+    document_id: str,
+    payload: DocumentPagesRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> UploadPdfResponse:
+    """Remove pages, or change the order they are in.
+
+    The body is the page numbers to keep, in their new order -- see
+    ``DocumentPagesRequest``. Fields move with their page; fields on a removed
+    page are removed with it.
+    """
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    updated = document_service.rearrange_pages(db, document=document, user=user, order=payload.order)
+    return UploadPdfResponse(
+        document=document_response(updated), sha256=updated.original_sha256 or "", page_count=updated.page_count
+    )
+
+
+def _parse_crop(raw: str | None) -> tuple[float, float, float, float] | None:
+    """``"0.1,0.2,0.5,0.5"`` -> the crop rectangle, or ``None`` for the whole
+    image. Malformed input is the sender's error, not a 500."""
+    if raw is None or not raw.strip():
+        return None
+    parts = raw.split(",")
+    if len(parts) != 4:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Crop must be x,y,width,height")
+    try:
+        x, y, width, height = (float(part) for part in parts)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Crop must be x,y,width,height") from exc
+    return x, y, width, height
+
+
+@router.post("/{document_id}/pages", response_model=UploadPdfResponse)
+async def add_pages(
+    document_id: str,
+    request: Request,
+    upload: UploadFile | None = File(default=None),
+    blank_count: int = Form(default=0),
+    at: int | None = Form(default=None),
+    fit: str = Form(default="fit"),
+    crop: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> UploadPdfResponse:
+    """Add pages to a document that already has its original.
+
+    Multipart, because one of the two things it accepts is a file: send
+    ``upload`` (a PDF, an image or a document such as .docx, converted to PDF
+    the same way an original is) or ``blank_count`` for empty pages. ``at`` is
+    the page number the new pages take, defaulting to the end. Fields at or
+    after that point move down with their page.
+    """
+    document = document_service.get_for_user(db, document_id=document_id, user=user)
+    if upload is not None:
+        declared_size = int(request.headers.get("content-length") or 0)
+        entitlement_service.check_entitlement(
+            db, user.organization_id, ENTITLEMENT_MAX_STORAGE_BYTES, amount=max(declared_size, 1)
+        )
+    updated = await document_service.add_pages(
+        db,
+        document=document,
+        user=user,
+        upload=upload,
+        blank_count=blank_count,
+        at=at,
+        fit=fit,
+        crop=_parse_crop(crop),
+    )
+    if updated.original_file_path:
+        try:
+            stored_bytes = storage.path(updated.original_file_path).stat().st_size
+        except Exception:  # storage backend may not expose a local path
+            stored_bytes = 0
+        if stored_bytes:
+            entitlement_service.record_usage(
+                db,
+                organization_id=user.organization_id,
+                event_type=UsageEventType.storage_bytes_added,
+                quantity=stored_bytes,
+                document_id=updated.id,
+                metadata={"path": updated.original_file_path},
+            )
+            db.commit()
+    return UploadPdfResponse(
+        document=document_response(updated), sha256=updated.original_sha256 or "", page_count=updated.page_count
+    )
+
+
 @router.post("/{document_id}/upload-pdf", response_model=UploadPdfResponse)
 async def upload_pdf(
     document_id: str,
     request: Request,
     upload: UploadFile = File(...),
+    fit: str = Form(default="fit"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> UploadPdfResponse:
+    """Store the envelope's original. ``fit`` applies only when the upload is
+    an image, which has no page size of its own -- see the pages endpoint."""
     document = document_service.get_for_user(db, document_id=document_id, user=user)
     # Pre-flight against the declared body size so we reject before writing to
     # disk; the exact byte count is metered after the write.
@@ -402,7 +497,7 @@ async def upload_pdf(
     entitlement_service.check_entitlement(
         db, user.organization_id, ENTITLEMENT_MAX_STORAGE_BYTES, amount=max(declared_size, 1)
     )
-    uploaded = await document_service.upload_pdf(db, document=document, user=user, upload=upload)
+    uploaded = await document_service.upload_pdf(db, document=document, user=user, upload=upload, fit=fit)
     if uploaded.original_file_path:
         try:
             stored_bytes = storage.path(uploaded.original_file_path).stat().st_size
@@ -494,7 +589,7 @@ def remind_document(document_id: str, db: Session = Depends(get_db), user: User 
                 recipient_id=recipient.id,
                 expires_at=document.expires_at,
             )
-            link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token)
+            link = signflow_email_service.send_signing_link(document=document, recipient=recipient, token=raw_token, db=db)
             links.append({"recipient_id": recipient.id, "email": recipient.email, "signing_link": link})
             audit_service.log(
                 db,

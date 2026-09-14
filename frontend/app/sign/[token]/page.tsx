@@ -14,6 +14,7 @@
 
 import type { Metadata } from 'next';
 import { apiFetchPublic } from '@/lib/api/client';
+import { SFProvider } from '@/lib/sf/state';
 import { toSignerFields, toSignValues } from '@/lib/sf/adapters';
 import { CONTACT_PALETTE } from '@/lib/sf/data';
 import type { Recipient } from '@/lib/sf/state';
@@ -40,19 +41,29 @@ export default async function Page({ params }: { params: Promise<{ token: string
   const signerName = session.recipient.name;
   const documentTitle = session.document.title;
 
+  /* The sender's brand colour drives every primary action a signer presses
+     (ORG-7). A nested provider rather than a prop threaded through five
+     screens: `accent()` is already the one place the whole design system asks
+     for this colour, and the root provider has no token to resolve it from.
+     An unbranded tenant passes `undefined` and gets SignerPro's own accent. */
+  const branded = (node: React.ReactNode) => (
+    <SFProvider accent={session.branding?.primary_color ?? undefined}>{node}</SFProvider>
+  );
+
   // Gate 1 — identity. No fields and no PDF are returned until it is cleared.
   if (session.otp_required) {
-    return <OtpGate token={token} email={session.recipient.email} />;
+    return branded(<OtpGate token={token} email={session.recipient.email} brand={session.branding} />);
   }
 
   // Gate 2 — ESIGN consent, same deal.
   if (session.consent_required) {
-    return (
+    return branded(
       <ConsentGate
         token={token}
         signerName={signerName}
         documentTitle={documentTitle}
         consentVersion={session.consent_version || '1.0'}
+        brand={session.branding}
       />
     );
   }
@@ -73,7 +84,7 @@ export default async function Page({ params }: { params: Promise<{ token: string
    * below would tell them "You have signed …", which they have not.
    */
   if (session.recipient.role === 'copy') {
-    return (
+    return branded(
       <Signer
         viewOnly
         readOnly
@@ -89,8 +100,9 @@ export default async function Page({ params }: { params: Promise<{ token: string
   // Already finished: the envelope is read-only, so this is the completion
   // state rather than a signing surface the signer cannot use.
   if (session.read_only) {
-    return (
+    return branded(
       <SignState
+        brand={session.branding}
         tone="good"
         label="Signing complete"
         title={'You have signed ' + documentTitle}
@@ -101,8 +113,9 @@ export default async function Page({ params }: { params: Promise<{ token: string
   }
 
   if (!assigned.length) {
-    return (
+    return branded(
       <SignState
+        brand={session.branding}
         tone="info"
         label="Nothing to complete"
         title={'No fields are assigned to you on ' + documentTitle}
@@ -116,20 +129,23 @@ export default async function Page({ params }: { params: Promise<{ token: string
    * intentionally exposes no other recipient's details, so this is a
    * single-entry list.
    *
-   * FALLBACK: `PublicRecipient` carries no colour (the public schema omits it),
-   * so the first palette entry stands in.
+   * FALLBACK: `PublicRecipient` carries no colour (the public schema omits it).
+   * The sender's brand colour stands in rather than a palette entry: a signer
+   * sees exactly one recipient's tags — their own — so the palette buys no
+   * distinction here and only puts a second, unrelated colour on a branded
+   * page. An unbranded tenant falls back to the first palette entry.
    */
   const me: Recipient = {
     id: session.current_recipient_id,
     name: signerName,
     email: session.recipient.email,
     role: session.recipient.role,
-    color: CONTACT_PALETTE[0],
+    color: session.branding?.primary_color ?? CONTACT_PALETTE[0],
     order: 1,
     status: 'Viewed',
   };
 
-  return (
+  return branded(
     <SignSurface
       token={token}
       fields={assigned}

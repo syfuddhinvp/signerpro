@@ -71,7 +71,7 @@ describe('page annotations on the signing surface', () => {
 
   it('draws a pen stroke as a path, not as a box to fill in', () => {
     const { container } = mount([doodle]);
-    const path = container.querySelector('svg path');
+    const path = container.querySelector('[data-sf-ink] path');
     expect(path).toBeTruthy();
     expect(path!.getAttribute('stroke')).toBe('#dc2626');
     expect(path!.getAttribute('d')).toBe('M0.00 0.00L120.00 60.00');
@@ -81,7 +81,7 @@ describe('page annotations on the signing surface', () => {
 
   it('draws nothing for an annotation with no mark on it yet', () => {
     const { container } = mount([{ ...note, default_value: '' }, { ...doodle, options: { kind: 'drawing', strokes: [] } }]);
-    expect(container.querySelector('svg path')).toBeNull();
+    expect(container.querySelector('[data-sf-ink] path')).toBeNull();
     expect(screen.queryByText('Countersigned in escrow')).toBeNull();
   });
 });

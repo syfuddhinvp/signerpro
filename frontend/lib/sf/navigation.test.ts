@@ -240,10 +240,18 @@ describe('redundant sub-navigation', () => {
     sidebarAreas(ctxOf({ area, screen, workspace })).find(a => a.active)!.groups;
 
   it('drops the heading when an area has a single group', () => {
-    /* "My account ▸ Account" and "Tenants ▸ Admin console" restate the row above. */
+    /* "My account ▸ Account" restates the row above it. */
     expect(groupsFor('account', 'account').map(g => g.title)).toEqual(['']);
     expect(groupsFor('reports', 'reports').map(g => g.title)).toEqual(['']);
-    expect(groupsFor('platform', 'platform', 'platform').map(g => g.title)).toEqual(['']);
+  });
+
+  it('keeps every heading where an area really has several groups', () => {
+    /* The platform area does: the console's own sections, the mail outbox and
+       the form catalog — the last two being screens of their own rather than
+       one more `?section=`. With the headings dropped they would read as one
+       flat list. */
+    expect(groupsFor('platform', 'platform', 'platform').map(g => g.title))
+      .toEqual(['Admin console', 'Communications', 'Content']);
   });
 
   it('keeps the rows of that group', () => {
@@ -290,13 +298,16 @@ describe('the account area', () => {
   it('lists every section as a row', () => {
     const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'account' }))
       .find(a => a.active)!.groups.flatMap(g => g.rows);
-    // Eight account sections, plus the notifications page above them.
+    // Nine account sections, plus the notifications page above them.
     // `Payments` joined the list when senders gained the ability to collect
     // money on an envelope; it is a separate section from `Billing`, which is
     // what the organization pays us rather than what a signer pays them.
-    expect(rows.length).toBe(9);
+    // `Branding themes` joined it when a tenant gained more than one brand to
+    // send under.
+    expect(rows.length).toBe(10);
     expect(rows.map(r => r.href)).toContain('/account/organization');
     expect(rows.map(r => r.href)).toContain('/account/payments');
+    expect(rows.map(r => r.href)).toContain('/account/brand');
     expect(rows.map(r => r.href)).toContain('/notifications');
   });
 
@@ -315,6 +326,16 @@ describe('the account area', () => {
     const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'notifications', accountSection: accountSectionForPath('/notifications') }))
       .find(a => a.active)!.groups.flatMap(g => g.rows);
     expect(rows.filter(r => r.active).map(r => r.label)).toEqual(['Notifications']);
+  });
+
+  it('highlights Payments, not User profile, on /account/payments', () => {
+    /* Payments is a screen of its own, like Billing. Omitting it from
+       ACCOUNT_SECTIONS made the path fall back to `profile`, so the sidebar
+       lit User profile while the Stripe screen was on display. */
+    expect(accountSectionForPath('/account/payments')).toBe('payments');
+    const rows = sidebarAreas(ctxOf({ area: 'account', screen: 'payments', accountSection: accountSectionForPath('/account/payments') }))
+      .find(a => a.active)!.groups.flatMap(g => g.rows);
+    expect(rows.filter(r => r.active).map(r => r.label)).toEqual(['Payments']);
   });
 
   it('resolves the retired Cloud storage URL onto Integrations', () => {

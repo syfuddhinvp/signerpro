@@ -19,7 +19,7 @@ import { SessionProvider, type ClientSession } from '@/components/sf/SessionProv
 /** The tour is session-aware: the platform step only exists for an admin. */
 const SESSION: ClientSession = {
   userId: 'u1', name: 'Ada Byron', email: 'ada@northwind.test', role: 'owner',
-  organizationId: 'o1', organizationName: 'Northwind', isPlatformAdmin: true,
+  organizationId: 'o1', organizationName: 'Northwind', isPlatformAdmin: true, impersonation: null,
 };
 
 function Wrap({ step, admin = true }: { step: number; admin?: boolean }) {

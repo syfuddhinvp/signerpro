@@ -16,6 +16,7 @@
 import type { Metadata } from 'next';
 import { apiFetchPublic } from '@/lib/api/client';
 import { TEXT_MUTED } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 export const metadata: Metadata = { title: 'Verify a document · SignerPro' };
 
@@ -60,7 +61,7 @@ function Banner({ ok, title, body }: { ok: boolean; title: string; body: string 
         border: `1px solid ${ok ? '#a7f3d0' : '#fecaca'}`,
       }}
     >
-      <span aria-hidden style={{ fontSize: '1rem', lineHeight: 1.3 }}>{ok ? '✓' : '!'}</span>
+      <span aria-hidden style={{ lineHeight: 1.3, color: ok ? '#047857' : '#b91c1c', paddingTop: '2px' }}><Icon name={ok ? 'check' : 'alert'} size={15} /></span>
       <span>
         <strong style={{ display: 'block', color: ok ? '#065f46' : '#991b1b', fontSize: '.875rem' }}>{title}</strong>
         <span style={{ color: ok ? '#047857' : '#b91c1c', fontSize: '.8125rem' }}>{body}</span>

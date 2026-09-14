@@ -12,41 +12,17 @@ import { useDialogs } from '@/components/sf/DialogProvider';
 import { API_DEFS, API_TABS, EMBED_SNIPPET } from '@/lib/sf/data';
 import { btn, inputStyle, jsonBoxStyle, lbl, pill, railHead, TONE_GOOD, TONE_MUTED, TONE_WARN, TEXT_MUTED, TEXT_SUBTLE } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
-import { apiKeys as apiKeysApi, billing as billingApi, organizations as organizationsApi } from '@/lib/api/resources';
+import { apiKeys as apiKeysApi, billing as billingApi, organizations as organizationsApi, webhooks as webhooksApi } from '@/lib/api/resources';
+import Icon from '@/components/sf/Icon';
 import {
   fromOriginsField, toApiKeyRows, toApiUsageTiles, toOriginsField, toScopeState,
   type ApiKeyRow, type StatTile
 } from '@/lib/sf/adapters';
 import type {
   ApiKeyResponse, ApiKeyScopeResponse, ApiKeyUsageResponse, ApiSettingsResponse, ContactResponse,
-  UsageRow
+  UsageRow, WebhookDeliveryResponse, WebhookDeliveryStatus, WebhookEndpointResponse,
+  WebhookEventTypeResponse
 } from '@/lib/api/types';
-
-/**
- * `backend/app/schemas/webhook.py`. `lib/api/resources.ts` only declares
- * `/api/webhooks/event-types`, so the CRUD paths — which
- * `backend/app/api/routes/webhooks.py:68-196` fully implements — are called
- * directly through the proxy and their response shapes mirrored here.
- */
-type WebhookEndpointResponse = {
-  id: string;
-  organization_id: string;
-  url: string;
-  description: string | null;
-  event_types: string[] | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-};
-type WebhookDeliveryResponse = {
-  id: string;
-  endpoint_id: string;
-  event_type: string;
-  status: string;
-  status_code: number | null;
-  error: string | null;
-  created_at: string;
-};
 
 /**
  * `POST /api/embed/sessions` (`backend/app/schemas/embed.py#EmbedSessionResponse`).
@@ -103,16 +79,40 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
   const [busy, setBusy] = useState(false);
 
   const [webhookRows, setWebhookRows] = useState<WebhookEndpointResponse[] | null>(null);
-  const [webhookSecret, setWebhookSecret] = useState<{ url: string; secret: string } | null>(null);
+  const [webhookSecret, setWebhookSecret] = useState<{ url: string; secret: string; rotated: boolean } | null>(null);
   const [usageRows, setUsageRows] = useState<UsageRow[] | null>(null);
 
+  /** The endpoint whose delivery log and subscription are expanded, if any. */
+  const [openEndpoint, setOpenEndpoint] = useState<string | null>(null);
+  const [deliveries, setDeliveries] = useState<WebhookDeliveryResponse[] | null>(null);
+  const [deliveryFilter, setDeliveryFilter] = useState<WebhookDeliveryStatus | 'all'>('all');
+  const [eventCatalogue, setEventCatalogue] = useState<WebhookEventTypeResponse[]>([]);
+
   const loadWebhooks = useCallback(() => {
-    void apiCall<WebhookEndpointResponse[]>('/api/webhooks', { method: 'GET' }).then(res => {
+    void webhooksApi.list(apiCall).then(res => {
       setWebhookRows(res.ok ? res.data : []);
     });
   }, []);
 
+  /** The delivery log for the expanded endpoint. Without it a failing endpoint
+      is undebuggable from the UI: the backend records every attempt, its status
+      code and its error, and none of it was reachable. */
+  const loadDeliveries = useCallback((endpointId: string, filter: WebhookDeliveryStatus | 'all') => {
+    setDeliveries(null);
+    void webhooksApi.deliveries(apiCall, endpointId, {
+      status: filter === 'all' ? undefined : filter,
+      limit: 50,
+    }).then(res => { setDeliveries(res.ok ? res.data : []); });
+  }, []);
+
   useEffect(() => { loadWebhooks(); }, [loadWebhooks]);
+  useEffect(() => {
+    if (!openEndpoint) { setDeliveries(null); return; }
+    loadDeliveries(openEndpoint, deliveryFilter);
+  }, [openEndpoint, deliveryFilter, loadDeliveries]);
+  useEffect(() => {
+    void webhooksApi.eventTypes(apiCall).then(res => { if (res.ok) setEventCatalogue(res.data); });
+  }, []);
   useEffect(() => {
     void billingApi.usage(apiCall).then(res => { setUsageRows(res.ok ? res.data.rows : []); });
   }, []);
@@ -188,40 +188,80 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
     ].filter(Boolean).join(' · '),
     pill: pill(w.is_active ? TONE_GOOD : TONE_MUTED),
     pillLabel: w.is_active ? 'Active' : 'Disabled',
+    isActive: w.is_active,
+    eventTypes: w.event_types,
+    isOpen: openEndpoint === w.id,
+    onToggleOpen: () => { setDeliveryFilter('all'); setOpenEndpoint(openEndpoint === w.id ? null : w.id); },
     onTest: () => {
-      void apiCall<WebhookDeliveryResponse[]>('/api/webhooks/' + w.id + '/test', { method: 'POST' }).then(res => {
+      void webhooksApi.sendTest(apiCall, w.id).then(res => {
         if (!res.ok) { flash('Test send failed · ' + res.error.message); return; }
         const first = res.data[0];
         flash(first
           ? 'Test event ' + first.event_type + ' · ' + first.status + (first.status_code ? ' (' + first.status_code + ')' : '')
           : 'Test event queued');
         loadWebhooks();
+        if (openEndpoint === w.id) loadDeliveries(w.id, deliveryFilter);
       });
     },
     onToggle: () => {
-      void apiCall<WebhookEndpointResponse>('/api/webhooks/' + w.id, { method: 'PATCH', body: { is_active: !w.is_active } }).then(res => {
+      void webhooksApi.update(apiCall, w.id, { is_active: !w.is_active }).then(res => {
         if (!res.ok) { flash('Could not update the endpoint · ' + res.error.message); return; }
+        loadWebhooks();
+      });
+    },
+    onRotate: () => {
+      void askConfirm({
+        title: 'Rotate signing secret',
+        message: w.url + ' will be signed with a new secret immediately. Deliveries signed with the old one stop verifying as soon as you rotate, so update your receiver first.',
+        cta: 'Rotate secret',
+        danger: true,
+      }).then(ok => {
+        if (!ok) return;
+        void webhooksApi.rotateSecret(apiCall, w.id).then(res => {
+          if (!res.ok) { flash('Could not rotate the secret · ' + res.error.message); return; }
+          setWebhookSecret({ url: res.data.url, secret: res.data.secret, rotated: true });
+          flash('Secret rotated · copy it now, it is shown once');
+          loadWebhooks();
+        });
+      });
+    },
+    /** `null` event_types is the backend's wildcard; a list is a subscription. */
+    onSetEvents: (next: string[] | null) => {
+      void webhooksApi.update(apiCall, w.id, { event_types: next }).then(res => {
+        if (!res.ok) { flash('Could not update the subscription · ' + res.error.message); return; }
         loadWebhooks();
       });
     },
     onDelete: () => {
       void askConfirm({ title: 'Delete endpoint', message: w.url + ' stops receiving events immediately. This cannot be undone.', cta: 'Delete endpoint', danger: true }).then(ok => {
         if (!ok) return;
-        void apiCall<void>('/api/webhooks/' + w.id, { method: 'DELETE' }).then(res => {
+        void webhooksApi.remove(apiCall, w.id).then(res => {
           if (!res.ok) { flash('Could not delete the endpoint · ' + res.error.message); return; }
           flash('Endpoint deleted');
+          if (openEndpoint === w.id) setOpenEndpoint(null);
           loadWebhooks();
         });
       });
     },
   }));
 
+  /** Replay resets the attempt counter and re-sends immediately. Only offered
+      for deliveries that actually failed — replaying a success duplicates it. */
+  const replayDelivery = (delivery: WebhookDeliveryResponse) => {
+    void webhooksApi.replay(apiCall, delivery.id).then(res => {
+      if (!res.ok) { flash('Replay failed · ' + res.error.message); return; }
+      flash('Replayed ' + res.data.event_type + ' · ' + res.data.status
+        + (res.data.status_code ? ' (' + res.data.status_code + ')' : ''));
+      if (openEndpoint) loadDeliveries(openEndpoint, deliveryFilter);
+    });
+  };
+
   const addWebhook = async () => {
     const url = await askText({ title: 'Add endpoint', label: 'Endpoint URL', message: 'Events are POSTed here as they happen.', placeholder: 'https://…', cta: 'Create endpoint', required: true });
     if (!url) return;
-    void apiCall<WebhookEndpointResponse & { secret: string }>('/api/webhooks', { method: 'POST', body: { url } }).then(res => {
+    void webhooksApi.create(apiCall, { url }).then(res => {
       if (!res.ok) { flash('Could not create the endpoint · ' + res.error.message); return; }
-      setWebhookSecret({ url: res.data.url, secret: res.data.secret });
+      setWebhookSecret({ url: res.data.url, secret: res.data.secret, rotated: false });
       flash('Endpoint created · copy the signing secret now, it is shown once');
       loadWebhooks();
     });
@@ -235,10 +275,9 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
   const devResources = ([
     ['Quickstart guide', 'Send your first envelope in 10 minutes', 'quickstart'],
     ['API reference', 'Full REST reference with schemas', 'reference'],
-    ['API sandbox', 'Compose a call and inspect the live response', 'sandbox'],
+    ['API console', 'Compose a call against your live workspace', 'sandbox'],
     ['Embedding guide', 'Run the builder inside your own app', 'embed'],
     ['Webhooks', 'Signature verification and retry schedule', 'webhooks'],
-    ['SDKs & sample apps', 'TypeScript, Python, PHP, Go, Java', 'sdks'],
     ['Migration guide', 'Move templates, contacts and archives', 'migration']
   ] as [string, string, string][]).map(([label, meta, target]) => ({ label, meta,
     onClick: () => { if (target === 'sandbox') go('sandbox'); else { set({ docsPage: target }); go('guides'); } },
@@ -252,13 +291,15 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
         background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
   });
 
-  const ep = API_DEFS[s.apiTab];
+  /* `apiTab` is persisted client state, so a value from an older build (or a
+     removed tab) must not take the screen down with an undefined `ep`. */
+  const ep = API_DEFS[s.apiTab] || API_DEFS[API_TABS[0][0]];
   const apiMethodStyle: CSSProperties = { padding:'4px 9px', borderRadius:'7px', fontSize:'.65625rem', fontWeight:700, fontFamily:'var(--font-sans)',
     background: ep.method === 'GET' ? '#ecfdf5' : '#eef2ff', color: ep.method === 'GET' ? '#047857' : '#3730a3',
     border:'1px solid ' + (ep.method === 'GET' ? '#a7f3d0' : '#c7d2fe'), flex:'0 0 auto' };
   const apiParams = ep.params.map(([name, type, desc]) => ({ name, type, desc,
     typeStyle: { fontSize:'.65625rem', fontFamily:'var(--font-sans)', color:TEXT_MUTED, width:'66px', flex:'0 0 66px' } as CSSProperties }));
-  const copyEndpoint = () => flash('https://api.signerpro.com' + ep.path + ' copied');
+  const copyEndpoint = () => flash((typeof window === 'undefined' ? '' : window.location.origin) + ep.path + ' copied');
 
   /* The one-time secret. It is shown once and never again: there is no reveal
      endpoint, so a listed key can only ever display its `masked` form. */
@@ -397,7 +438,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
           </div>
           {webhookSecret ? (
             <div style={{ border:'1px solid #c7d2fe', background:'#eef2ff', borderRadius:'12px', padding:'11px', display:'flex', flexDirection:'column', gap:'5px' }}>
-              <span style={{ fontSize:'.75rem', fontWeight:600 }}>Signing secret for {webhookSecret.url}</span>
+              <span style={{ fontSize:'.75rem', fontWeight:600 }}>{webhookSecret.rotated ? 'New signing secret for ' : 'Signing secret for '}{webhookSecret.url}</span>
               <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', wordBreak:'break-all', color:'#3730a3' }}>{webhookSecret.secret}</span>
               <button type="button" onClick={() => setWebhookSecret(null)} style={ghostBtn}>Dismiss</button>
             </div>
@@ -416,11 +457,106 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
                 </div>
                 <span style={{ fontSize:'.6875rem', color:'#64748b' }}>{w.meta}</span>
               </div>
-              <div style={{ display:'flex', gap:'6px' }}>
+              <div style={{ display:'flex', gap:'6px', flexWrap:'wrap' }}>
+                <button type="button" onClick={w.onToggleOpen} aria-expanded={w.isOpen} style={w.isOpen ? primaryBtn : ghostBtn}>
+                  {w.isOpen ? 'Hide activity' : 'Activity'}
+                </button>
                 <button type="button" onClick={w.onTest} style={ghostBtn}>Send test</button>
                 <button type="button" onClick={w.onToggle} style={ghostBtn}>{w.pillLabel === 'Active' ? 'Disable' : 'Enable'}</button>
+                <button type="button" onClick={w.onRotate} style={ghostBtn}>Rotate secret</button>
                 <button type="button" onClick={w.onDelete} style={btn('#fff', '#b91c1c', '#fecaca')}>Delete</button>
               </div>
+
+              {w.isOpen ? (
+                <div style={{ flex:'1 0 100%', display:'flex', flexDirection:'column', gap:'10px', borderTop:'1px solid #e3e7ee', paddingTop:'11px' }}>
+                  {/* Subscription. `null` is the backend wildcard, so "All
+                      events" is a real state rather than "every box ticked". */}
+                  <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+                    <span style={lbl}>Subscribed events</span>
+                    <div style={{ display:'flex', gap:'6px', flexWrap:'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => w.onSetEvents(null)}
+                        aria-pressed={w.eventTypes === null}
+                        style={w.eventTypes === null ? primaryBtn : ghostBtn}
+                      >All events</button>
+                      {eventCatalogue.map(evt => {
+                        const subscribed = w.eventTypes !== null && w.eventTypes.includes(evt.event_type);
+                        return (
+                          <button
+                            key={evt.event_type}
+                            type="button"
+                            title={evt.description}
+                            aria-pressed={subscribed}
+                            onClick={() => {
+                              const current = w.eventTypes ?? [];
+                              const next = subscribed
+                                ? current.filter(item => item !== evt.event_type)
+                                : [...current, evt.event_type];
+                              // An empty list would subscribe to nothing at
+                              // all, which is what Disable is for; fall back
+                              // to the wildcard instead of a silent mute.
+                              w.onSetEvents(next.length ? next : null);
+                            }}
+                            style={subscribed ? primaryBtn : ghostBtn}
+                          >{evt.event_type}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Delivery log. Every attempt the backend recorded. */}
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
+                    <span style={lbl}>Recent deliveries</span>
+                    <div style={{ display:'flex', gap:'6px', flexWrap:'wrap' }}>
+                      {(['all', 'succeeded', 'failed', 'exhausted', 'pending'] as const).map(status => (
+                        <button
+                          key={status}
+                          type="button"
+                          aria-pressed={deliveryFilter === status}
+                          onClick={() => setDeliveryFilter(status)}
+                          style={deliveryFilter === status ? primaryBtn : ghostBtn}
+                        >{status === 'all' ? 'All' : status === 'exhausted' ? 'Dead-lettered' : status[0].toUpperCase() + status.slice(1)}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {deliveries === null ? (
+                    <span style={{ fontSize:'.71875rem', color:TEXT_MUTED }}>Loading deliveries…</span>
+                  ) : deliveries.length === 0 ? (
+                    <span style={{ fontSize:'.71875rem', color:TEXT_MUTED, lineHeight:1.6 }}>
+                      {deliveryFilter === 'all'
+                        ? 'No deliveries yet. Send a test event, or wait for the first envelope.'
+                        : 'No ' + deliveryFilter + ' deliveries.'}
+                    </span>
+                  ) : (
+                    <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+                      {deliveries.map(d => (
+                        <div key={d.id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 10px', border:'1px solid #eef1f6', borderRadius:'10px', background:'#fff', flexWrap:'wrap' }}>
+                          <span style={pill(d.status === 'succeeded' ? TONE_GOOD : d.status === 'pending' ? TONE_MUTED : TONE_WARN)}>
+                            {d.status === 'exhausted' ? 'Dead-lettered' : d.status}
+                          </span>
+                          <span style={{ fontSize:'.71875rem', fontWeight:600, minWidth:0 }}>{d.event_type}</span>
+                          <span style={{ fontSize:'.6875rem', color:TEXT_SUBTLE, fontFamily:'var(--font-sans)' }}>
+                            {d.status_code ? 'HTTP ' + d.status_code : 'no response'}
+                            {' · attempt ' + d.attempt}
+                            {d.next_retry_at ? ' · retries ' + new Date(d.next_retry_at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
+                          </span>
+                          <span style={{ fontSize:'.6875rem', color:TEXT_SUBTLE, marginLeft:'auto' }}>
+                            {new Date(d.created_at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+                          </span>
+                          {d.status === 'failed' || d.status === 'exhausted' ? (
+                            <button type="button" onClick={() => replayDelivery(d)} style={ghostBtn}>Replay</button>
+                          ) : null}
+                          {d.error ? (
+                            <span style={{ flex:'1 0 100%', fontSize:'.6875rem', color:'#b91c1c', fontFamily:'var(--font-sans)', wordBreak:'break-word' }}>{d.error}</span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -448,7 +584,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'12px' }}>
           {devResources.map(r => (
             <button key={r.label} type="button" onClick={r.onClick} style={r.style}>
-              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a' }}>{r.label} ↗</span>
+              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a', display:'inline-flex', alignItems:'center', gap:'5px' }}>{r.label}<Icon name="externalLink" size={12} /></span>
               <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{r.meta}</span>
             </button>
           ))}
@@ -474,6 +610,9 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
             <span style={{ fontSize:'.75rem', color:'#475569', lineHeight:1.6 }}>{ep.desc}</span>
             <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
               <span style={railHead}>Parameters</span>
+              {apiParams.length === 0 ? (
+                <span style={{ fontSize:'.71875rem', color:TEXT_MUTED, lineHeight:1.5 }}>None. The route takes no query parameters.</span>
+              ) : null}
               {apiParams.map(p => (
                 <div key={p.name} style={{ display:'flex', gap:'10px', alignItems:'flex-start', padding:'7px 0', borderTop:'1px solid #f2f4f8' }}>
                   <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', color:'#0f172a', width:'118px', flex:'0 0 118px' }}>{p.name}</span>

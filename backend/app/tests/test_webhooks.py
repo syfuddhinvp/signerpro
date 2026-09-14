@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -490,3 +491,162 @@ def test_webhook_activity_is_audited(client: TestClient, pdf_bytes: bytes, trans
     document_id = sign_document(client, pdf_bytes, headers)
     logs = client.get(f"/api/documents/{document_id}/audit-logs", headers=headers).json()
     assert "webhook_delivery_succeeded" in [item["event_type"] for item in logs]
+
+
+# --------------------------------------------------------------------------- #
+# Graceful shutdown: in-flight deliveries are drained, not killed mid-POST
+# --------------------------------------------------------------------------- #
+
+def test_drain_waits_for_in_flight_delivery(client: TestClient, pdf_bytes: bytes) -> None:
+    """SIGTERM must not abandon a delivery that is half-sent.
+
+    Dispatch used to be fire-and-forget onto `daemon=True` threads, which the
+    interpreter kills on exit, so at-least-once degraded to at-most-once on
+    every deploy. `drain()` is what the lifespan calls to wait them out.
+    """
+    started = threading.Event()
+    release = threading.Event()
+    completed: list[str] = []
+
+    def blocking_transport(url: str, body: bytes, headers: dict[str, str]):
+        started.set()
+        release.wait(5)
+        completed.append(headers["X-SignFlow-Delivery"])
+        return 200, "ok"
+
+    original, original_sync = webhook_service.transport, webhook_service.synchronous
+    webhook_service.transport = blocking_transport
+    webhook_service.synchronous = False  # the real threaded path
+    try:
+        headers = _entitled_headers(client)
+        create_endpoint(client, headers, event_types=["document.completed"])
+        sign_document(client, pdf_bytes, headers)
+
+        assert started.wait(5), "delivery thread never started"
+        assert not completed, "transport returned before it was released"
+
+        # Shutdown begins while the POST is still open.
+        drained: list[int] = []
+        drainer = threading.Thread(target=lambda: drained.append(webhook_service.drain(timeout=5)))
+        drainer.start()
+        release.set()
+        drainer.join(10)
+
+        assert drained == [0], "drain gave up on an in-flight delivery"
+        assert len(completed) == 1, "the in-flight delivery was abandoned"
+    finally:
+        release.set()
+        webhook_service.resume()
+        webhook_service.transport = original
+        webhook_service.synchronous = original_sync
+
+
+def test_drain_stops_accepting_new_threads(transport: RecordingTransport) -> None:
+    """After a drain, dispatch runs inline rather than on an unwaited thread."""
+    webhook_service.synchronous = False
+    try:
+        assert webhook_service.drain(timeout=1) == 0
+        threads_before = set(webhook_service._threads)
+        webhook_service._spawn(None, [])  # would raise if it opened a thread we ignore
+        assert set(webhook_service._threads) == threads_before
+    finally:
+        webhook_service.resume()
+        webhook_service.synchronous = True
+
+
+# --------------------------------------------------------------------------- #
+# The retry sweep (scripts/run_webhook_retries.py)
+# --------------------------------------------------------------------------- #
+
+def test_due_retries_are_not_starved_by_future_ones(client: TestClient, transport: RecordingTransport) -> None:
+    """A queue of far-future retries must not crowd out a due delivery.
+
+    `limit` is applied by the database *before* due-ness is filtered in Python,
+    so selecting oldest-created-first meant a backlog of not-yet-due rows at the
+    head of the queue hid every due delivery from the sweep permanently.
+    """
+    from app.models.mixins import uuid_str
+    from app.models.webhook import WebhookDelivery
+
+    headers = _entitled_headers(client)
+    endpoint = create_endpoint(client, headers)
+    now = datetime.now(timezone.utc)
+
+    generator, db = _session_for(client)
+    try:
+        # Five rows created first, none due for a day.
+        for _ in range(5):
+            db.add(
+                WebhookDelivery(
+                    id=uuid_str(),
+                    endpoint_id=endpoint["id"],
+                    event_id=uuid_str(),
+                    event_type="webhook.test",
+                    payload={"type": "webhook.test"},
+                    attempt=1,
+                    status="failed",
+                    next_retry_at=now + timedelta(days=1),
+                )
+            )
+        # One row created last, due now.
+        due = WebhookDelivery(
+            id=uuid_str(),
+            endpoint_id=endpoint["id"],
+            event_id=uuid_str(),
+            event_type="webhook.test",
+            payload={"type": "webhook.test"},
+            attempt=1,
+            status="failed",
+            next_retry_at=now - timedelta(minutes=1),
+        )
+        db.add(due)
+        db.commit()
+
+        # A batch smaller than the not-yet-due backlog. The due row must still win.
+        assert webhook_service.process_due_retries(db, limit=3, now=now) == 1
+        db.refresh(due)
+        assert due.status == "succeeded"
+    finally:
+        generator.close()
+
+
+def test_sweep_script_drives_process_due_retries(client: TestClient, transport: RecordingTransport) -> None:
+    """`scripts/run_webhook_retries.py` is the caller finding 21 said was missing."""
+    import sys
+    from pathlib import Path
+
+    scripts = Path(__file__).resolve().parents[2] / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.append(str(scripts))
+    import run_webhook_retries
+
+    from app.models.mixins import uuid_str
+    from app.models.webhook import WebhookDelivery
+
+    headers = _entitled_headers(client)
+    endpoint = create_endpoint(client, headers)
+
+    generator, db = _session_for(client)
+    try:
+        for _ in range(3):
+            db.add(
+                WebhookDelivery(
+                    id=uuid_str(),
+                    endpoint_id=endpoint["id"],
+                    event_id=uuid_str(),
+                    event_type="webhook.test",
+                    payload={"type": "webhook.test"},
+                    attempt=1,
+                    status="failed",
+                    next_retry_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+                )
+            )
+        db.commit()
+
+        # Batches smaller than the backlog, to exercise the loop.
+        assert run_webhook_retries.sweep(db, batch_size=2, max_batches=10) == 3
+        assert len(transport.calls) == 3
+        # Nothing due left: the sweep is idempotent.
+        assert run_webhook_retries.sweep(db, batch_size=2, max_batches=10) == 0
+    finally:
+        generator.close()

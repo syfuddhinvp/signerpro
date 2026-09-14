@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, mayActAsPlatformAdmin, readEdgeSession, type EdgeSession } from '@/lib/auth/edge';
-import { sessionCookieOptions } from '@/lib/auth/cookie';
+import { backendUrl, expireImpersonation, sessionCookieOptions } from '@/lib/auth/cookie';
 import { refreshSession } from '@/lib/auth/refresh';
 import { pathAllowed } from '@/lib/auth/access';
 
@@ -10,13 +10,16 @@ import { pathAllowed } from '@/lib/auth/access';
  * Everything is private except the auth screens, the auth route handlers and
  * the links mailed to people who have no account: the signer link
  * (`/sign/<token>`), the password-reset link (`/reset-password?token=…`) and
- * the invitation link (`/invite/<token>`).
+ * the invitation link (`/invite/<token>`) and the branding logo embedded in
+ * invitation emails (`/brand/<id>/logo`, an image and nothing else).
  *
  * Middleware is also the one place on a page navigation that can both read the
  * httpOnly cookie and write a new one, so it is where the short-lived access
- * token is exchanged for a fresh one (see `lib/auth/refresh.ts`).
+ * token is exchanged for a fresh one (see `lib/auth/refresh.ts`) and where a
+ * spent impersonation session hands the cookie back to the admin who started
+ * it (see `expireImpersonation`).
  */
-const PUBLIC_PREFIXES = ['/login', '/register', '/api/auth', '/sign', '/reset-password', '/invite', '/verify'];
+const PUBLIC_PREFIXES = ['/login', '/register', '/api/auth', '/sign', '/reset-password', '/invite', '/verify', '/embed', '/brand'];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -32,12 +35,22 @@ function loginRedirect(request: NextRequest, pathname: string, search: string) {
 
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  const session = await readEdgeSession(request.cookies.get(SESSION_COOKIE)?.value);
+
+  /* An impersonation token has no refresh token, so a spent one must fall back
+     to the parked admin session rather than read as a dead cookie. Done before
+     anything else looks at the cookie, so the rest of this function — the
+     /platform guard included — sees the identity that is actually in force. */
+  const rawCookie = request.cookies.get(SESSION_COOKIE)?.value;
+  const restoredCookie = expireImpersonation(rawCookie);
+  const session = await readEdgeSession(restoredCookie ?? rawCookie);
 
   if (isPublic(pathname)) {
     // Signed-in users have no business on the sign-in screens.
     if (session && (pathname === '/login' || pathname === '/register')) {
       return NextResponse.redirect(new URL('/overview', request.url));
+    }
+    if (pathname === '/embed' || pathname.startsWith('/embed/')) {
+      return await embedResponse(request);
     }
     return NextResponse.next();
   }
@@ -46,7 +59,7 @@ export async function middleware(request: NextRequest) {
 
   // Rotate a spent access token before the page renders, so server components
   // downstream fetch with a live bearer token.
-  let rotatedCookie: string | null = null;
+  let rotatedCookie: string | null = restoredCookie;
   let current: EdgeSession = session;
   if (session.stale) {
     const refreshed = await refreshSession(session.envelope);
@@ -85,6 +98,73 @@ export async function middleware(request: NextRequest) {
     });
   }
   return response;
+}
+
+
+/**
+ * The embed surface, with framing decided per session.
+ *
+ * `next.config.ts` can only express a build-time, deployment-wide allowlist —
+ * it cannot know the tenant, which is exactly what `frame-ancestors` has to
+ * encode here. So the session's own `organizations.allowed_origins` is fetched
+ * and turned into the directive, and the static header for `/:path*`
+ * (`frame-ancestors 'none'` + `X-Frame-Options: DENY`) is overridden for this
+ * path only.
+ *
+ * This is the only enforcement point that works. `allowed_origins` names *host
+ * applications*, and a host application never sends us a request of its own —
+ * so no `Origin` check on the API can stand in for it, and the browser's
+ * refusal to paint the frame is the real control.
+ *
+ * FAIL CLOSED: an absent, unknown or expired token, or a backend that does not
+ * answer, yields `'none'`. The page still renders — unframed — as its designed
+ * error state.
+ */
+async function embedResponse(request: NextRequest) {
+  const token = request.nextUrl.searchParams.get('session');
+  const ancestors = token ? await frameAncestors(token) : [];
+  const source = ancestors.length ? ancestors.join(' ') : "'none'";
+
+  const response = NextResponse.next();
+  response.headers.set(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      "connect-src 'self'",
+      "worker-src 'self' blob:",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-src 'self'",
+      `frame-ancestors ${source}`,
+    ].join('; '),
+  );
+  // X-Frame-Options has no allowlist form: emitting it alongside an allowing
+  // frame-ancestors would make older browsers block a permitted embed. It is
+  // only meaningful when framing is denied outright.
+  if (ancestors.length) response.headers.delete('X-Frame-Options');
+  else response.headers.set('X-Frame-Options', 'DENY');
+  return response;
+}
+
+async function frameAncestors(token: string): Promise<string[]> {
+  try {
+    const res = await fetch(
+      `${backendUrl()}/api/embed/frame-ancestors?token=${encodeURIComponent(token)}`,
+      { cache: 'no-store' },
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as { frame_ancestors?: string[] };
+    // Only absolute http(s) origins reach the header — never a bare host, and
+    // never a wildcard the tenant could have typed into their settings.
+    return (body.frame_ancestors ?? []).filter(o => /^https?:\/\/[^\s'";]+$/.test(o));
+  } catch {
+    return [];
+  }
 }
 
 /** Rewrite the outgoing `cookie` header so this render sees the rotated value. */

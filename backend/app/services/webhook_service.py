@@ -44,6 +44,7 @@ import json
 import secrets
 import socket
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.parse import urlparse, urlunparse
@@ -86,6 +87,10 @@ MAX_ATTEMPTS = 6
 REQUEST_TIMEOUT_SECONDS = 10.0
 BACKOFF_BASE_SECONDS = 30
 BACKOFF_CAP_SECONDS = 6 * 60 * 60
+#: How long shutdown waits for in-flight delivery threads. Longer than a
+#: single attempt's timeout, so a POST that started just before SIGTERM can
+#: still finish rather than being abandoned half-sent.
+DRAIN_TIMEOUT_SECONDS = REQUEST_TIMEOUT_SECONDS + 5.0
 SIGNATURE_HEADER = "X-SignFlow-Signature"
 TIMESTAMP_HEADER = "X-SignFlow-Timestamp"
 
@@ -288,6 +293,17 @@ class WebhookService:
     #: When True, deliveries run inline after commit instead of in a thread.
     synchronous: bool = False
 
+    def __init__(self) -> None:
+        #: Live delivery threads. Without this, dispatch was fire-and-forget
+        #: onto daemon threads, which the interpreter kills mid-POST on
+        #: SIGTERM: at-least-once delivery quietly became at-most-once across
+        #: every deploy (AUDIT_REPORT.md finding 24).
+        self._threads: set[threading.Thread] = set()
+        self._threads_lock = threading.Lock()
+        #: Cleared by ``drain()`` so a shutting-down process stops opening new
+        #: threads nothing will ever wait for.
+        self._accepting = True
+
     # ------------------------------------------------------------------ #
     # Emission
     # ------------------------------------------------------------------ #
@@ -374,13 +390,64 @@ class WebhookService:
             if self.synchronous:
                 self.deliver_ids(bind, ids)
             else:
-                threading.Thread(target=self.deliver_ids, args=(bind, ids), daemon=True).start()
+                self._spawn(bind, ids)
 
         def _after_rollback(session: Session) -> None:
             session.info["_webhook_pending"] = []
 
         sa_event.listen(db, "after_commit", _after_commit)
         sa_event.listen(db, "after_rollback", _after_rollback)
+
+    def _spawn(self, bind: Any, delivery_ids: list[str]) -> None:
+        """Attempt deliveries on a tracked background thread."""
+        thread = threading.Thread(
+            target=self._deliver_tracked,
+            args=(bind, delivery_ids),
+            name="webhook-delivery",
+            daemon=True,
+        )
+        with self._threads_lock:
+            if not self._accepting:
+                # Already shutting down. Deliver inline instead: the attempt
+                # either completes, or the process dies before the session
+                # commits and the row is still `pending` for the retry sweep.
+                self.deliver_ids(bind, delivery_ids)
+                return
+            self._threads.add(thread)
+        thread.start()
+
+    def _deliver_tracked(self, bind: Any, delivery_ids: list[str]) -> None:
+        try:
+            self.deliver_ids(bind, delivery_ids)
+        finally:
+            with self._threads_lock:
+                self._threads.discard(threading.current_thread())
+
+    def drain(self, timeout: float = DRAIN_TIMEOUT_SECONDS) -> int:
+        """Stop dispatching and wait for in-flight attempts. Called on shutdown.
+
+        Returns the number of threads still running when the deadline passed.
+        Those are not lost: ``attempt_delivery`` only persists through
+        ``deliver_ids``' commit, so an abandoned attempt leaves its row in
+        ``pending``/``failed`` and ``process_due_retries`` picks it up. The
+        drain is what turns a *duplicate-or-lost* race into a plain delay.
+        """
+        with self._threads_lock:
+            self._accepting = False
+            in_flight = list(self._threads)
+
+        deadline = time.monotonic() + timeout
+        for thread in in_flight:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            thread.join(remaining)
+        return sum(1 for thread in in_flight if thread.is_alive())
+
+    def resume(self) -> None:
+        """Re-open dispatch after a ``drain()`` (tests, and a re-entered lifespan)."""
+        with self._threads_lock:
+            self._accepting = True
 
     def deliver_ids(self, bind: Any, delivery_ids: list[str]) -> None:
         """Open an independent session and attempt the given deliveries."""
@@ -480,7 +547,14 @@ class WebhookService:
             db.execute(
                 select(WebhookDelivery)
                 .where(WebhookDelivery.status.in_([STATUS_PENDING, STATUS_FAILED]))
-                .order_by(WebhookDelivery.created_at)
+                # Soonest-due first, not oldest-created first. Due-ness is
+                # filtered in Python below (the column is naive on SQLite and
+                # aware on Postgres, so a bound comparison is not portable),
+                # which means the ``limit`` is applied *before* that filter:
+                # ordering by creation let a queue of far-future retries at the
+                # head crowd every due delivery out of the batch forever.
+                # NULL next_retry_at means "never attempted", so it sorts first.
+                .order_by(WebhookDelivery.next_retry_at.nullsfirst(), WebhookDelivery.created_at)
                 .limit(limit)
             ).scalars()
         )

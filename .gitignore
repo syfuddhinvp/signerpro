@@ -28,3 +28,8 @@ bun.lockb
 
 # Production environment file (see .env.prod.example)
 .env.prod
+
+# Local-only demo integration app (a third-party consumer of the developer
+# APIs, used to check those surfaces actually work against a running stack).
+# Deliberately untracked: it is a test harness, not part of the product.
+/demo-app/

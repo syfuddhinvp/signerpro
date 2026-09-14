@@ -7,6 +7,7 @@ import { ROLE_LABEL, FLAG_ENV_TONE } from '@/lib/sf/data';
 import { SECTION_PARAM, sectionFor } from '@/lib/sf/routes';
 import { btn, pill, inputStyle, railHead, selectStyle, TEXT_MUTED, BORDER_STRONG, TEXT_MUTED_ON_DARK, TEXT_ON_DARK } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
+import { startImpersonation } from '@/components/sf/SessionProvider';
 import {
   directory as directoryApi,
   flags as flagsApi,
@@ -23,7 +24,8 @@ import type {
   TenantTableRow,
 } from '@/lib/sf/adapters';
 import { formatCents, formatRelative, tenantStatusLabel } from '@/lib/sf/adapters';
-import type { ImpersonationSessionResponse, TenantDetail } from '@/lib/api/types';
+import type { TenantDetail } from '@/lib/api/types';
+import Icon, { type IconName } from '@/components/sf/Icon';
 
 const th: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:'var(--font-sans)' };
 const thRight: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, textAlign:'right', fontFamily:'var(--font-sans)' };
@@ -36,16 +38,6 @@ const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
 
 const emptyCell: CSSProperties = { padding:'22px 14px', fontSize:'.78125rem', color:'#64748b' };
 const emptyNote: CSSProperties = { fontSize:'.71875rem', color:TEXT_MUTED, lineHeight:1.6 };
-
-/** `expires_at` is in the future, which `formatRelative` does not express. */
-function expiresIn(iso: string): string {
-  const minutes = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
-  if (Number.isNaN(minutes)) return 'unknown';
-  if (minutes <= 0) return 'expired';
-  if (minutes < 60) return 'in ' + minutes + ' min';
-  const hours = Math.round(minutes / 60);
-  return 'in ' + hours + (hours === 1 ? ' hour' : ' hours');
-}
 
 /** Filter values that live in the URL, so a filtered view is shareable. */
 export type PlatformFilters = {
@@ -137,8 +129,8 @@ export default function Platform({
   const [dialog, setDialog] = useState<{ kind: 'suspend' | 'impersonate'; tenant: TenantTableRow } | null>(null);
   const [reason, setReason] = useState('');
   const [ttl, setTtl] = useState('900');
+  const [scope, setScope] = useState('read');
   const [busy, setBusy] = useState(false);
-  const [session, setSession] = useState<ImpersonationSessionResponse | null>(null);
 
   const closeDialog = () => { setDialog(null); setReason(''); setBusy(false); };
 
@@ -163,30 +155,32 @@ export default function Platform({
     });
   };
 
+  /* Not a plain API call: the backend mints the impersonation token, but it
+     only takes effect once it is installed in the httpOnly session cookie,
+     which client JS cannot write. `/api/auth/impersonate` does the swap and
+     tells us where to land. See `app/api/auth/impersonate/route.ts`. */
   const submitImpersonation = () => {
     if (!dialog) return;
     /* The API requires a justification of at least 5 characters and a TTL
        between 60s and 1h; it records the session before issuing a token. */
     if (reason.trim().length < 5) { flash('A justification of at least 5 characters is required'); return; }
     setBusy(true);
-    void tenantsApi
-      .impersonate(apiCall, dialog.tenant.id, { justification: reason.trim(), ttl_seconds: Number(ttl) || 900 })
-      .then(res => {
-        setBusy(false);
-        if (!res.ok) { flash('Impersonation refused · ' + res.error.message); return; }
-        setSession(res.data);
-        flash('Impersonating ' + res.data.organization_name + ' as ' + res.data.impersonated_user_email);
-        closeDialog();
-        router.refresh();
-      });
-  };
-
-  const endImpersonation = () => {
-    void tenantsApi.stopImpersonation(apiCall).then(res => {
-      if (!res.ok) { flash('Could not end impersonation · ' + res.error.message); return; }
-      flash(res.data.ended_sessions + ' impersonation session(s) ended');
-      setSession(null);
-      router.refresh();
+    void startImpersonation({
+      organizationId: dialog.tenant.id,
+      justification: reason.trim(),
+      ttlSeconds: Number(ttl) || 900,
+      /* `write` implies `read`: the backend refuses unsafe methods on a
+         read-only session, so a support visit meant to fix something has to
+         ask for both up front. */
+      scopes: scope === 'write' ? ['read', 'write'] : ['read'],
+    }).then(result => {
+      setBusy(false);
+      if (!result.ok) { flash('Impersonation refused · ' + result.error); return; }
+      closeDialog();
+      /* A full navigation rather than `router.refresh()`: the cookie now holds
+         a different identity, and middleware has to re-read it before any
+         screen renders — the console itself is closed to us from here on. */
+      window.location.assign(result.next);
     });
   };
 
@@ -204,7 +198,7 @@ export default function Platform({
       return { width: pct + '%', height:'100%', borderRadius:'99px', background: pct > 92 ? '#f59e0b' : '#10b981' } as CSSProperties;
     })(),
     onOpen: () => pushQuery({ tenant: filters.tenantId === t.id ? '' : t.id }),
-    onImpersonate: () => { setReason(''); setDialog({ kind: 'impersonate', tenant: t }); },
+    onImpersonate: () => { setReason(''); setScope('read'); setDialog({ kind: 'impersonate', tenant: t }); },
     suspendLabel: t.suspended ? 'Reinstate' : 'Suspend',
     suspendStyle: t.suspended ? btn('#fff', '#047857', '#a7f3d0') : btn('#fff', '#b91c1c', '#fecaca'),
     onSuspend: () => {
@@ -275,7 +269,7 @@ export default function Platform({
   const permRows = matrix.rows.map(row => ({
     label: row.label,
     cells: row.allowed.map((c, i) => ({
-      mark: c ? '✓' : '–', title: (matrix.columnLabels[i] ?? matrix.columns[i] ?? '') + (c ? ': allowed' : ': denied'),
+      mark: (c ? 'check' : 'minus') as IconName, title: (matrix.columnLabels[i] ?? matrix.columns[i] ?? '') + (c ? ': allowed' : ': denied'),
       style: { width:'26px', height:'22px', borderRadius:'6px', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700,
         background: c ? '#ecfdf5' : '#f5f6f8', color: c ? '#047857' : BORDER_STRONG, border:'1px solid ' + (c ? '#a7f3d0' : '#e3e7ee') } as CSSProperties,
     })),
@@ -364,19 +358,6 @@ export default function Platform({
           <span style={{ fontSize:'.78125rem', color:TEXT_ON_DARK, lineHeight:1.5 }}>Global scope — {tenantCountLabel} tenants, {seatsLabel} seats. Every action here is written to the platform audit stream.</span>
         </div>
       </div>
-
-      {session ? (
-        <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px', flexWrap:'wrap' }}>
-          <div style={{ display:'flex', flexDirection:'column', gap:'3px', minWidth:0 }}>
-            <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#9a3412' }}>Impersonating {session.organization_name} as {session.impersonated_user_email}</span>
-            <span style={{ fontSize:'.6875rem', color:'#c2410c', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>
-              session {session.id} · expires {expiresIn(session.expires_at)} · {session.justification}
-              {session.scopes.length ? ' · scopes ' + session.scopes.join(', ') : ''}
-            </span>
-          </div>
-          <button type="button" onClick={endImpersonation} style={btn('#fff', '#b91c1c', '#fecaca')}>End impersonation</button>
-        </div>
-      ) : null}
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0,1fr))', gap:'12px' }}>
         {platformStats.map(st => (
@@ -548,7 +529,7 @@ export default function Platform({
                 <span style={{ fontSize:'.75rem', color:'#334155' }}>{p.label}</span>
                 <div style={{ display:'flex', gap:'6px' }}>
                   {p.cells.map((c, ci) => (
-                    <span key={ci} style={c.style} title={c.title}>{c.mark}</span>
+                    <span key={ci} style={c.style} title={c.title}><Icon name={c.mark} size={12} /></span>
                   ))}
                 </div>
               </div>
@@ -684,7 +665,7 @@ export default function Platform({
               <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>
                 {dialog.kind === 'suspend'
                   ? 'All envelopes freeze immediately. The reason is stored on the tenant and written to the platform audit stream.'
-                  : 'A short-lived token is issued for the tenant owner. The justification and the session are recorded before the token exists.'}
+                  : 'You will be signed in as the tenant owner until the session expires or you end it. The justification and the session are recorded before the token exists.'}
               </span>
             </div>
             <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
@@ -694,15 +675,29 @@ export default function Platform({
                 style={inputStyle} />
             </label>
             {dialog.kind === 'impersonate' ? (
-              <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
-                Session lifetime
-                <select value={ttl} onChange={e => setTtl(e.target.value)} style={Object.assign({}, inputStyle, { width:'100%' })}>
-                  <option value="300">5 minutes</option>
-                  <option value="900">15 minutes</option>
-                  <option value="1800">30 minutes</option>
-                  <option value="3600">1 hour</option>
-                </select>
-              </label>
+              <>
+                <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+                  Session lifetime
+                  <select value={ttl} onChange={e => setTtl(e.target.value)} style={Object.assign({}, inputStyle, { width:'100%' })}>
+                    <option value="300">5 minutes</option>
+                    <option value="900">15 minutes</option>
+                    <option value="1800">30 minutes</option>
+                    <option value="3600">1 hour</option>
+                  </select>
+                </label>
+                {/* Without this the session was always read-only, so every
+                    action taken to fix the customer's problem came back 403. */}
+                <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+                  Access
+                  <select value={scope} onChange={e => setScope(e.target.value)} style={Object.assign({}, inputStyle, { width:'100%' })}>
+                    <option value="read">Read only — look, change nothing</option>
+                    <option value="write">Read and write — act on the tenant&rsquo;s behalf</option>
+                  </select>
+                </label>
+                <span style={{ fontSize:'.6875rem', color:'#c2410c', lineHeight:1.5 }}>
+                  Everything you do is attributed to you in the tenant&rsquo;s audit trail, not to {dialog.tenant.owner || 'the owner'}.
+                </span>
+              </>
             ) : null}
             <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px' }}>
               <button type="button" onClick={closeDialog} style={ghostBtn}>Cancel</button>

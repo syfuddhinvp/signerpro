@@ -36,6 +36,7 @@ from app.services.billing_service import (
     InsecureBillingWebhookSecret,
     LiveStripeKeyOutsideProduction,
     NullPaymentProvider,
+    ProviderInvoice,
     StripeConfigurationError,
     StripePaymentProvider,
     billing_service,
@@ -1120,3 +1121,255 @@ def test_stripe_default_payment_method_is_a_no_op_without_a_customer(
         customer_id=None,
     )
     assert fake.calls == []
+
+
+# ---------------------------------------------------------------------------
+# The provider's own invoices are mirrored locally
+#
+# A subscription is billed by the provider, not by us: no local code path runs
+# when the customer's card is charged, so `invoices` stayed empty until
+# `run_renewals` closed the first period about a month later. The webhook now
+# mirrors the provider's invoice, and the backfill recovers the ones that
+# settled before it did.
+# ---------------------------------------------------------------------------
+
+
+def _paid_provider_invoice(**overrides) -> ProviderInvoice:
+    defaults = dict(
+        provider_invoice_id="in_stripe_1",
+        currency="USD",
+        subtotal_cents=1200,
+        tax_cents=0,
+        total_cents=1200,
+        amount_paid_cents=1200,
+        number="C0FFEE-0001",
+        status=InvoiceStatus.paid,
+        hosted_url="https://invoice.stripe.com/i/in_stripe_1",
+        payment_intent_id="pi_stripe_1",
+        period_start=now_utc() - timedelta(days=1),
+        period_end=now_utc() + timedelta(days=29),
+        issued_at=now_utc() - timedelta(days=1),
+        paid_at=now_utc() - timedelta(days=1),
+        line_items=[
+            {"description": "Business (monthly)", "quantity": 1, "unit_cents": 1200, "amount_cents": 1200}
+        ],
+    )
+    defaults.update(overrides)
+    return ProviderInvoice(**defaults)  # type: ignore[arg-type]
+
+
+def _invoice_event(org_id: str, *, event_id: str, invoice: ProviderInvoice, event_type: str = "invoice.paid"):
+    from app.services.billing_service import ProviderEvent
+
+    return ProviderEvent(
+        event_id=event_id,
+        event_type=event_type,
+        provider=billing_service.provider.name,
+        organization_id=org_id,
+        invoice=invoice,
+    )
+
+
+def test_stripe_invoice_object_is_translated_to_the_neutral_shape(
+    stripe_provider: StripePaymentProvider,
+) -> None:
+    """The figures come from Stripe, which is the party that took the money."""
+    payload = {
+        "id": "evt_inv",
+        "type": "invoice.payment_succeeded",
+        "data": {
+            "object": {
+                "object": "invoice",
+                "id": "in_1",
+                "number": "C0FFEE-0001",
+                "currency": "usd",
+                "status": "paid",
+                "subtotal": 1200,
+                "tax": 96,
+                "total": 1296,
+                "amount_paid": 1296,
+                "amount_due": 1296,
+                "created": 1757000000,
+                "hosted_invoice_url": "https://invoice.stripe.com/i/in_1",
+                "payment_intent": "pi_1",
+                "status_transitions": {"paid_at": 1757000100},
+                "customer": {"id": "cus_1"},
+                "metadata": {"organization_id": "org_7"},
+                "lines": {
+                    "data": [
+                        {
+                            "description": "Business x 2",
+                            "quantity": 2,
+                            "amount": 1200,
+                            "price": {"unit_amount": 600},
+                            "period": {"start": 1757000000, "end": 1759592000},
+                            "subscription": "sub_9",
+                        }
+                    ]
+                },
+            }
+        },
+    }
+    event = stripe_provider.parse_webhook(raw_body=json.dumps(payload).encode())
+
+    assert event.event_type == "invoice.paid"
+    # The invoice object carries no `subscription` of its own in newer API
+    # versions -- it hangs off the line item, and losing it would leave the
+    # event unattachable to a subscription.
+    assert event.subscription_id == "sub_9"
+
+    invoice = event.invoice
+    assert invoice is not None
+    assert invoice.provider_invoice_id == "in_1"
+    assert invoice.number == "C0FFEE-0001"
+    assert invoice.currency == "USD"
+    assert invoice.status == InvoiceStatus.paid
+    assert (invoice.subtotal_cents, invoice.tax_cents, invoice.total_cents) == (1200, 96, 1296)
+    assert invoice.amount_paid_cents == 1296
+    assert invoice.hosted_url == "https://invoice.stripe.com/i/in_1"
+    assert invoice.payment_intent_id == "pi_1"
+    assert invoice.customer_id == "cus_1"
+    assert invoice.organization_id == "org_7"
+    assert invoice.paid_at is not None and invoice.period_start is not None
+    assert invoice.line_items == [
+        {"description": "Business x 2", "quantity": 2, "unit_cents": 600, "amount_cents": 1200}
+    ]
+
+
+def test_a_paid_provider_invoice_appears_in_the_tenant_invoice_list(client: TestClient) -> None:
+    """The regression itself: money moved, so an invoice must exist."""
+    headers = auth_headers(client)
+    org_id = _org_id(client, headers)
+    db, generator = _db()
+
+    assert client.get("/api/invoices", headers=headers).json() == []
+
+    billing_service._apply_event(db, _invoice_event(org_id, event_id="evt_p1", invoice=_paid_provider_invoice()))
+    db.commit()
+
+    invoices = client.get("/api/invoices", headers=headers).json()
+    assert len(invoices) == 1
+    invoice = invoices[0]
+    assert invoice["status"] == InvoiceStatus.paid
+    assert invoice["total_cents"] == 1200
+    assert invoice["amount_paid_cents"] == 1200
+    assert invoice["amount_due_cents"] == 0
+    assert invoice["number"] == "C0FFEE-0001"  # the provider's own number
+    assert invoice["hosted_url"] == "https://invoice.stripe.com/i/in_stripe_1"
+    assert invoice["provider_payment_intent_id"] == "pi_stripe_1"
+    assert invoice["paid_at"] is not None
+    assert invoice["period_label"]
+
+    # And a receipt is available, which is only true of a settled invoice.
+    receipt = client.get(f"/api/invoices/{invoice['id']}/receipt", headers=headers)
+    assert receipt.status_code == 200
+    generator.close()
+
+
+def test_mirroring_the_same_provider_invoice_twice_keeps_one_row(client: TestClient) -> None:
+    """Stripe sends both ``invoice.paid`` and ``invoice.payment_succeeded``.
+
+    Two different event ids, so webhook de-duplication does not catch it: the
+    guard has to be the provider's invoice id.
+    """
+    headers = auth_headers(client)
+    org_id = _org_id(client, headers)
+    db, generator = _db()
+
+    open_invoice = _paid_provider_invoice(status=InvoiceStatus.open, amount_paid_cents=0, paid_at=None)
+    billing_service._apply_event(db, _invoice_event(org_id, event_id="evt_a", invoice=open_invoice))
+    billing_service._apply_event(db, _invoice_event(org_id, event_id="evt_b", invoice=_paid_provider_invoice()))
+    db.commit()
+
+    invoices = client.get("/api/invoices", headers=headers).json()
+    assert len(invoices) == 1
+    # The later state wins: the row settles rather than duplicating.
+    assert invoices[0]["status"] == InvoiceStatus.paid
+    assert invoices[0]["amount_paid_cents"] == 1200
+    generator.close()
+
+
+def test_a_locally_voided_invoice_is_not_resurrected_by_the_provider(client: TestClient) -> None:
+    """Voiding is a deliberate act by an admin and outranks a redelivery."""
+    headers = auth_headers(client)
+    org_id = _org_id(client, headers)
+    db, generator = _db()
+
+    billing_service._apply_event(
+        db,
+        _invoice_event(
+            org_id,
+            event_id="evt_v1",
+            invoice=_paid_provider_invoice(status=InvoiceStatus.open, amount_paid_cents=0, paid_at=None),
+        ),
+    )
+    db.commit()
+    row = db.scalar(select(Invoice).where(Invoice.provider_invoice_id == "in_stripe_1"))
+    assert row is not None
+    row.status = InvoiceStatus.void
+    db.add(row)
+    db.commit()
+
+    billing_service._apply_event(db, _invoice_event(org_id, event_id="evt_v2", invoice=_paid_provider_invoice()))
+    db.commit()
+
+    db.refresh(row)
+    assert row.status == InvoiceStatus.void
+    generator.close()
+
+
+def test_backfill_recovers_invoices_that_settled_before_the_mirror_existed(
+    monkeypatch, client: TestClient
+) -> None:
+    headers = auth_headers(client)
+    org_id = _org_id(client, headers)
+    db, generator = _db()
+
+    subscription = billing_service.get_or_create_subscription(db, org_id)
+    subscription.provider_customer_id = "cus_backfill"
+    db.add(subscription)
+    db.commit()
+
+    remote = [
+        _paid_provider_invoice(provider_invoice_id="in_old_1", number="C0FFEE-0001"),
+        _paid_provider_invoice(provider_invoice_id="in_old_2", number="C0FFEE-0002"),
+        # A draft has not been charged and is not an invoice the tenant owes.
+        _paid_provider_invoice(provider_invoice_id="in_draft", number=None, status=InvoiceStatus.draft),
+    ]
+    monkeypatch.setattr(
+        type(billing_service.provider), "list_invoices", lambda self, *, customer_id, limit=100: remote
+    )
+
+    report = billing_service.backfill_provider_invoices(db)
+    assert (report["organizations"], report["created"], report["skipped"]) == (1, 2, 1)
+
+    numbers = {row["number"] for row in client.get("/api/invoices", headers=headers).json()}
+    assert numbers == {"C0FFEE-0001", "C0FFEE-0002"}
+
+    # Re-running reconciles rather than duplicating.
+    again = billing_service.backfill_provider_invoices(db)
+    assert (again["created"], again["updated"]) == (0, 2)
+    assert len(client.get("/api/invoices", headers=headers).json()) == 2
+    generator.close()
+
+
+def test_stripe_list_invoices_pages_through_the_transport_seam(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    page_one = {
+        "has_more": True,
+        "data": [{"object": "invoice", "id": "in_a", "status": "paid", "total": 1200, "amount_paid": 1200}],
+    }
+    page_two = {
+        "has_more": False,
+        "data": [{"object": "invoice", "id": "in_b", "status": "open", "total": 1200, "amount_paid": 0}],
+    }
+    fake = FakeStripe({"/v1/invoices": [(200, page_one), (200, page_two)]})
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(fake))
+
+    invoices = stripe_provider.list_invoices(customer_id="cus_1")
+    assert [invoice.provider_invoice_id for invoice in invoices] == ["in_a", "in_b"]
+    assert invoices[0].status == InvoiceStatus.paid and invoices[1].status == InvoiceStatus.open
+    assert fake.params_for("GET", "/v1/invoices")["customer"] == "cus_1"
+    # The second page is anchored on the last id of the first, not re-read.
+    assert fake.calls[1][2]["starting_after"] == "in_a"

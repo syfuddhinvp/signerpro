@@ -275,6 +275,8 @@ export type DocumentResponse = {
   owner_user_id: UUID | null;
   folder_id: UUID | null;
   source_template_id: UUID | null;
+  /** Set on a template imported from, or authored for, the platform catalog. */
+  source_catalog_slug?: string | null;
   doc_type: string | null;
   archived_at: IsoDateTime | null;
   deleted_at: IsoDateTime | null;
@@ -350,6 +352,10 @@ export type RoutingResponse = {
   expires_in_days: number;
   invite_subject: string | null;
   invite_message: string | null;
+  /** The theme this envelope names; `null` means the tenant's default. */
+  branding_theme_id: UUID | null;
+  /** The theme recipients will actually see — the named one, or the default. */
+  effective_branding_theme_id: UUID | null;
 };
 
 export type RoutingUpdate = {
@@ -358,7 +364,53 @@ export type RoutingUpdate = {
   expires_in_days?: number;
   invite_subject?: string;
   invite_message?: string;
+  /** `null` releases the envelope back to the tenant's default theme. */
+  branding_theme_id?: UUID | null;
 };
+
+/** Where a theme's logo sits in the invitation email header. */
+export type LogoPosition = 'left' | 'center' | 'right';
+
+/** `GET /api/branding-themes` (schemas/branding.py). */
+export type BrandingThemeResponse = {
+  id: UUID;
+  organization_id: UUID;
+  name: string;
+  is_default: boolean;
+  /** Absolute URL a mail client can fetch: the uploaded logo when there is
+   *  one, otherwise whatever the tenant hosts themselves. */
+  logo_url: string | null;
+  /** Whether `logo_url` is a logo uploaded here rather than an external one. */
+  logo_uploaded: boolean;
+  logo_position: LogoPosition;
+  primary_color: string | null;
+  primary_text_color: string | null;
+  headline: string | null;
+  message: string | null;
+  contact_sender_email: string | null;
+  footer_signature: string | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+  /** How many envelopes name this theme. Derived server-side. */
+  document_count: number;
+};
+
+/** Body for creating a theme; every optional key may also be sent as `null`. */
+export type BrandingThemeCreate = {
+  name: string;
+  is_default?: boolean;
+  logo_url?: string | null;
+  logo_position?: LogoPosition;
+  primary_color?: string | null;
+  primary_text_color?: string | null;
+  headline?: string | null;
+  message?: string | null;
+  contact_sender_email?: string | null;
+  footer_signature?: string | null;
+};
+
+/** An omitted key is left alone server-side; an explicit `null` clears it. */
+export type BrandingThemeUpdate = Partial<BrandingThemeCreate>;
 
 export type SendDocumentResponse = {
   document: DocumentResponse;
@@ -475,6 +527,8 @@ export type ContactResponse = {
   company: string | null;
   title: string | null;
   phone: string | null;
+  address: string | null;
+  description: string | null;
   /** One of `CONTACT_ROLES`: sign | approve | copy | inperson. */
   default_role: string;
   /** A `ContactGroup.key`, e.g. `customers`. */
@@ -485,6 +539,9 @@ export type ContactResponse = {
   envelope_count: number;
   last_signed_at: IsoDateTime | null;
   external_id: string | null;
+  /** The teammate who created the record — the detail screen's "Owner". */
+  owner_name: string | null;
+  owner_email: string | null;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
 };
@@ -511,6 +568,8 @@ export type ContactCreate = {
   company?: string | null;
   title?: string | null;
   phone?: string | null;
+  address?: string | null;
+  description?: string | null;
   default_role?: string;
   group?: string;
   source?: string;
@@ -619,6 +678,86 @@ export type TemplateListParams = {
   owner?: string;
   sort?: 'recent' | 'name' | 'uses';
   include_archived?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+/* ── platform template catalog ─────────────────────────────────────────── */
+
+/**
+ * A ready-made form published by the platform (a government form, an NDA, an
+ * offer letter). It is a blueprint, not a template this organization owns:
+ * importing it stamps out a real `TemplateResponse` the organization can then
+ * edit, use and archive like any other.
+ */
+export type CatalogTemplateResponse = {
+  id: UUID;
+  slug: string;
+  title: string;
+  description: string | null;
+  category: CatalogCategory;
+  /** The body that publishes the form ("IRS", "USCIS"). */
+  authority: string | null;
+  jurisdiction: string | null;
+  form_revision: string | null;
+  tags: string[];
+  page_count: number;
+  role_count: number;
+  field_count: number;
+  has_file: boolean;
+  published: boolean;
+  sort_order: number;
+  /** Whether *this* organization has already imported the entry. */
+  imported: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+};
+
+export type CatalogCategory =
+  | 'government' | 'legal' | 'hr' | 'finance' | 'real_estate' | 'health' | 'other';
+
+/** One entry with its blueprint — the roles and field boxes an import stamps out. */
+export type CatalogTemplateDetail = CatalogTemplateResponse & {
+  roles: CatalogRole[];
+  fields: CatalogField[];
+};
+
+/** A placeholder recipient: named, but with no address until a sender assigns one. */
+export type CatalogRole = {
+  key: string;
+  name: string;
+  signing_order: number;
+  role: string;
+  color: string | null;
+};
+
+export type CatalogField = {
+  role: string;
+  type: FieldType;
+  label: string;
+  page_number: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  required: boolean;
+  placeholder: string | null;
+  default_value: string | null;
+  options: unknown;
+};
+
+export type CatalogListResponse = {
+  items: CatalogTemplateResponse[];
+  total: number;
+  /** Categories present in the whole result, not just this page. */
+  categories: CatalogCategory[];
+};
+
+export type CatalogListParams = {
+  q?: string;
+  category?: string;
+  jurisdiction?: string;
+  sort?: 'recommended' | 'title' | 'recent';
   limit?: number;
   offset?: number;
 };
@@ -1127,6 +1266,70 @@ export type LogParams = {
   since_days?: number;
   limit?: number;
   offset?: number;
+};
+
+/* ── the platform mail outbox ────────────────────────────────────────────── */
+
+export type MailLogRow = {
+  id: UUID;
+  created_at: IsoDateTime;
+  to_email: string;
+  from_email: string | null;
+  subject: string;
+  /** invitation | auth | verification | member_invite | custom | system */
+  category: string;
+  /** sent | failed | suppressed */
+  status: string;
+  /** resend | smtp | console | none */
+  provider: string;
+  error: string | null;
+  /**
+   * The *stored* body, with bearer links masked — never what the provider was
+   * handed. Null on the list endpoint, which omits bodies, and null for a
+   * message whose whole body was a secret (a one-time passcode).
+   */
+  body_text: string | null;
+  body_html: string | null;
+  /** The first line or so of the body — present on the list, where the full
+   *  bodies are not, so a row can show a preview line. */
+  snippet: string | null;
+  document_id: UUID | null;
+  organization_id: UUID | null;
+  organization_name: string | null;
+  /** Set only for mail a platform admin composed by hand. */
+  sent_by_email: string | null;
+};
+
+export type MailLogPage = {
+  items: MailLogRow[];
+  total: number;
+  categories: string[];
+  statuses: string[];
+};
+
+export type MailParams = {
+  category?: string;
+  status?: string;
+  q?: string;
+  organization_id?: string;
+  since_days?: number;
+  limit?: number;
+  offset?: number;
+};
+
+export type MailSendRequest = {
+  to: string[];
+  subject: string;
+  body: string;
+  send_html?: boolean;
+  organization_id?: string | null;
+};
+
+/** One outbox row per addressee, plus the tally the compose form reports. */
+export type MailSendResult = {
+  sent: number;
+  failed: number;
+  items: MailLogRow[];
 };
 
 /* ── notifications (the header bell) ─────────────────────────────────────── */

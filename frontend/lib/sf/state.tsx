@@ -1,5 +1,6 @@
 'use client';
 
+import type { IconName } from '@/components/sf/Icon';
 import { usePathname } from 'next/navigation';
 import { workspaceForPath } from './routes';
 /* SignerPro state container — ported from the prototype app.js `state` object and helper methods. */
@@ -15,6 +16,7 @@ export type SFField = {
 export type Contact = {
   id: string; name: string; email: string; company: string; title: string; phone: string; role: string;
   group: string; source: string; tags: string[]; envelopes: number; lastSigned: string; color: string;
+  address: string; description: string; owner: string;
 };
 export type ApiKey = { id: string; label: string; mode: string; secret: string; full: string; created: string; lastUsed: string; revoked: boolean; revealed: boolean };
 export type TicketMessage = { author: string; role: string; ts: string; internal: boolean; side: string; body: string };
@@ -23,7 +25,7 @@ export type Ticket = {
   category: string; priority: string; status: string; assignee: string; envelope: string; created: string;
   sla: string; tags: string[]; messages: TicketMessage[];
 };
-export type FieldType = { id: string; label: string; icon: string; w: number; h: number; note?: string };
+export type FieldType = { id: string; label: string; icon: string; svg?: IconName; w: number; h: number; note?: string };
 
 export type SFState = {
   wide: boolean;
@@ -79,7 +81,6 @@ export type SFState = {
   liveMode: boolean;
   contactQuery: string;
   contactGroup: string;
-  openContact: string;
   newContact: { name: string; company: string; email: string; title: string; role: string; group: string };
   apiTab: string;
   scopes: Dict<boolean>;
@@ -140,7 +141,7 @@ export const INITIAL_STATE: SFState =
 {
     wide: true,
     tourStep: -1,
-    docsPage: 'quickstart',
+    docsPage: 'overview',
     sbMethod: 'GET',
     sbPath: '/v1/contacts',
     sbEnv: 'test',
@@ -188,9 +189,8 @@ export const INITIAL_STATE: SFState =
     liveMode: true,
     contactQuery: '',
     contactGroup: 'all',
-    openContact: '',
     newContact: { name:'', company:'', email:'', title:'', role:'sign', group:'customers' },
-    apiTab: 'users',
+    apiTab: 'whoami',
     scopes: { 'users:read':true, 'contacts:read':true, 'contacts:write':true, 'documents:read':true, 'documents:write':true, 'envelopes:send':true, 'audit:read':false },
     embedOrigins: '',
     embedReturnUrl: '',

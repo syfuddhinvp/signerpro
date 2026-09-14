@@ -469,7 +469,9 @@ def test_security_posture_and_compliance(client: TestClient) -> None:
     assert next(row for row in posture if row["key"] == "dlp")["enabled"] is False
 
     updated = client.patch(
-        "/api/saas/security-posture", json={"dlp": True, "ipAllow": True}, headers=platform
+        "/api/saas/security-posture",
+        json={"dlp": True, "ipAllow": True, "residency": True},
+        headers=platform,
     ).json()
     assert next(row for row in updated if row["key"] == "dlp")["enabled"] is True
     assert next(row for row in updated if row["key"] == "ipAllow")["enabled"] is True
@@ -477,17 +479,37 @@ def test_security_posture_and_compliance(client: TestClient) -> None:
         entry["action"] for entry in client.get("/api/saas/audit", headers=platform).json()["items"]
     ]
 
-    # Toggling stores intent; none of these controls is implemented, so the
-    # response must never report one as enforced. The previous version of this
-    # test asserted only ``enabled``, which is what let the console present six
-    # unimplemented controls as live switches.
-    assert all(row["implemented"] is False for row in updated)
-    assert all(row["enforced"] is False for row in updated)
-    assert "not enforced" in [
+    # Toggling stores intent; ``enforced`` must track whether code actually
+    # refuses a request, never merely what the operator switched on. The
+    # original version of this test asserted only ``enabled``, which is what
+    # let the console present six unimplemented controls as live switches.
+    rows = {row["key"]: row for row in updated}
+
+    # Backed by real enforcement: deps.require_platform_admin (ipAllow),
+    # document_service (dlp), auth_service/sso_service (sso), scim_service.
+    for key in ("sso", "scim", "ipAllow", "dlp"):
+        assert rows[key]["implemented"] is True, key
+    assert rows["ipAllow"]["enforced"] is True
+    assert rows["dlp"]["enforced"] is True
+    # Implemented but switched off is still not enforced.
+    assert rows["sso"]["enabled"] is False and rows["sso"]["enforced"] is False
+
+    # Nothing enforces these, and no application code can: residency is a
+    # property of where the deployment stores data, key rotation needs an HSM.
+    # Switching residency on above must NOT make it report as enforced.
+    for key in ("residency", "keyRotation"):
+        assert rows[key]["implemented"] is False, key
+        assert rows[key]["enforced"] is False, key
+    assert rows["residency"]["enabled"] is True and rows["residency"]["enforced"] is False
+
+    # The audit trail still says so for the unimplemented control.
+    detail = [
         entry["detail"]
         for entry in client.get("/api/saas/audit", headers=platform).json()["items"]
         if entry["action"] == "security_posture.changed"
     ][0]
+    assert "residency=on (not enforced: unimplemented)" in detail
+    assert "dlp=on (not enforced" not in detail
 
     compliance = client.get("/api/saas/compliance", headers=platform).json()
     assert compliance["rotation_interval_days"] == 90
@@ -790,3 +812,16 @@ def test_health_has_one_derivation_shared_by_both_screens(client: TestClient) ->
         "Collections",
     }
     assert all(row["tone"] in {"good", "warn", "bad"} for row in components)
+
+
+def test_posture_detail_column_holds_the_shipped_copy() -> None:
+    """The seeded detail strings were longer than the varchar(255) they were
+    stored in, so on Postgres ensure_security_posture raised and rolled the
+    whole seed back — SQLite (which ignores the cap) hid it from these tests,
+    and the console showed "Security posture unavailable"."""
+    from app.models.platform_setting import SecurityPosture
+    from app.services.platform_service import SECURITY_POSTURE_DEFAULTS
+
+    column_length = SecurityPosture.__table__.c.detail.type.length
+    longest = max(len(spec["detail"]) for spec in SECURITY_POSTURE_DEFAULTS)
+    assert column_length is None or column_length >= longest

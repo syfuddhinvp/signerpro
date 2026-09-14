@@ -66,6 +66,12 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         fields={fields}
         recipients={recipients}
         routing={routing ? toBuilderRouting(routing) : null}
+        /* Only a template carries this: a document made *from* a catalog form
+           inherits the slug too, but it is an envelope being sent, not the
+           blueprint being authored, so the banner must not offer to overwrite
+           the catalog from it. */
+        catalogSlug={document.is_template ? document.source_catalog_slug ?? null : null}
+        isTemplate={document.is_template}
       />
     </>
   );

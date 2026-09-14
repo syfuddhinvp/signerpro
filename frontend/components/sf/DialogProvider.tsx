@@ -15,7 +15,7 @@
  *
  * `askText` resolves to the trimmed string, or `null` when dismissed —
  * matching `window.prompt`'s contract so call sites keep their null guard.
- * `askConfirm` resolves to a boolean. Escape, the ✕ and the backdrop all
+ * `askConfirm` resolves to a boolean. Escape, the close button and the backdrop all
  * dismiss; one dialog is open at a time and a second request replaces it
  * (the displaced promise resolves as dismissed).
  */
@@ -24,6 +24,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
 import { btn, inputStyle } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 export type AskTextOptions = {
   title: string;
@@ -206,7 +207,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
                   <span style={{ fontSize: '.75rem', color: '#64748b' }}>{req.opts.message}</span>
                 ) : null}
               </div>
-              <button type="button" aria-label="Close" onClick={cancel} style={closeBtn}>✕</button>
+              <button type="button" aria-label="Close" onClick={cancel} style={closeBtn}><Icon name="close" size={13} /></button>
             </div>
 
             {req.kind === 'text' ? (

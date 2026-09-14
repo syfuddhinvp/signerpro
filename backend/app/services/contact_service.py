@@ -27,7 +27,13 @@ from app.schemas.contact import (
 )
 
 
-def contact_response(contact: Contact, *, envelope_count: int = 0, last_signed_at: datetime | None = None) -> ContactResponse:
+def contact_response(
+    contact: Contact,
+    *,
+    envelope_count: int = 0,
+    last_signed_at: datetime | None = None,
+    owner: User | None = None,
+) -> ContactResponse:
     return ContactResponse(
         id=contact.id,
         organization_id=contact.organization_id,
@@ -36,6 +42,8 @@ def contact_response(contact: Contact, *, envelope_count: int = 0, last_signed_a
         company=contact.company,
         title=contact.title,
         phone=contact.phone,
+        address=contact.address,
+        description=contact.description,
         default_role=contact.default_role,
         group=contact.group_key,
         source=contact.source,
@@ -44,6 +52,8 @@ def contact_response(contact: Contact, *, envelope_count: int = 0, last_signed_a
         envelope_count=envelope_count,
         last_signed_at=last_signed_at or contact.last_signed_at,
         external_id=contact.external_id,
+        owner_name=owner.name if owner else None,
+        owner_email=owner.email if owner else None,
         created_at=contact.created_at,
         updated_at=contact.updated_at,
     )
@@ -91,12 +101,27 @@ class ContactService:
         ).all()
         return {row[0]: (row[1], row[2]) for row in rows}
 
+    def _owners(self, db: Session, contacts: list[Contact]) -> dict[str, User]:
+        """Creator rows keyed by id — one query for the whole page, not one per row."""
+        ids = {c.created_by_user_id for c in contacts if c.created_by_user_id}
+        if not ids:
+            return {}
+        return {user.id: user for user in db.scalars(select(User).where(User.id.in_(ids))).unique()}
+
     def list_response(self, db: Session, contacts: list[Contact], *, organization_id: str) -> list[ContactResponse]:
         stats = self._envelope_stats(db, organization_id=organization_id, emails=[c.email for c in contacts])
+        owners = self._owners(db, contacts)
         result: list[ContactResponse] = []
         for contact in contacts:
             count, last_signed = stats.get(contact.email.lower(), (0, None))
-            result.append(contact_response(contact, envelope_count=count, last_signed_at=last_signed))
+            result.append(
+                contact_response(
+                    contact,
+                    envelope_count=count,
+                    last_signed_at=last_signed,
+                    owner=owners.get(contact.created_by_user_id or ""),
+                )
+            )
         return result
 
     def single_response(self, db: Session, contact: Contact) -> ContactResponse:
@@ -122,6 +147,8 @@ class ContactService:
             company=payload.company,
             title=payload.title,
             phone=payload.phone,
+            address=payload.address,
+            description=payload.description,
             default_role=payload.default_role,
             group_key=payload.group,
             source=payload.source,
@@ -400,6 +427,8 @@ class ContactService:
                     existing.company = row.company or existing.company
                     existing.title = row.title or existing.title
                     existing.phone = row.phone or existing.phone
+                    existing.address = row.address or existing.address
+                    existing.description = row.description or existing.description
                     existing.default_role = row.default_role
                     existing.group_key = row.group
                     existing.source = row.source
@@ -418,6 +447,8 @@ class ContactService:
                         company=row.company,
                         title=row.title,
                         phone=row.phone,
+                        address=row.address,
+                        description=row.description,
                         default_role=row.default_role,
                         group_key=row.group,
                         source=row.source,
@@ -454,6 +485,8 @@ class ContactService:
                         company=record.get("company") or None,
                         title=record.get("title") or None,
                         phone=record.get("phone") or None,
+                        address=record.get("address") or None,
+                        description=record.get("description") or None,
                         default_role=record.get("default_role") or "sign",
                         group=record.get("group") or "customers",
                         source=record.get("source") or "crm",

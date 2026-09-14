@@ -70,16 +70,95 @@ beforeEach(() => {
 });
 
 describe('the inspector authors the choices a dropdown offers', () => {
-  it('writes the typed lines back as the field options', async () => {
+  const savedOptions = () =>
+    (savedFields().at(-1)![1].body as { fields: { options: unknown }[] }).fields[0].options;
+  const savedDefault = () =>
+    (savedFields().at(-1)![1].body as { fields: { default_value: unknown }[] }).fields[0].default_value;
+
+  /** Select the dropdown and add `count` empty rows to type into. */
+  const openDropdown = (count = 0) => {
     mount([field('dropdown')]);
     fireEvent.pointerDown(screen.getByLabelText(/Dropdown for Buyer/i));
+    for (let i = 0; i < count; i++) fireEvent.click(screen.getByText('+ Add option'));
+  };
 
-    const box = screen.getByLabelText(/Choices/i);
-    fireEvent.change(box, { target: { value: 'Yes\nNo\n\n Not applicable ' } });
+  it('writes each choice back in the order the rows are in', async () => {
+    openDropdown(3);
+    fireEvent.change(screen.getByLabelText('Choice 1'), { target: { value: 'Yes' } });
+    fireEvent.change(screen.getByLabelText('Choice 2'), { target: { value: 'No' } });
+    fireEvent.change(screen.getByLabelText('Choice 3'), { target: { value: 'Not applicable' } });
 
     await waitFor(() => expect(savedFields().length).toBeGreaterThan(0), { timeout: 3000 });
-    const body = savedFields().at(-1)![1].body as { fields: { options: unknown }[] };
-    expect(body.fields[0].options).toEqual(['Yes', 'No', 'Not applicable']);
+    expect(savedOptions()).toEqual(['Yes', 'No', 'Not applicable']);
+  });
+
+  it('renames one choice without retyping the rest', async () => {
+    openDropdown(2);
+    fireEvent.change(screen.getByLabelText('Choice 1'), { target: { value: 'Yes' } });
+    fireEvent.change(screen.getByLabelText('Choice 2'), { target: { value: 'No' } });
+    fireEvent.change(screen.getByLabelText('Choice 1'), { target: { value: 'Absolutely' } });
+
+    await waitFor(() => expect(savedFields().length).toBeGreaterThan(0), { timeout: 3000 });
+    expect(savedOptions()).toEqual(['Absolutely', 'No']);
+  });
+
+  it('reorders and removes a choice', async () => {
+    openDropdown(3);
+    fireEvent.change(screen.getByLabelText('Choice 1'), { target: { value: 'Yes' } });
+    fireEvent.change(screen.getByLabelText('Choice 2'), { target: { value: 'No' } });
+    fireEvent.change(screen.getByLabelText('Choice 3'), { target: { value: 'Maybe' } });
+
+    // A row is named by its own text, so it is the choice that is moved and
+    // removed rather than a position the sender has to count out.
+    fireEvent.click(screen.getByLabelText('Move Maybe up'));
+    expect((screen.getByLabelText('Choice 2') as HTMLInputElement).value).toBe('Maybe');
+    fireEvent.click(screen.getByLabelText('Remove Yes'));
+
+    await waitFor(() => expect(savedOptions()).toEqual(['Maybe', 'No']), { timeout: 3000 });
+  });
+
+  it('will not move the first choice up or the last one down', () => {
+    openDropdown(2);
+    expect(screen.getByLabelText('Move Option 1 up')).toBeDisabled();
+    expect(screen.getByLabelText('Move Option 2 down')).toBeDisabled();
+  });
+
+  it('drops a row left blank once the sender leaves it', async () => {
+    openDropdown(2);
+    fireEvent.change(screen.getByLabelText('Choice 1'), { target: { value: 'Yes' } });
+    fireEvent.change(screen.getByLabelText('Choice 2'), { target: { value: '  ' } });
+    // The empty row keeps its place while it is being typed in...
+    expect(screen.getByLabelText('Choice 2')).toBeTruthy();
+    fireEvent.blur(screen.getByLabelText('Choice 2'));
+
+    // ...and is gone once it is left, rather than being saved as a choice
+    // the recipient would see as an empty line.
+    await waitFor(() => expect(savedOptions()).toEqual(['Yes']), { timeout: 3000 });
+  });
+
+  it('pre-selects one of the choices rather than any typed text', async () => {
+    openDropdown(2);
+    fireEvent.change(screen.getByLabelText('Choice 1'), { target: { value: 'Yes' } });
+    fireEvent.change(screen.getByLabelText('Choice 2'), { target: { value: 'No' } });
+
+    // The pre-selection is picked from the choices, not typed — a default that
+    // is not one of the options is an answer the API rejects.
+    const preselect = screen.getByLabelText('Pre-selected option') as HTMLSelectElement;
+    expect(Array.from(preselect.options).map(o => o.value)).toEqual(['', 'Yes', 'No']);
+    fireEvent.change(preselect, { target: { value: 'No' } });
+    await waitFor(() => expect(savedDefault()).toBe('No'), { timeout: 3000 });
+  });
+
+  it('drops a pre-selection whose choice is removed', async () => {
+    openDropdown(2);
+    fireEvent.change(screen.getByLabelText('Choice 1'), { target: { value: 'Yes' } });
+    fireEvent.change(screen.getByLabelText('Choice 2'), { target: { value: 'No' } });
+    fireEvent.change(screen.getByLabelText('Pre-selected option'), { target: { value: 'No' } });
+    fireEvent.click(screen.getByLabelText('Remove No'));
+
+    await waitFor(() => expect(savedOptions()).toEqual(['Yes']), { timeout: 3000 });
+    // Left behind, it would be sent as an answer the API no longer allows.
+    expect(savedDefault()).toBe(null);
   });
 
   it('says so while the field still has nothing to offer', () => {
@@ -92,7 +171,7 @@ describe('the inspector authors the choices a dropdown offers', () => {
   it('offers no choice box for a field type that has no choices', () => {
     mount([field('text')]);
     fireEvent.pointerDown(screen.getByLabelText(/Text Input for Buyer/i));
-    expect(screen.queryByLabelText(/Choices/i)).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Choices' })).toBeNull();
   });
 
   it('pre-fills a default value the signer will see', async () => {

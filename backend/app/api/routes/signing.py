@@ -19,8 +19,10 @@ from app.schemas.signer import (
     ReassignRequest,
     ReassignResponse,
     SignatureRequest,
+    SignerBranding,
     SigningSessionResponse,
 )
+from app.services.branding_service import branding_service
 from app.services.signer_payment_service import signer_payment_service
 from app.services.signing_service import signing_service
 
@@ -44,6 +46,26 @@ router = APIRouter(prefix="/api/sign", tags=["signing"])
 def get_signing_session(token: str, db: Session = Depends(get_db)) -> SigningSessionResponse:
     signing_token, document, recipient = signing_service.load_session(db, raw_token=token)
     return signing_service.session_response(raw_token=token, signing_token=signing_token, document=document, recipient=recipient, db=db)
+
+
+@router.get("/{token}/branding", response_model=SignerBranding, dependencies=[Depends(signing_session_limiter)])
+def get_signing_branding(token: str, db: Session = Depends(get_db)) -> SignerBranding:
+    """The sender's brand for the signing chrome, before any gate is cleared.
+
+    The chrome wraps the OTP and consent gates and every token-problem state,
+    all of which render before (or instead of) a session, so it cannot wait for
+    ``GET /api/sign/{token}``.
+
+    A bad token answers 200 with empty branding rather than 404: this endpoint
+    is reachable by anyone holding a URL, and an error here would turn the page
+    header into an oracle for whether a guessed token exists. Unbranded is also
+    what a real tenant with no theme gets, so the two are indistinguishable.
+    """
+    try:
+        _, document, _ = signing_service.load_session(db, raw_token=token)
+    except HTTPException:
+        return SignerBranding()
+    return branding_service.signer_branding(db, document=document) or SignerBranding()
 
 
 @router.get("/{token}/pdf")

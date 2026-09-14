@@ -16,6 +16,12 @@ class SmsService:
         took it, or none is configured and the console fallback is intended.
         ``False`` means a configured provider failed.
         """
+        # Sandbox organizations never emit outbound SMS (API-11), for the same
+        # reason as email: a suppressed side effect is the point of a sandbox.
+        if organization is not None and getattr(organization, "is_sandbox", False):
+            logger.info(f"[SMS Gateway] Suppressed for sandbox organization, to {to_phone}")
+            return True
+
         configured = False
         settings = get_settings()
 

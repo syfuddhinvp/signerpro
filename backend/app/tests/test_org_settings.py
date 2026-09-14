@@ -116,3 +116,66 @@ def test_org_settings_role_protection(client: TestClient) -> None:
     )
     assert patch_resp.status_code == status.HTTP_403_FORBIDDEN
     assert "Only administrators can manage" in patch_resp.json()["detail"]
+
+
+def _register(client: TestClient, name: str, email: str) -> dict[str, str]:
+    resp = client.post(
+        "/api/auth/register",
+        json={
+            "organization_name": name,
+            "name": "Palette Admin",
+            "email": email,
+            "password": "securepassword123",
+        },
+    )
+    assert resp.status_code == status.HTTP_201_CREATED
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+def test_enabled_field_types_round_trip(client: TestClient) -> None:
+    """An admin narrows the builder palette, and can widen it again (ORG-6)."""
+    headers = _register(client, "Palette Org", "palette@acme.com")
+
+    # A tenant that has never chosen is offered every type.
+    assert client.get("/api/organizations/me", headers=headers).json()["enabled_field_types"] is None
+
+    resp = client.patch(
+        "/api/organizations/me",
+        headers=headers,
+        # Out of order and with a duplicate: the stored set is canonical.
+        json={"enabled_field_types": ["date", "signature", "signature"]},
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["enabled_field_types"] == ["signature", "date"]
+    assert client.get("/api/organizations/me", headers=headers).json()["enabled_field_types"] == [
+        "signature",
+        "date",
+    ]
+
+    # An unrelated write must not disturb the choice.
+    client.patch("/api/organizations/me", headers=headers, json={"region": "eu-west-1"})
+    assert client.get("/api/organizations/me", headers=headers).json()["enabled_field_types"] == [
+        "signature",
+        "date",
+    ]
+
+    # Explicit null is how "offer every type" is said.
+    resp = client.patch("/api/organizations/me", headers=headers, json={"enabled_field_types": None})
+    assert resp.json()["enabled_field_types"] is None
+
+
+def test_enabled_field_types_rejects_unusable_sets(client: TestClient) -> None:
+    """An unknown type, or an empty palette, is a 400 rather than a stored value."""
+    headers = _register(client, "Palette Guard Org", "guard@acme.com")
+
+    unknown = client.patch(
+        "/api/organizations/me", headers=headers, json={"enabled_field_types": ["signature", "sparkle"]}
+    )
+    assert unknown.status_code == status.HTTP_400_BAD_REQUEST
+    assert "sparkle" in unknown.json()["detail"]
+
+    # A palette with no tiles is indistinguishable from a broken builder.
+    empty = client.patch("/api/organizations/me", headers=headers, json={"enabled_field_types": []})
+    assert empty.status_code == status.HTTP_400_BAD_REQUEST
+
+    assert client.get("/api/organizations/me", headers=headers).json()["enabled_field_types"] is None

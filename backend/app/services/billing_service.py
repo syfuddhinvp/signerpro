@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.models.charge import Charge
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.organization import Organization
@@ -36,6 +37,9 @@ from app.models.subscription import (
 )
 from app.models.user import User
 from app.services.entitlement_service import entitlement_service
+
+
+logger = get_logger("app.services.billing")
 
 
 def _utcnow() -> datetime:
@@ -126,6 +130,42 @@ class CheckoutSessionStatus:
 
 
 @dataclass
+class ProviderInvoice:
+    """A provider's own invoice, as carried on a webhook or read back from its
+    API.
+
+    The provider is the source of truth for these figures: on a subscription
+    the money is charged by Stripe, not by us, so mirroring its numbers is the
+    only way the local row can agree with what the customer was actually
+    billed. ``amount_*`` are minor units (cents).
+    """
+
+    provider_invoice_id: str
+    currency: str = "USD"
+    subtotal_cents: int = 0
+    tax_cents: int = 0
+    total_cents: int = 0
+    amount_paid_cents: int = 0
+    #: The provider's own human-facing number, when it has assigned one. A
+    #: draft has none, so the local numbering series is used instead.
+    number: str | None = None
+    #: ``paid`` | ``open`` | ``past_due`` | ``void`` | ``draft`` --
+    #: already mapped to :class:`InvoiceStatus` by the provider adapter.
+    status: str = InvoiceStatus.open
+    hosted_url: str | None = None
+    payment_intent_id: str | None = None
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    issued_at: datetime | None = None
+    due_at: datetime | None = None
+    paid_at: datetime | None = None
+    line_items: list[dict[str, Any]] = field(default_factory=list)
+    customer_id: str | None = None
+    subscription_id: str | None = None
+    organization_id: str | None = None
+
+
+@dataclass
 class ProviderEvent:
     """Provider-neutral webhook event."""
 
@@ -142,6 +182,12 @@ class ProviderEvent:
     customer_id: str | None = None
     #: ``subscription`` | ``setup`` | ``payment`` for a checkout session event.
     mode: str | None = None
+    #: The provider's invoice, on the ``invoice.*`` events that carry one.
+    #: ``_apply_event`` mirrors it into a local row -- without this a
+    #: Stripe-billed subscription produced no local invoice at all until the
+    #: renewal cron closed its first period, roughly a month after the customer
+    #: paid.
+    invoice: "ProviderInvoice | None" = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -156,6 +202,7 @@ class ProviderPaymentMethod:
     exp_month: int | None = None
     exp_year: int | None = None
     country: str | None = None
+    holder_name: str | None = None
 
 
 @dataclass
@@ -253,6 +300,14 @@ class PaymentProvider(ABC):
 
     def set_billing_cycle(self, *, subscription: Subscription, cycle: str) -> None:
         raise NotImplementedError
+
+    def list_invoices(self, *, customer_id: str, limit: int = 100) -> list[ProviderInvoice]:
+        """The provider's own invoices for one customer.
+
+        Empty for a provider that does not raise its own invoices -- the local
+        rows are then already the only ones there are.
+        """
+        return []
 
     def charge_invoice(
         self, *, invoice: "Invoice", payment_method: "PaymentMethod | None"
@@ -937,18 +992,32 @@ class StripePaymentProvider(PaymentProvider):
             attached = self._request(
                 "POST", f"/v1/payment_methods/{provider_token}/attach", {"customer": customer}
             )
-        card = attached.get("card") or {}
-        brand = (card.get("brand") or type).title()
-        last4 = card.get("last4")
-        label = f"{brand} •••• {last4}" if last4 else brand
+        # The instrument details hang off a block named for the kind of
+        # instrument -- `card`, `us_bank_account`, `sepa_debit` -- so read the
+        # one this payment method actually carries rather than assuming a card.
+        kind = str(attached.get("type") or type)
+        details = attached.get(kind) or attached.get("card") or {}
+        billing = attached.get("billing_details") or {}
+        # `brand` is the network (Visa) or the bank; when Stripe sends neither,
+        # leave it unset instead of storing the instrument type as a brand --
+        # a stored brand of "Card" renders as a card face with no issuer.
+        brand = details.get("brand") or details.get("bank_name") or None
+        last4 = details.get("last4")
+        holder = holder_name or billing.get("name") or None
+        # Stripe sends the network lower-cased (``visa``) and a bank name with
+        # underscores; the stored brand is what the UI renders, so it is cased
+        # once here rather than at every call site.
+        display_brand = str(brand).replace("_", " ").title() if brand else kind.replace("_", " ").title()
+        label = f"{display_brand} •••• {last4}" if last4 else display_brand
         return ProviderPaymentMethod(
             provider_payment_method_id=str(attached.get("id") or provider_token),
             label=label,
-            brand=brand,
+            brand=display_brand if brand else None,
             last4=last4,
-            exp_month=card.get("exp_month"),
-            exp_year=card.get("exp_year"),
-            country=card.get("country") or country,
+            exp_month=details.get("exp_month"),
+            exp_year=details.get("exp_year"),
+            country=details.get("country") or (billing.get("address") or {}).get("country") or country,
+            holder_name=holder,
         )
 
     def detach_payment_method(self, *, payment_method: "PaymentMethod") -> None:
@@ -1025,6 +1094,100 @@ class StripePaymentProvider(PaymentProvider):
         )
 
     # -------------------------------------------------------------- webhooks
+    # ------------------------------------------------------------- invoices
+    #: Stripe invoice status -> ``InvoiceStatus``. Stripe has no ``past_due``;
+    #: an unpaid invoice past its due date stays ``open`` there, and
+    #: ``Invoice.is_overdue`` derives the same thing locally from ``due_at``.
+    _INVOICE_STATUS = {
+        "draft": InvoiceStatus.draft,
+        "open": InvoiceStatus.open,
+        "paid": InvoiceStatus.paid,
+        "void": InvoiceStatus.void,
+        "uncollectible": InvoiceStatus.uncollectible,
+    }
+
+    @classmethod
+    def invoice_from_object(cls, obj: dict[str, Any]) -> ProviderInvoice:
+        """Map one Stripe ``invoice`` object onto :class:`ProviderInvoice`."""
+        total = int(obj.get("total") or obj.get("amount_due") or 0)
+        paid = int(obj.get("amount_paid") or 0)
+        metadata = obj.get("metadata") or {}
+        lines = ((obj.get("lines") or {}).get("data")) or []
+        line_items = [
+            {
+                "description": str(line.get("description") or "Subscription"),
+                "quantity": int(line.get("quantity") or 1),
+                "unit_cents": int(
+                    (line.get("price") or {}).get("unit_amount")
+                    or (int(line.get("amount") or 0) // max(1, int(line.get("quantity") or 1)))
+                ),
+                "amount_cents": int(line.get("amount") or 0),
+            }
+            for line in lines
+            if isinstance(line, dict)
+        ]
+        # Stripe puts the period on the line items, not on the invoice, for a
+        # subscription; `period_start`/`period_end` on the invoice itself are
+        # the *billing* window and are absent on some invoice shapes.
+        first_period = next(
+            (line.get("period") for line in lines if isinstance(line, dict) and line.get("period")),
+            {},
+        ) or {}
+        subscription_id = _stripe_id(obj.get("subscription"))
+        if not subscription_id:
+            subscription_id = next(
+                (
+                    _stripe_id(line.get("subscription"))
+                    for line in lines
+                    if isinstance(line, dict) and line.get("subscription")
+                ),
+                None,
+            )
+        return ProviderInvoice(
+            provider_invoice_id=str(obj.get("id") or ""),
+            currency=str(obj.get("currency") or "usd").upper(),
+            subtotal_cents=int(obj.get("subtotal") if obj.get("subtotal") is not None else total),
+            tax_cents=int(obj.get("tax") or 0),
+            total_cents=total,
+            amount_paid_cents=paid,
+            number=str(obj.get("number")) if obj.get("number") else None,
+            status=cls._INVOICE_STATUS.get(str(obj.get("status") or ""), InvoiceStatus.open),
+            hosted_url=str(obj.get("hosted_invoice_url")) if obj.get("hosted_invoice_url") else None,
+            payment_intent_id=_stripe_id(obj.get("payment_intent")),
+            period_start=_stripe_timestamp(first_period.get("start") or obj.get("period_start")),
+            period_end=_stripe_timestamp(first_period.get("end") or obj.get("period_end")),
+            issued_at=_stripe_timestamp(obj.get("created")),
+            due_at=_stripe_timestamp(obj.get("due_date")),
+            paid_at=_stripe_timestamp(
+                (obj.get("status_transitions") or {}).get("paid_at")
+            ),
+            line_items=line_items,
+            customer_id=_stripe_id(obj.get("customer")),
+            subscription_id=subscription_id,
+            organization_id=metadata.get("organization_id"),
+        )
+
+    def list_invoices(self, *, customer_id: str, limit: int = 100) -> list[ProviderInvoice]:
+        """Every invoice Stripe holds for one customer, newest first.
+
+        Used by the backfill (``scripts/backfill_provider_invoices.py``) to
+        recover invoices for payments that settled before the webhook mirrored
+        them.
+        """
+        invoices: list[ProviderInvoice] = []
+        starting_after: str | None = None
+        while True:
+            params: dict[str, Any] = {"customer": customer_id, "limit": min(100, limit)}
+            if starting_after:
+                params["starting_after"] = starting_after
+            page = self._request("GET", "/v1/invoices", params)
+            rows = [row for row in (page.get("data") or []) if isinstance(row, dict)]
+            invoices.extend(self.invoice_from_object(row) for row in rows)
+            if not page.get("has_more") or not rows or len(invoices) >= limit:
+                break
+            starting_after = str(rows[-1].get("id"))
+        return invoices[:limit]
+
     def verify_webhook(self, *, raw_body: bytes, signature: str | None) -> bool:
         """Stripe's ``Stripe-Signature: t=<ts>,v1=<hex>`` scheme, constant-time."""
         if not signature:
@@ -1091,6 +1254,11 @@ class StripePaymentProvider(PaymentProvider):
         payment_method_id = _stripe_id(obj.get("payment_method")) or (
             str(obj.get("id")) if str(obj.get("object") or "") == "payment_method" else None
         )
+        invoice = (
+            self.invoice_from_object(obj) if str(obj.get("object") or "") == "invoice" else None
+        )
+        if invoice and not subscription_id:
+            subscription_id = invoice.subscription_id
         return ProviderEvent(
             event_id=str(payload.get("id") or ""),
             event_type=self._EVENT_MAP.get(str(payload.get("type") or ""), str(payload.get("type") or "")),
@@ -1102,6 +1270,7 @@ class StripePaymentProvider(PaymentProvider):
             payment_method_id=payment_method_id,
             customer_id=_stripe_id(obj.get("customer")),
             mode=str(obj.get("mode")) if obj.get("mode") else None,
+            invoice=invoice,
             raw=payload,
         )
 
@@ -1112,6 +1281,13 @@ class StripeApiError(RuntimeError):
         self.status_code = status_code
         self.code = code
         self.body = body
+
+
+def _stripe_timestamp(value: Any) -> datetime | None:
+    """A Stripe unix timestamp as an aware datetime; ``None`` stays ``None``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return datetime.fromtimestamp(value, tz=timezone.utc)
 
 
 def _stripe_id(value: Any) -> str | None:
@@ -1394,6 +1570,16 @@ class BillingService:
                     plan_code=state.plan_code,
                 ),
             )
+            # The provider raised and settled an invoice for this purchase, and
+            # the session carries no copy of it -- so until a webhook arrived
+            # (which in a self-hosted install may be never) the plan was active
+            # with no invoice or receipt anywhere the tenant or the platform
+            # admin could see it. Mirror it here, off the same customer record.
+            self._mirror_customer_invoices(
+                db,
+                organization_id=organization_id,
+                customer_id=state.customer_id or subscription.provider_customer_id,
+            )
         db.commit()
         return {
             "session_id": state.session_id,
@@ -1614,6 +1800,150 @@ class BillingService:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Could not allocate an invoice number"
         )
+
+    def _invoice_number_for(self, db: Session, *, provider_number: str | None, moment: datetime) -> str:
+        """The provider's own number when it has one and it is free locally.
+
+        Falling back to the local series keeps the unique index satisfied even
+        if a provider number somehow collides, so a mirror never fails over
+        cosmetics.
+        """
+        if provider_number:
+            taken = db.scalar(select(Invoice.id).where(Invoice.number == provider_number))
+            if not taken:
+                return provider_number
+        return self._next_invoice_number(db, moment=moment)
+
+    def record_provider_invoice(
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        invoice: ProviderInvoice,
+    ) -> Invoice | None:
+        """Mirror a provider-raised invoice into the local ``invoices`` table.
+
+        Idempotent on ``provider_invoice_id``: a redelivered ``invoice.paid``,
+        or a backfill run over invoices the webhook already mirrored, updates
+        the existing row rather than creating a second one. That matters
+        because Stripe sends both ``invoice.paid`` and
+        ``invoice.payment_succeeded`` for a single settlement -- two distinct
+        event ids, so webhook-level de-duplication does not catch it.
+
+        Amounts and status come from the provider, which did the charging.
+        Flushes but does not commit: the caller owns the transaction.
+        """
+        if not invoice.provider_invoice_id:
+            return None
+        now = _utcnow()
+        existing = db.scalar(
+            select(Invoice).where(
+                Invoice.provider_invoice_id == invoice.provider_invoice_id,
+                Invoice.provider == self.provider.name,
+            )
+        )
+        row = existing or Invoice(
+            organization_id=organization_id,
+            number=self._invoice_number_for(
+                db, provider_number=invoice.number, moment=invoice.issued_at or now
+            ),
+            provider=self.provider.name,
+            provider_invoice_id=invoice.provider_invoice_id,
+        )
+        # A void invoice locally is a deliberate act (POST /invoices/{id}/void)
+        # and outranks whatever the provider now says.
+        if existing is not None and existing.status == InvoiceStatus.void:
+            return existing
+        row.currency = invoice.currency
+        row.subtotal_cents = invoice.subtotal_cents
+        row.tax_cents = invoice.tax_cents
+        row.total_cents = invoice.total_cents
+        row.amount_paid_cents = invoice.amount_paid_cents
+        row.status = invoice.status
+        row.period_start = invoice.period_start
+        row.period_end = invoice.period_end
+        row.issued_at = invoice.issued_at or row.issued_at or now
+        row.due_at = invoice.due_at or row.issued_at
+        row.paid_at = invoice.paid_at or (
+            row.paid_at or (now if invoice.status == InvoiceStatus.paid else None)
+        )
+        row.line_items = invoice.line_items or row.line_items
+        row.hosted_url = invoice.hosted_url or row.hosted_url
+        row.provider_payment_intent_id = invoice.payment_intent_id or row.provider_payment_intent_id
+        if row.period_start is not None and not row.period_label:
+            row.period_label = row.period_start.strftime("%b %Y")
+        db.add(row)
+        db.flush()
+        return row
+
+    def _mirror_customer_invoices(
+        self, db: Session, *, organization_id: str, customer_id: str | None, limit: int = 5
+    ) -> int:
+        """Mirror this customer's most recent provider invoices, best effort.
+
+        Called on the return from a checkout, where the purchase has already
+        been applied: the invoice is the record of it, not the thing being
+        waited on, so a provider that is slow, unreachable, or has not raised
+        the invoice yet must not fail the confirmation. Whatever is missed here
+        is picked up by the ``invoice.paid`` webhook or by
+        ``scripts/backfill_provider_invoices.py``, both idempotent on
+        ``provider_invoice_id`` -- so mirroring twice is not double-billing.
+        """
+        if not customer_id:
+            return 0
+        try:
+            remote = self.provider.list_invoices(customer_id=customer_id, limit=limit)
+        except Exception:  # provider down, or a stub without invoices
+            logger.exception("billing.invoice_mirror_failed", extra={"organization_id": organization_id})
+            return 0
+        mirrored = 0
+        for invoice in remote:
+            if invoice.status == InvoiceStatus.draft:
+                continue
+            if self.record_provider_invoice(db, organization_id=organization_id, invoice=invoice):
+                mirrored += 1
+        return mirrored
+
+    def backfill_provider_invoices(
+        self, db: Session, *, organization_id: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
+        """Mirror every invoice the provider already holds (BIL: recovery).
+
+        For each subscription with a provider customer id, read that customer's
+        invoices back from the provider and record them. Idempotent, so it is
+        safe to re-run; it exists because invoices settled before the webhook
+        mirrored them left no local trace.
+        """
+        report: dict[str, Any] = {"organizations": 0, "created": 0, "updated": 0, "skipped": 0}
+        query = select(Subscription).where(Subscription.provider_customer_id.is_not(None))
+        if organization_id:
+            query = query.where(Subscription.organization_id == organization_id)
+        for subscription in db.scalars(query):
+            customer_id = subscription.provider_customer_id
+            if not customer_id:
+                continue
+            report["organizations"] += 1
+            for remote in self.provider.list_invoices(customer_id=customer_id, limit=limit):
+                if remote.status == InvoiceStatus.draft:
+                    report["skipped"] += 1
+                    continue
+                seen = db.scalar(
+                    select(Invoice.id).where(
+                        Invoice.provider_invoice_id == remote.provider_invoice_id,
+                        Invoice.provider == self.provider.name,
+                    )
+                )
+                recorded = self.record_provider_invoice(
+                    db,
+                    organization_id=subscription.organization_id,
+                    invoice=remote,
+                )
+                if recorded is None:
+                    report["skipped"] += 1
+                else:
+                    report["updated" if seen else "created"] += 1
+            db.commit()
+        return report
 
     def close_period(
         self, db: Session, *, subscription: Subscription, now: datetime | None = None
@@ -1890,6 +2220,15 @@ class BillingService:
             subscription.provider_subscription_id = event.subscription_id
         subscription.provider = event.provider
         db.add(subscription)
+        # The provider's invoice for this event, mirrored locally. Without it
+        # a subscription billed by the provider showed no invoice until the
+        # renewal cron closed its first period.
+        if event.invoice is not None:
+            self.record_provider_invoice(
+                db,
+                organization_id=subscription.organization_id,
+                invoice=event.invoice,
+            )
         db.flush()
         self._sync_organization_billing(db, subscription=subscription)
         return True
@@ -2284,7 +2623,7 @@ class BillingService:
             last4=details.last4,
             exp_month=details.exp_month,
             exp_year=details.exp_year,
-            holder_name=holder_name,
+            holder_name=details.holder_name or holder_name,
             country=details.country or country,
             label=details.label,
             po_number=po_number,
@@ -2405,6 +2744,17 @@ class BillingService:
         charged twice. A failure leaves the invoice ``past_due`` with a
         ``failed`` charge row behind it, which is what feeds the dunning queue.
         """
+        # A sandbox organization must never reach the payment provider
+        # (API-11). Refusing before ``charge_invoice`` means no card is
+        # touched and no provider call is made, rather than relying on the
+        # provider being in its own test mode.
+        from app.services.sandbox_service import is_sandbox_organization
+
+        if is_sandbox_organization(db, invoice.organization_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invoices cannot be collected in the sandbox; no payment provider is contacted there",
+            )
         if invoice.status == InvoiceStatus.paid:
             return invoice
         if invoice.status in {InvoiceStatus.void, InvoiceStatus.uncollectible}:

@@ -510,7 +510,10 @@ export const ACCOUNT_NAV: [string, string][] =[
       /* Stripe Connect status for this org — its own screen at
          `/account/payments`, same reason `billing` is: it needs more than
          the `[section]` catch-all route gives it. */
-      ['payments','Payments']
+      ['payments','Payments'],
+      /* Sender branding (ORG-7) — its own screen at `/account/brand`, for the
+         same reason as `payments`. */
+      ['brand','Branding themes']
 ];
 
 export const ACCOUNT_TITLES: Dict<[string, string]> ={
@@ -520,7 +523,8 @@ export const ACCOUNT_TITLES: Dict<[string, string]> ={
       notifications:['Notifications & email','Which events notify you, where they are delivered, and who else is copied'],
       integrations:['Integrations','Storage connectors and automatic export of completed documents'],
       organization:['Organization & teams','Your organization, everyone in it, and the teams they work in'],
-      audit:['Audit trail','Account-level security and administrative events']
+      audit:['Audit trail','Account-level security and administrative events'],
+      brand:['Branding themes','The logo, colours and wording recipients see in invitation emails and while signing']
     };
 
 /* ── global chrome ── */

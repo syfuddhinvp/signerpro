@@ -11,6 +11,13 @@
 import type { NotificationRow } from '@/lib/api/types';
 import { SCREEN_PATH, documentPathFor, isDocumentScreen, type ScreenKey } from '@/lib/sf/routes';
 
+/** How many rows a page of the feed holds. Paging is "show more", not numbered
+ *  pages: a feed is read from the top down and nobody navigates to page 4 of it.
+ *  Lives here, not in the screen, because the server component that renders the
+ *  first page imports it — a value exported from a `'use client'` module reaches
+ *  the server as a client-reference stub, not as 50. */
+export const PAGE_SIZE = 50;
+
 export function notificationHref(row: NotificationRow): string | null {
   const screen = row.screen as ScreenKey | null;
   if (!screen || !(screen in SCREEN_PATH)) {

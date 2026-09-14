@@ -35,6 +35,28 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     billing_cycle: Mapped[str] = mapped_column(String(20), nullable=False, default="monthly", server_default="monthly")
     default_payment_method_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
+    # Sandbox pairing (API-11)
+    #: A sandbox organization is a shadow tenant: test-mode API keys and
+    #: sandbox-header session calls resolve to it, so every existing
+    #: ``organization_id``-scoped query isolates test data with no extra
+    #: filtering. Side effects (email, SMS, billing) are suppressed for it.
+    is_sandbox: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    #: Set on the sandbox row, pointing at the live organization it shadows.
+    #: Plain String for the same reason as ``owner_user_id`` above.
+    sandbox_of_organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    # Builder field palette (ORG-6)
+    #: Which `FieldType`s an author may place from the builder palette. NULL
+    #: means every type is offered -- the default, and what every tenant had
+    #: before this column existed. A list narrows the palette to exactly those
+    #: types, so a tenant that only ever needs a signature and a date is not
+    #: made to read past twenty tiles to find them.
+    #:
+    #: This governs *authoring* only. Fields already placed on a document or a
+    #: template keep working whatever is set here, so narrowing the palette can
+    #: never invalidate an envelope that is already out for signature.
+    enabled_field_types: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     # Embed / API settings (API-9)
     allowed_origins: Mapped[list | None] = mapped_column(JSON, nullable=True)
     default_return_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)

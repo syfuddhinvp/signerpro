@@ -26,8 +26,10 @@ import type { DocumentCounts } from '@/lib/api/types';
 import { audit as auditApi, documents as documentsApi, folders as foldersApi, templates as templatesApi } from '@/lib/api/resources';
 import { useDialogs } from '@/components/sf/DialogProvider';
 import UploadDocument from '@/components/sf/UploadDocument';
+import CatalogBrowser from '@/components/sf/CatalogBrowser';
+import Icon from '@/components/sf/Icon';
 import {
-  libraryFiltersToQuery, libraryFolderLabel,
+  docStatusDetail, libraryFiltersToQuery, libraryFolderLabel, signerProgressLabel,
   type FolderOption, type LibraryFilters, type LibraryRow, type TemplateRow,
 } from '@/lib/sf/adapters';
 
@@ -123,6 +125,9 @@ export default function Library(props: LibraryProps) {
   );
 
   const isTemplateFolder = filters.folder === 'templates';
+  /* The platform's ready-made forms. Opened from the templates view only:
+     the catalog produces templates, so it belongs where templates live. */
+  const [showCatalog, setShowCatalog] = useState(false);
   const isArchiveFolder = filters.folder === 'archive';
   const isTrashFolder = filters.folder === 'trash';
   const libDocs = rows;
@@ -178,7 +183,9 @@ export default function Library(props: LibraryProps) {
     const isTpl = isTemplateFolder;
     /** The real UUID — what the API takes. `d.id` stays the design's reference. */
     const uid: string = isTpl ? d.templateId : d.documentId;
-    const st = isTpl ? STATUS.completed : STATUS[d.status];
+    /* The pill says exactly where the envelope stands — Sent, Viewed, In
+       progress, Signed — rather than the five-way bucket the filters use. */
+    const st = isTpl ? STATUS.completed : docStatusDetail(d.rawStatus ?? d.status);
     const checked = s.libSelected.indexOf(uid) > -1;
 
     /** The executed PDF, saved to disk. 404 when nothing has been generated. */
@@ -313,7 +320,9 @@ export default function Library(props: LibraryProps) {
         : d.id + ' · ' + d.pages + ' pages · updated ' + d.updated,
       statusLabel: isTpl ? 'Template' : st.label,
       pillStyle: pill(isTpl ? { bg: '#eef2ff', fg: '#3730a3', bd: '#c7d2fe' } : st),
-      signers: isTpl ? 'Owner ' + d.owner : 'Signers: ' + (d.total || 1),
+      signers: isTpl
+        ? 'Owner ' + d.owner
+        : signerProgressLabel(d.rawStatus ?? d.status, d.signed || 0, d.total || 0),
       rowStyle: {
         display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px',
         borderTop: i ? '1px solid #f2f4f8' : 'none',
@@ -560,6 +569,9 @@ export default function Library(props: LibraryProps) {
             <span style={{ fontSize: '.75rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{libCountLabel}</span>
           </div>
           <div style={{ display: 'flex', gap: '7px', flex: '0 0 auto' }}>
+            {isTemplateFolder ? (
+              <button type="button" onClick={() => setShowCatalog(true)} style={ghostBtn}>Browse form catalog</button>
+            ) : null}
             <button type="button" onClick={createFolder} style={ghostBtn}>New folder</button>
             {/* The picker is here, not on the builder: a draft with no PDF is
                 nothing the user can prepare, so the file comes first. */}
@@ -677,13 +689,17 @@ export default function Library(props: LibraryProps) {
                 {isTemplateFolder ? 'No templates yet' : 'Nothing in ' + libFolderLabel}
               </span>
               <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
-                {isTemplateFolder ? 'Save a prepared document as a template to reuse it.' : 'Upload a document or clear the filters above.'}
+                {isTemplateFolder
+                  ? 'Add a ready-made form from the catalog, or save a prepared document as a template.'
+                  : 'Upload a document or clear the filters above.'}
               </span>
-              {isTemplateFolder ? null : (
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                {isTemplateFolder ? (
+                  <button type="button" onClick={() => setShowCatalog(true)} style={primaryBtn}>Browse form catalog</button>
+                ) : (
                   <UploadDocument label="Upload a file" />
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : null}
           {libRows.length ? (
@@ -717,7 +733,7 @@ export default function Library(props: LibraryProps) {
                   aria-label="Select"
                   onClick={d.onCheck}
                   style={checkboxStyle(d.checked === 'true')}
-                >{d.checked === 'true' ? '✓' : ''}</button>
+                >{d.checked === 'true' ? <Icon name="check" size={11} /> : null}</button>
                 <span style={d.thumb}>
                   <span style={d.line1} /><span style={d.line2} /><span style={d.line3} /><span style={d.line4} />
                 </span>
@@ -767,6 +783,7 @@ export default function Library(props: LibraryProps) {
           </div>
         </div>
       </div>
+      {showCatalog ? <CatalogBrowser onClose={() => setShowCatalog(false)} /> : null}
     </section>
   );
 }

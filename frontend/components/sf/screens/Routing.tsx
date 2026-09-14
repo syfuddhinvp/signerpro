@@ -9,9 +9,10 @@ import { newBuilderRecipient, toBuilderRecipients, type BuilderRouting } from '@
 import AddRecipient from '@/components/sf/parts/AddRecipient';
 import { rememberContact } from '@/lib/sf/recipientContacts';
 import { useDialogs } from '@/components/sf/DialogProvider';
-import type { RecipientResponse, RecipientRole } from '@/lib/api/types';
+import type { BrandingThemeResponse, RecipientResponse, RecipientRole } from '@/lib/api/types';
 import { apiCall } from '@/lib/api/browser';
 import { recipients as recipientsApi } from '@/lib/api/resources';
+import Icon from '@/components/sf/Icon';
 
 export type RoutingProps = {
   /** null when the tenant has no draft to route. */
@@ -20,9 +21,12 @@ export type RoutingProps = {
   title?: string;
   recipients: RecipientResponse[];
   routing: BuilderRouting | null;
+  /** The tenant's branding themes (ORG-7), for the picker. Empty when the
+   *  tenant has none — the picker then points at where to make one. */
+  brandingThemes?: BrandingThemeResponse[];
 };
 
-export default function Routing({ documentId, title, recipients, routing }: RoutingProps) {
+export default function Routing({ documentId, title, recipients, routing, brandingThemes = [] }: RoutingProps) {
   const { s, set, flash, accent, recips } = useSF();
   const { go } = useNav();
   const { askConfirm } = useDialogs();
@@ -55,6 +59,23 @@ export default function Routing({ documentId, title, recipients, routing }: Rout
   }, [documentId, seededRecipients, routing]);
 
   const [sending, setSending] = React.useState(false);
+
+  /* `SFState` has no slot for the branding choice (same as the invite
+     subject), so the screen holds it. '' means "use the tenant's default". */
+  const [brandingThemeId, setBrandingThemeId] = React.useState<string>(routing ? routing.brandingThemeId : '');
+  React.useEffect(() => {
+    setBrandingThemeId(routing ? routing.brandingThemeId : '');
+  }, [documentId, routing]);
+
+  const defaultTheme = brandingThemes.find(t => t.is_default) ?? null;
+  const effectiveTheme = brandingThemes.find(t => t.id === brandingThemeId) ?? defaultTheme;
+
+  const changeBranding = (value: string) => {
+    setBrandingThemeId(value);
+    /* Immediate rather than debounced: this is a discrete pick, and it is the
+       one routing setting whose effect a sender goes and checks elsewhere. */
+    P.saveRouting({ brandingThemeId: value }, true);
+  };
 
   const reorderRecipient = (id: string, dir: number) => {
     const next = reorderRecips(s, id, dir);
@@ -281,10 +302,10 @@ export default function Routing({ documentId, title, recipients, routing }: Rout
                   aria-label={'Copy the signing link for ' + r.name}
                   style={Object.assign({}, linkActionBtn, r.linkReady && !r.linkBusy ? null : disabledBtn)}
                 >Copy link</button>
-                <button type="button" aria-label="Move up" onClick={r.onUp} style={iconBtn}>↑</button>
-                <button type="button" aria-label="Move down" onClick={r.onDown} style={iconBtn}>↓</button>
+                <button type="button" aria-label="Move up" onClick={r.onUp} style={iconBtn}><Icon name="arrowUp" size={13} /></button>
+                <button type="button" aria-label="Move down" onClick={r.onDown} style={iconBtn}><Icon name="arrowDown" size={13} /></button>
                 <button type="button" aria-label={'Remove ' + r.name} title={'Remove ' + r.name} onClick={r.onRemove}
-                  style={Object.assign({}, iconBtn, { color: '#b91c1c' })}>✕</button>
+                  style={Object.assign({}, iconBtn, { color: '#b91c1c' })}><Icon name="close" size={13} /></button>
               </div>
             </div>
           ))}
@@ -294,6 +315,39 @@ export default function Routing({ documentId, title, recipients, routing }: Rout
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+            <div style={railHead}>Branding</div>
+            <button type="button" onClick={() => go('brand')} style={linkActionBtn}>Manage themes</button>
+          </div>
+          {brandingThemes.length ? (
+            <>
+              <label style={lbl}>Theme
+                <select value={brandingThemeId} onChange={(e) => changeBranding(e.target.value)} style={inputStyle}>
+                  <option value="">
+                    {defaultTheme ? 'Organization default · ' + defaultTheme.name : 'Organization default'}
+                  </option>
+                  {brandingThemes.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span aria-hidden style={{ width: '20px', height: '20px', borderRadius: '6px', flex: '0 0 20px', border: '1px solid #e3e7ee', background: (effectiveTheme && effectiveTheme.primary_color) || A }} />
+                <span style={{ fontSize: '.71875rem', color: '#64748b', lineHeight: 1.55 }}>
+                  {effectiveTheme
+                    ? 'Recipients see ' + effectiveTheme.name + ' on the invitation email and while signing.'
+                    : 'No default theme set, so invitations go out with SignerPro\u2019s stock wording.'}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: '.75rem', color: '#64748b', background: '#fbfcfd', border: '1px solid #eef1f6', borderRadius: '12px', padding: '12px', lineHeight: 1.6 }}>
+              No branding themes yet \u2014 invitations go out with SignerPro\u2019s stock logo and wording.
+            </div>
+          )}
+        </div>
+
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={railHead}>Reminders &amp; expiration</div>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>

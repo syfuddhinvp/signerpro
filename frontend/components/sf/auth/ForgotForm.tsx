@@ -15,6 +15,7 @@ import { useSF } from '@/lib/sf/state';
 import { lbl, authInput, authPrimary as authPrimaryOf, linkBtn as linkBtnOf } from '@/lib/sf/ui';
 import { AUTH_PATHS } from '@/lib/sf/routes';
 import AuthLayout, { authErrorMessage, authErrorStyle } from './AuthLayout';
+import Icon from '@/components/sf/Icon';
 
 export default function ForgotForm() {
   const { s, set, accent } = useSF();
@@ -62,7 +63,7 @@ export default function ForgotForm() {
             If an account exists for <strong>{s.authEmail.trim()}</strong>, a reset link is on its way.
             The link can be used once and expires in 60 minutes.
           </div>
-          <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkBtn, { textDecoration: 'none' })}>← Back to sign in</Link>
+          <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkBtn, { textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' })}><Icon name="arrowLeft" size={12} />Back to sign in</Link>
         </div>
       </AuthLayout>
     );
@@ -76,7 +77,7 @@ export default function ForgotForm() {
         </label>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
         <button type="submit" disabled={pending} style={authPrimary}>{pending ? 'Sending…' : 'Send reset link'}</button>
-        <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkBtn, { textDecoration: 'none' })}>← Back to sign in</Link>
+        <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkBtn, { textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' })}><Icon name="arrowLeft" size={12} />Back to sign in</Link>
       </form>
     </AuthLayout>
   );

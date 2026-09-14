@@ -5,20 +5,24 @@ import { useSF } from '@/lib/sf/state';
 import { SB_LANG_TABS } from '@/lib/sf/data';
 import { btn, inputStyle, jsonBoxStyle, lbl, linkBtn, pill, railHead, TONE_BAD, TONE_GOOD, TEXT_MUTED } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
+import { sandboxHeaders } from '@/lib/api/resources';
 import { useDialogs } from '@/components/sf/DialogProvider';
+import Icon from '@/components/sf/Icon';
 
 /**
- * THERE IS NO SANDBOX BACKEND.
+ * The sandbox is real now, and the toggle means something.
  *
- * Every send below is a real, session-authenticated request against the
- * caller's own production tenant, through `/api/proxy`. The prototype dressed
- * this screen as a seeded test tenant with a `sk_test_…` key and a Test/Live
- * toggle; none of that existed — the toggle was client-side only, the key was
- * a string that was never sent, and a `DELETE` on `/api/documents/library`
- * would have destroyed real documents.
+ * The prototype dressed this screen as a seeded test tenant with a `sk_test_…`
+ * key and a Test/Live switch, none of which existed: the toggle was
+ * client-side only, the key was a string that was never sent, and a `DELETE`
+ * on `/api/documents/library` would have destroyed real documents.
  *
- * What remains: the same real endpoints, an unmissable warning, and an explicit
- * confirmation before any request that can write.
+ * What backs it now (API-11) is a paired sandbox organization. Test mode sends
+ * `X-SignerPro-Sandbox`, the backend resolves the request to that shadow
+ * tenant, and outbound email, SMS and payment collection are suppressed there.
+ * Live mode sends nothing extra and still hits the caller's real workspace, so
+ * the warning below is shown per mode rather than removed, and a write in live
+ * mode still asks first.
  */
 const SB_PATH_OPTIONS: string[] = [
   '/api/me',
@@ -37,6 +41,11 @@ export default function Sandbox() {
   const A = accent();
   const { askConfirm } = useDialogs();
   const st: any = s;
+
+  /* Live unless the caller says otherwise. A missing value must never read as
+     sandbox: someone whose store predates this flag has to land in the mode
+     the warning describes, not in one the backend might not honour. */
+  const inSandbox: boolean = st.sbSandbox === true;
 
   const primaryBtn = btn(A, '#fff', A);
   const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
@@ -58,11 +67,28 @@ export default function Sandbox() {
   const sbPath: string = SB_PATH_OPTIONS.indexOf(String(st.sbPath)) > -1 ? String(st.sbPath) : SB_PATH_OPTIONS[0];
   const sbFullPath = sbPath + sbQueryString;
   const sbBodyLine = String(st.sbBody).replace(/\n\s*/g, ' ');
+  /* The snippets reproduce the request that the Send button issues, against
+     this deployment's own origin. There is no SDK to import — these are the
+     plain-transport equivalents of the call composed above. */
+  const sbOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+  /* A snippet that ran in test mode must reproduce the mode, not just the
+     path — otherwise copying it out of the console silently promotes the call
+     to live. */
+  const sbCurlSandbox = inSandbox ? ' \\\n  -H "X-SignerPro-Sandbox: 1"' : '';
+  const sbJsSandbox = inSandbox ? ',\n    "X-SignerPro-Sandbox": "1"' : '';
+  const sbPySandbox = inSandbox ? ', "X-SignerPro-Sandbox": "1"' : '';
+  /* These are `/api/…` app routes, authenticated by the session cookie — not
+     the `/api/v1` public surface, which takes an `X-API-Key` header. The
+     snippets used to send `Authorization: Bearer $SIGNERPRO_KEY`, a header no
+     route on either surface reads, so a developer copying one got a 401 from a
+     block captioned as the request that had just succeeded. */
+  const sbAuthNote = '# session-authenticated app route — send your session cookie.\n' +
+    '# The read-only public surface is /api/v1/… with an X-API-Key header instead.';
   const sbSnippets: Record<string, string> = {
-    curl: 'curl -X ' + st.sbMethod + ' "https://api.signerpro.com' + sbFullPath + '" \\\n  -H "Authorization: Bearer $SIGNERPRO_KEY" \\\n  -H "Content-Type: application/json"' + (st.sbMethod === 'GET' ? '' : " \\\n  -d '" + sbBodyLine + "'"),
-    node: 'const sf = new SignerPro(process.env.SIGNERPRO_KEY);\nconst res = await sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nconsole.log(res);',
-    python: 'import signerpro\n\nsf = signerpro.Client(os.environ["SIGNERPRO_KEY"])\nres = sf.request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', json=' + sbBodyLine) + ')\nprint(res)',
-    php: '$sf = new \\SignerPro\\Client(getenv("SIGNERPRO_KEY"));\n$res = $sf->request("' + st.sbMethod + '", "' + sbFullPath + '"' + (st.sbMethod === 'GET' ? '' : ', ' + sbBodyLine) + ');\nprint_r($res);'
+    curl: sbAuthNote + '\ncurl -X ' + st.sbMethod + ' "' + sbOrigin + sbFullPath + '" \\\n  -b "$SIGNERPRO_SESSION_COOKIE" \\\n  -H "Content-Type: application/json"' + sbCurlSandbox + (st.sbMethod === 'GET' ? '' : " \\\n  -d '" + sbBodyLine + "'"),
+    node: '// from the browser, the cookie rides along with credentials: "include"\n' +
+      'const res = await fetch("' + sbFullPath + '", {\n  method: "' + st.sbMethod + '",\n  credentials: "include",\n  headers: {\n    "Content-Type": "application/json"' + sbJsSandbox + '\n  }' + (st.sbMethod === 'GET' ? '' : ',\n  body: JSON.stringify(' + sbBodyLine + ')') + '\n});\nconsole.log(await res.json());',
+    python: sbAuthNote + '\nimport os, requests\n\nres = requests.request(\n    "' + st.sbMethod + '",\n    "' + sbOrigin + sbFullPath + '",\n    headers={"Cookie": os.environ["SIGNERPRO_SESSION_COOKIE"]' + sbPySandbox + '}' + (st.sbMethod === 'GET' ? '' : ',\n    json=' + sbBodyLine) + '\n)\nprint(res.json())'
   };
   const sbLangTabs = SB_LANG_TABS.map(([id, label]) => {
     const on = st.sbLang === id;
@@ -91,11 +117,14 @@ export default function Sandbox() {
     if (st.sbSending) return;
     const method = st.sbMethod as 'GET' | 'POST' | 'PATCH' | 'DELETE';
     const path = sbPath;
-    /* Anything other than GET writes to the caller's real workspace. */
-    if (method !== 'GET') {
+    /* In live mode anything other than GET writes to the caller's real
+       workspace, so it is confirmed. In the sandbox there is nothing to
+       protect, and a confirmation on every write would train people to click
+       through the one that matters. */
+    if (method !== 'GET' && !inSandbox) {
       const ok = await askConfirm({
         title: method + ' ' + sbFullPath,
-        message: 'This runs against your live workspace and can create, change or delete real data. There is no test tenant.',
+        message: 'This runs against your live workspace and can create, change or delete real data. Switch to Test to send it to your sandbox instead.',
         cta: 'Send request',
         danger: true,
       });
@@ -118,17 +147,50 @@ export default function Sandbox() {
 
     set({ sbSending: true, sbResponse: null } as any);
     const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    void apiCall<unknown>(path, { method, query, body }).then(res => {
+    void apiCall<unknown>(path, { method, query, body, headers: sandboxHeaders(inSandbox) }).then(res => {
       const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - started;
       const ms = Math.max(1, Math.round(elapsed));
       const status = res.ok ? res.status : res.error.status;
       const payload = res.ok ? res.data : { error: { status: res.error.status, kind: res.error.kind, message: res.error.message } };
       const rendered = payload === undefined ? '' : JSON.stringify(payload, null, 2);
-      const entry = { method, path: sbFullPath, status, ms, env: 'live', body: rendered };
+      const entry = { method, path: sbFullPath, status, ms, env: inSandbox ? 'test' : 'live', body: rendered };
       set((x: any) => ({ sbSending: false, sbResponse: { status, ms, body: rendered },
         sbHistory: [entry].concat(x.sbHistory).slice(0, 6) } as any));
     });
   };
+  /* Seeding and resetting are sandbox-only on the backend too: both routes go
+     through `_require_sandbox`, so these buttons cannot reach live records
+     even if the toggle were wrong. */
+  const sbSeed = async () => {
+    const res = await apiCall<{ contact_count: number; document_count: number }>(
+      '/api/sandbox/seed', { method: 'POST', headers: sandboxHeaders(true) });
+    if (res.ok) flash('Sandbox seeded — ' + res.data.contact_count + ' contacts, ' + res.data.document_count + ' documents');
+    else flash(res.error.message);
+  };
+
+  const sbReset = async () => {
+    const ok = await askConfirm({
+      title: 'Reset the sandbox',
+      message: 'This deletes every document and contact in your sandbox. Your live workspace is not touched.',
+      cta: 'Reset sandbox',
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await apiCall<{ deleted_documents: number; deleted_contacts: number }>(
+      '/api/sandbox/reset', { method: 'POST', headers: sandboxHeaders(true) });
+    if (res.ok) flash('Sandbox cleared — ' + res.data.deleted_documents + ' documents, ' + res.data.deleted_contacts + ' contacts deleted');
+    else flash(res.error.message);
+  };
+
+  const modeTabs = ([['live', 'Live'], ['test', 'Test']] as [string, string][]).map(([id, label]) => {
+    const on = (id === 'test') === inSandbox;
+    return { id, label, selected: on ? 'true' : 'false',
+      onClick: () => set({ sbSandbox: id === 'test', sbResponse: null } as any),
+      style: { height:'26px', padding:'0 12px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem',
+        fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
+        boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
+  });
+
   const resp: any = st.sbResponse;
   const hasSbResponse = !!resp;
   const sbEmpty = !resp;
@@ -147,12 +209,40 @@ export default function Sandbox() {
 
   return (
     <section data-screen-label="API console" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.15fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
-      <div style={{ gridColumn:'1 / -1', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:'14px', padding:'13px 15px', display:'flex', flexDirection:'column', gap:'4px' }}>
-        <span style={{ fontSize:'.8125rem', fontWeight:700, color:'#b91c1c' }}>Live workspace — not a sandbox</span>
-        <span style={{ fontSize:'.75rem', color:'#991b1b', lineHeight:1.6 }}>
-          Requests are sent with your own session against your organization&rsquo;s real data. There is no test tenant and no test key.
-          A POST, PATCH or DELETE here creates, changes or deletes real documents, contacts and templates — permanently.
-        </span>
+      <div style={{ gridColumn:'1 / -1', background: inSandbox ? '#ecfdf5' : '#fef2f2', border:'1px solid ' + (inSandbox ? '#a7f3d0' : '#fecaca'), borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'14px', flexWrap:'wrap' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:'4px', flex:'1 1 380px', minWidth:0 }}>
+          {inSandbox ? (
+            <>
+              <span style={{ fontSize:'.8125rem', fontWeight:700, color:'#047857' }}>Sandbox — a separate organization</span>
+              <span style={{ fontSize:'.75rem', color:'#065f46', lineHeight:1.6 }}>
+                Requests resolve to your sandbox tenant. Nothing here can read or change live records, and outbound
+                email, SMS and payment collection are suppressed. Seed it with sample data, or clear it, at any time.
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize:'.8125rem', fontWeight:700, color:'#b91c1c' }}>Live workspace</span>
+              <span style={{ fontSize:'.75rem', color:'#991b1b', lineHeight:1.6 }}>
+                Requests are sent with your own session against your organization&rsquo;s real data. A POST, PATCH or
+                DELETE here creates, changes or deletes real documents, contacts and templates — permanently.
+                Switch to Test to send them to your sandbox instead.
+              </span>
+            </>
+          )}
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
+          <div role="group" aria-label="Environment" style={{ display:'flex', gap:'4px', background: inSandbox ? '#d1fae5' : '#fee2e2', padding:'4px', borderRadius:'10px' }}>
+            {modeTabs.map(m => (
+              <button key={m.id} type="button" onClick={m.onClick} aria-pressed={m.selected as any} style={m.style}>{m.label}</button>
+            ))}
+          </div>
+          {inSandbox ? (
+            <>
+              <button type="button" onClick={sbSeed} style={ghostBtn}>Seed data</button>
+              <button type="button" onClick={sbReset} style={ghostBtn}>Reset</button>
+            </>
+          ) : null}
+        </div>
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'13px' }}>
@@ -182,7 +272,7 @@ export default function Sandbox() {
               <div key={i} style={{ display:'flex', gap:'8px', alignItems:'center' }}>
                 <input type="text" value={p.k} onChange={p.onKey} placeholder="key" aria-label="Parameter name" style={mono} />
                 <input type="text" value={p.v} onChange={p.onVal} placeholder="value" aria-label="Parameter value" style={mono} />
-                <button type="button" aria-label="Remove parameter" onClick={p.onRemove} style={iconBtn}>✕</button>
+                <button type="button" aria-label="Remove parameter" onClick={p.onRemove} style={iconBtn}><Icon name="close" size={13} /></button>
               </div>
             ))}
           </div>

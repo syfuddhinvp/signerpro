@@ -100,6 +100,8 @@ class ImpersonationSessionResponse(BaseModel):
     organization_name: str
     impersonated_user_id: str
     impersonated_user_email: str
+    impersonated_user_name: str
+    impersonated_user_role: str
     justification: str
     scopes: list[str] = []
     expires_at: datetime
@@ -246,6 +248,20 @@ class SecurityPostureUpdate(BaseModel):
     residency: bool | None = None
     keyRotation: bool | None = None
     dlp: bool | None = None
+
+
+class IpAllowlistEntryRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    cidr: str
+    label: str | None = None
+    created_at: datetime
+
+
+class IpAllowlistEntryCreate(BaseModel):
+    cidr: str
+    label: str | None = None
 
 
 class CertificationRow(BaseModel):

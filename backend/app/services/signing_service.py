@@ -36,6 +36,7 @@ from app.schemas.signer import (
     SigningSessionResponse,
 )
 from app.services.audit_service import audit_service
+from app.services.branding_service import branding_service
 from app.services.field_service import field_service
 from app.services.email_service import signflow_email_service
 from app.services.pdf_service import pdf_service
@@ -186,6 +187,10 @@ class SigningService:
             # never asked to act (RTE-3).
             can_decline=not read_only and is_signing_role(recipient.role),
             can_reassign=not read_only and is_signing_role(recipient.role),
+            # Branding is sent even behind the OTP/consent gates: those screens
+            # are the first thing a recipient sees, and an unbranded gate in
+            # front of a branded document reads as a phishing page.
+            branding=branding_service.signer_branding(db, document=document),
         )
 
     def mark_viewed(
@@ -837,7 +842,12 @@ class SigningService:
                 EmailMessage(
                     to_email=recipient.email,
                     subject="SignFlow Verification Code",
-                    body=f"Hello {recipient.name},\n\nYour secure verification code is: {otp_code}\n\nThis code will expire in 10 minutes."
+                    body=f"Hello {recipient.name},\n\nYour secure verification code is: {otp_code}\n\nThis code will expire in 10 minutes.",
+                    category="verification",
+                    document_id=document.id,
+                    # The body *is* the passcode: there is no link to mask and
+                    # nothing left worth keeping once the code is removed.
+                    body_is_secret=True,
                 ),
                 organization=org
             )

@@ -16,6 +16,7 @@ import { requireSession } from '@/lib/auth/session';
 import { SessionProvider, type ClientSession } from '@/components/sf/SessionProvider';
 import Shell, { type ShellData } from '@/components/sf/Shell';
 import Modals from '@/components/sf/Modals';
+import ImpersonationBanner from '@/components/sf/ImpersonationBanner';
 import Tour from '@/components/sf/Tour';
 import { serverCallerSoft } from '@/lib/api/client';
 import {
@@ -125,6 +126,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     organizationId: session.organizationId,
     organizationName: (session as { organizationName?: string }).organizationName ?? '',
     isPlatformAdmin: session.isPlatformAdmin,
+    impersonation: session.impersonation,
   };
 
   const shellData = await loadShellData();
@@ -134,6 +136,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Shell data={shellData}>{children}</Shell>
       <Modals />
       <Tour />
+      {/* Mounted here rather than on the platform console: an impersonating
+          admin is a tenant user as far as the cookie is concerned, so
+          `/platform` is closed to them and the exit has to live in the shell. */}
+      <ImpersonationBanner />
     </SessionProvider>
   );
 }

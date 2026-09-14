@@ -8,10 +8,11 @@
  * different things to a user waiting on a signature.
  */
 import type { Metadata } from 'next';
-import Notifications, { PAGE_SIZE } from '@/components/sf/screens/Notifications';
+import Notifications from '@/components/sf/screens/Notifications';
 import { serverCaller } from '@/lib/api/client';
 import { notifications as notificationsApi } from '@/lib/api/resources';
 import type { NotificationFeed } from '@/lib/api/types';
+import { PAGE_SIZE } from '@/lib/sf/notifications';
 
 export const metadata: Metadata = { title: 'Notifications · SignerPro' };
 

@@ -1,11 +1,14 @@
 from app.models.api_key import API_KEY_SCOPES, ApiKey
 from app.models.audit_log import AuditLog
+from app.models.branding_theme import BrandingTheme
+from app.models.catalog_template import CatalogTemplate
 from app.models.charge import Charge
 from app.models.contact import Contact, ContactGroup
 from app.models.document import Document
 from app.models.document_favorite import DocumentFavorite
 from app.models.document_version import DocumentVersion
 from app.models.dlp_finding import DocumentDlpFinding
+from app.models.email_log import EmailLog
 from app.models.embed_session import EmbedSession
 from app.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from app.models.field import Field
@@ -48,6 +51,8 @@ __all__ = [
     "ApiKey",
     "AuditLog",
     "Certification",
+    "BrandingTheme",
+    "CatalogTemplate",
     "Charge",
     "CloudTarget",
     "Contact",
@@ -57,6 +62,7 @@ __all__ = [
     "DocumentDlpFinding",
     "DocumentFavorite",
     "DocumentVersion",
+    "EmailLog",
     "EmbedSession",
     "FeatureFlag",
     "FeatureFlagOverride",

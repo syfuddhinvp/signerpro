@@ -63,6 +63,9 @@ class DocumentResponse(BaseModel):
     owner_user_id: str | None = None
     folder_id: str | None = None
     source_template_id: str | None = None
+    #: Set on a template imported from (or being authored for) the platform
+    #: catalog. The builder reads it to offer "save back to the catalog".
+    source_catalog_slug: str | None = None
     doc_type: str | None = None
     archived_at: datetime | None = None
     deleted_at: datetime | None = None
@@ -118,6 +121,17 @@ class DocumentRenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=255)
 
 
+class DocumentPagesRequest(BaseModel):
+    """The page numbers to keep, in the order they should end up in.
+
+    One shape covers both edits the builder offers: a page left out is removed,
+    a page in a new position is renumbered. ``[1, 3, 2]`` swaps the last two
+    pages of a three-page document; ``[1, 3]`` drops page 2.
+    """
+
+    order: list[int] = Field(min_length=1, max_length=2000)
+
+
 class DocumentDuplicateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
 
@@ -154,6 +168,9 @@ class RoutingUpdate(BaseModel):
     expires_in_days: int | None = Field(default=None, ge=1, le=365)
     invite_subject: str | None = Field(default=None, max_length=255)
     invite_message: str | None = None
+    #: Sender branding (ORG-7). An explicit ``null`` releases the envelope back
+    #: to the tenant's default theme; omitting the key leaves the choice alone.
+    branding_theme_id: str | None = None
 
 
 class RoutingResponse(BaseModel):
@@ -165,6 +182,12 @@ class RoutingResponse(BaseModel):
     expires_in_days: int
     invite_subject: str | None
     invite_message: str | None
+    #: The theme the envelope names, or ``None`` for the tenant's default.
+    branding_theme_id: str | None = None
+    #: The theme that will actually be used -- the named one, or the default
+    #: resolved for it. Lets the workflow screen show what recipients will see
+    #: without a second request.
+    effective_branding_theme_id: str | None = None
 
 
 class SendDocumentResponse(BaseModel):

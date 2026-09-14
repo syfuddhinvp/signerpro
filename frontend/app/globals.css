@@ -39,6 +39,11 @@ input, select, textarea, button { font-family: inherit; }
 [data-sf-scroll]::-webkit-scrollbar { width:10px; height:10px; }
 [data-sf-scroll]::-webkit-scrollbar-thumb { background: hsl(var(--color-border-default)); border-radius:8px; border:3px solid transparent; background-clip:content-box; }
 @keyframes sfIn { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform:none } }
+/* Side panels come in from their own edge, not up from below. */
+@keyframes sfSlideIn { from { transform: translateX(18px); opacity:.4 } to { transform:none; opacity:1 } }
+@media (prefers-reduced-motion: reduce) {
+  [style*="sfSlideIn"], [style*="sfIn"] { animation: none !important; }
+}
 
 /* ──────────────────────────────────────────────────────────────────────────
    Keyboard focus (WCAG 2.4.7).
@@ -92,3 +97,10 @@ body:has([data-sf-modal-open]) { overflow: hidden; }
     transition-duration: .001ms !important;
   }
 }
+
+/* A native colour input paints its swatch inside a bordered well, which at the
+   22px of a palette swatch leaves a grey ring and almost no colour. Stripping
+   the well lets the picker sit in a swatch row as just another swatch. */
+input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
+input[type='color']::-webkit-color-swatch { border: none; border-radius: 5px; }
+input[type='color']::-moz-color-swatch { border: none; border-radius: 5px; }

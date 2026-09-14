@@ -645,6 +645,9 @@ def test_routing_settings(client: TestClient) -> None:
         "expires_in_days": 14,
         "invite_subject": None,
         "invite_message": None,
+        # Unbranded tenant: no theme named, and none to fall back to.
+        "branding_theme_id": None,
+        "effective_branding_theme_id": None,
     }
 
     updated = client.put(

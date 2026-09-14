@@ -29,11 +29,12 @@ const isDev = process.env.NODE_ENV !== "production";
  * into `routes-manifest.json`, so it must be passed as a Docker build arg, not
  * a container env var. Note that per-tenant
  * `organizations.allowed_origins` cannot be expressed here at all — a static
- * config cannot know the tenant. Serving genuinely per-tenant embeds requires
- * the embed route handler to emit its own `Content-Security-Policy` computed
- * from the embed session's allowlist; a response header set there overrides
- * the one below for that path. Until that exists, this env var is the
- * deliberate, auditable allowlist.
+ * config cannot know the tenant.
+ *
+ * This env var therefore governs `/sign/*` only. Per-tenant framing lives on
+ * `/embed/*`, where `middleware.ts` computes `frame-ancestors` from the embed
+ * session's own allowlist and sets the header on the response, overriding the
+ * static one below for that path.
  */
 const embedFrameAncestors = (process.env.EMBED_FRAME_ANCESTORS ?? "").trim();
 const signingFrameAncestors = embedFrameAncestors || "'none'";
@@ -162,8 +163,28 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // The mail outbox's message preview. It exists *only* to be framed by
+        // the reading pane, so the blanket `frame-ancestors 'none'` below would
+        // stop it rendering at all — which is also why the obvious
+        // `<iframe srcDoc>` shows nothing here: a srcdoc frame inherits the
+        // framing page's policy, including its refusal to be framed.
+        //
+        // No CSP is emitted for it here: the route handler serves its own,
+        // much tighter one (`default-src 'none'`, images only as data: URIs),
+        // and two policies on one response would be intersected into something
+        // neither of them describes.
+        source: "/platform/mail/:id/preview",
+        headers: [
+          ...baseSecurityHeaders,
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+      {
         // Everything else — the authenticated application — is never framed.
-        source: "/:path*",
+        // The preview above is excluded by path rather than by being listed
+        // first: Next applies every matching rule, so a later catch-all would
+        // otherwise re-add the `DENY` this one is here to avoid.
+        source: "/((?!platform/mail/[^/]+/preview$).*)",
         headers: [
           ...baseSecurityHeaders,
           { key: "Content-Security-Policy", value: contentSecurityPolicy("'none'") },

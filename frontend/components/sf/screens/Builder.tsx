@@ -5,7 +5,7 @@
    authoring stays entirely local while the pointer is down — `useBuilderInteractions`
    still owns every gesture — and `useDocumentPersistence` writes the whole field
    set back through `PUT /api/documents/{id}/fields` once the canvas is quiet. */
-import React, { type CSSProperties } from 'react';
+import React, { useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { documentPathFor } from '@/lib/sf/routes';
 import { reorderRecips, useDocumentTitle, useSF, UNASSIGNED_RECIPIENT, type Recipient, type SFField } from '@/lib/sf/state';
@@ -41,7 +41,7 @@ import { rememberContact } from '@/lib/sf/recipientContacts';
 import { useDialogs } from '@/components/sf/DialogProvider';
 import { useRouter } from 'next/navigation';
 import { apiCall, errorMessage } from '@/lib/api/browser';
-import { documents as documentsApi, payments as paymentsApi } from '@/lib/api/resources';
+import { documents as documentsApi, payments as paymentsApi, platformCatalog as platformCatalogApi } from '@/lib/api/resources';
 import { useElementWidth } from '@/components/sf/pdf/useElementWidth';
 import type {
   FieldResponse, ImageFit, PaymentAccountResponse, PaymentAllocationInput,
@@ -91,17 +91,27 @@ export type BuilderProps = {
   fields: FieldResponse[];
   recipients: RecipientResponse[];
   routing: BuilderRouting | null;
+  /** `DocumentResponse.source_catalog_slug` — set when this template is the
+   *  curator's draft of a platform catalog form. Turns on the banner that
+   *  saves the placement back into that form. */
+  catalogSlug?: string | null;
+  /** `DocumentResponse.is_template` — a template is already the blueprint, so
+   *  the header drops the action that would make one from it. */
+  isTemplate?: boolean;
 };
 
-export default function Builder({ documentId, hasFile = true, title, pageCount, fields, recipients, routing }: BuilderProps) {
+export default function Builder({ documentId, hasFile = true, title, pageCount, fields, recipients, routing, catalogSlug = null, isTemplate = false }: BuilderProps) {
   const { s, set, flash, accent, recips, meta, initials, sel, setField } = useSF();
   const { go } = useNav();
-  const { askConfirm } = useDialogs();
+  const { askConfirm, askText } = useDialogs();
   const { isFavorite, toggleFavorite, favoritesReady } = useFieldFavorites();
   /* Which tiles this organization offers at all (ORG-6). */
   const { enabled: enabledTypes } = useEnabledFieldTypes();
   const router = useRouter();
   const A = accent();
+  /* Only ever true while the catalog banner's save is in flight. */
+  const [savingCatalog, setSavingCatalog] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   /* ── document name ──────────────────────────────────────────────────────
      The header name is editable in place: clicking it swaps the label for an
@@ -1173,7 +1183,11 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     width:'22px', height:'14px', borderRadius:'5px', border:'1px solid #e3e7ee', background:'#fff',
     fontSize:'.5rem', lineHeight:1, color:'#475569', display:'grid', placeItems:'center', padding:0,
   }, enabled ? { cursor:'pointer' } : { opacity:.4, cursor:'not-allowed' });
-  const recipientOptions = R.map(r => ({ id: r.id, label: r.name + ' — ' + r.status }));
+  /* While the envelope is still being prepared every recipient reads `Pending`,
+     which says nothing — so the status rides along only once it has moved on. */
+  const recipientOptions = R.map(r => ({
+    id: r.id, label: r.status === 'Pending' ? r.name : r.name + ' — ' + r.status,
+  }));
 
   /* ── the selected field's own toolbar, on the page ───────────────────────
      The inspector rail is still the full authoring surface, but the handful of
@@ -1467,8 +1481,64 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     );
   }
 
+  /* ── catalog round-trip ─────────────────────────────────────────────────
+     This template is a platform curator's draft of a catalog form. The fields
+     they drag here are the blueprint every tenant will import, so the banner
+     gives them the one action the builder itself has no concept of: writing
+     the placement back to the catalog entry. Tenants who already imported the
+     form keep their own copy — an import is a copy, not a link. */
+  /* Saving as a template copies the envelope — fields, recipient roles and
+     routing — into the tenant's template library and leaves this draft alone,
+     so the sender can keep preparing and still send it. */
+  const saveAsTemplate = () => {
+    if (!documentId || savingTemplate) return;
+    void askText({
+      title: 'Save as template',
+      label: 'Template name',
+      defaultValue: docTitle + ' (Template)',
+      cta: 'Save template',
+      required: true,
+    }).then(name => {
+      if (!name) return;
+      setSavingTemplate(true);
+      return documentsApi.makeTemplate(apiCall, documentId, name).then(res => {
+        setSavingTemplate(false);
+        flash(res.ok
+          ? name + ' saved to your templates'
+          : errorMessage(res) || 'Could not save this document as a template');
+      });
+    });
+  };
+
+  const saveToCatalog = () => {
+    if (!documentId || !catalogSlug) return;
+    setSavingCatalog(true);
+    void platformCatalogApi.adopt(apiCall, catalogSlug, documentId).then(res => {
+      setSavingCatalog(false);
+      flash(res.ok
+        ? 'Saved to the catalog — future imports use this placement'
+        : 'Could not save to the catalog · ' + res.error.message);
+    });
+  };
+
   return (
     <section data-screen-label="Builder" style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0 }}>
+      {catalogSlug ? (
+        <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', padding:'9px 16px', background:'#eef2ff', borderBottom:'1px solid #c7d2fe' }}>
+          <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#3730a3' }}>
+            Catalog form · {catalogSlug}
+          </span>
+          <span style={{ fontSize:'.71875rem', color:'#4338ca', fontFamily:'var(--font-sans)' }}>
+            Place the fields every tenant should get, then save them back to the catalog.
+          </span>
+          <button
+            type="button"
+            onClick={saveToCatalog}
+            disabled={savingCatalog}
+            style={{ ...btn(A, '#fff', A), marginLeft:'auto', opacity: savingCatalog ? 0.6 : 1 }}
+          >{savingCatalog ? 'Saving…' : 'Save to catalog'}</button>
+        </div>
+      ) : null}
       <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'#fff', borderBottom:'1px solid #e3e7ee' }}>
         <div style={{ display:'flex', alignItems:'center', gap:'8px', minWidth:0 }}>
           <PdfBadge size={24} />
@@ -1500,6 +1570,11 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
           {previewHref ? (
             <Link href={previewHref} style={{ ...ghostBtn, textDecoration:'none' }}>Preview</Link>
           ) : null}
+          {isTemplate ? null : (
+            <button type="button" onClick={saveAsTemplate} disabled={savingTemplate} style={{ ...ghostBtn, opacity: savingTemplate ? 0.6 : 1 }}>
+              {savingTemplate ? 'Saving…' : 'Save as template'}
+            </button>
+          )}
           <button type="button" onClick={saveClose} style={ghostBtn}>Save and close</button>
           <button type="button" onClick={wizardNext} style={primaryBtn}>{wizardCta}</button>
         </div>

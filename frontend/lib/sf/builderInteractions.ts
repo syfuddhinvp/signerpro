@@ -9,6 +9,7 @@ import { TYPES } from './data';
 import {
   DEFAULT_TEXTBOX_FONT, DEFAULT_TEXTBOX_SIZE, strokeBounds, toDrawingOptions,
 } from './annotations';
+import { newRadioGroupFields, RADIO_MIN_SIZE, RADIO_PITCH, RADIO_SIZE } from './radioGroups';
 
 type Drag =
   | {
@@ -52,6 +53,12 @@ export type BuilderInteractionsInput = {
    */
   pageSizes?: { width: number; height: number }[];
   /**
+   * The document's own page count. `pageSizes` only covers the pages the viewer
+   * has measured, so an action that spans the whole document — copying a field
+   * to every page — asks this instead of counting rendered pages.
+   */
+  pageCount?: number;
+  /**
    * Store the parts of a newly created field that `SFField` has no room for —
    * `useDocumentPersistence.setFieldExtras`. Placing an annotation is the one
    * gesture that authors a payload (the strokes, or the text box's face and
@@ -59,11 +66,21 @@ export type BuilderInteractionsInput = {
    * record the bulk save reads from. Omitted, annotations cannot be placed.
    */
   setFieldExtras?: (fieldId: string, patch: AnnotationExtras) => void;
+  /**
+   * Read a field's extras — `useDocumentPersistence.fieldExtras`. A copy of a
+   * field has to carry them: a duplicated radio button whose `options` were
+   * left behind is not a button at all (it loses the group it belongs to), and
+   * a duplicated dropdown used to lose its choices the same way.
+   */
+  getFieldExtras?: (fieldId: string) => Pick<FieldExtrasSlice, 'apiType' | 'options'> | null;
 };
+
+/** Alias for the extras record defined with the persistence hook below. */
+type FieldExtrasSlice = import('./adapters').BuilderFieldExtras;
 
 /** The slice of `BuilderFieldExtras` an annotation placement writes. */
 export type AnnotationExtras = {
-  apiType: 'drawing' | 'textbox';
+  apiType: FieldExtrasSlice['apiType'];
   options: Record<string, unknown>;
   defaultValue?: string | null;
 };
@@ -86,7 +103,24 @@ function newAnnotationExtras(typeId: string): AnnotationExtras | null {
   return null;
 }
 
-export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFieldExtras }: BuilderInteractionsInput = {}) {
+/**
+ * A radio group is placed as a set of fields, one per button (see
+ * `lib/sf/radioGroups.ts`), so the sender can then drag each button to the
+ * paragraph it answers. Every other type places exactly one field, which is
+ * why the two placement paths below branch here rather than everywhere.
+ */
+function placeRadioGroup(seed: {
+  page: number; x: number; y: number; to: string; maxY?: number;
+}): { fields: SFField[]; options: Record<string, Record<string, unknown>> } {
+  const stamp = Date.now();
+  return newRadioGroupFields({
+    idFor: index => 'f' + (stamp + index).toString().slice(-6),
+    page: seed.page, x: seed.x, y: seed.y, to: seed.to, maxY: seed.maxY,
+    label: metaOf('radio').label,
+  });
+}
+
+export function useBuilderInteractions({ documentId, pageSize, pageSizes, pageCount, setFieldExtras, getFieldExtras }: BuilderInteractionsInput = {}) {
   const { s, set, flash, recip } = useSF();
   const { screen, go } = useNav();
   const screenRef = useRef(screen);
@@ -95,6 +129,17 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFie
   sRef.current = s;
   const extrasRef = useRef(setFieldExtras);
   extrasRef.current = setFieldExtras;
+  const readExtrasRef = useRef(getFieldExtras);
+  readExtrasRef.current = getFieldExtras;
+
+  /** Carry one field's `options` onto a copy of it. */
+  const copyExtras = useCallback((fromId: string, toId: string) => {
+    const read = readExtrasRef.current, write = extrasRef.current;
+    if (!read || !write) return;
+    const source = read(fromId);
+    if (!source || source.options === null || source.options === undefined) return;
+    write(toId, { apiType: source.apiType, options: source.options as Record<string, unknown> });
+  }, []);
   const dragRef = useRef<Drag | null>(null);
   /* One page box per page number — the document is drawn as a scrolling column
      of pages, so there is no single "the sheet" any more. */
@@ -104,6 +149,10 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFie
   pageSizeRef.current = pageSize ?? null;
   const pageSizesRef = useRef<{ width: number; height: number }[]>(pageSizes ?? []);
   pageSizesRef.current = pageSizes ?? [];
+  /* How many pages the document has, which is the document's own fact — the
+     rendered sizes above only cover the pages the viewer has measured so far. */
+  const pageCountRef = useRef<number>(pageCount ?? 0);
+  pageCountRef.current = Math.max(pageCount ?? 0, pageSizesRef.current.length);
 
   /** Ref callback for one page's box; stable per page so React does not thrash. */
   const registerSheet = useCallback((page: number) => {
@@ -166,8 +215,21 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFie
     const pageH = page ? page.height : 792;
     const onPage = st.fields.filter(f => f.page === st.page).length;
     const cascade = (onPage % 8) * 12;
-    const x = Math.max(0, Math.min(pageW - t.w, Math.round((pageW - t.w) / 2) + cascade));
-    const y = Math.max(0, Math.min(pageH - t.h, Math.round((pageH - t.h) / 3) + cascade));
+    const boxW = t.id === 'radio' ? RADIO_SIZE : t.w;
+    const boxH = t.id === 'radio' ? RADIO_SIZE : t.h;
+    const x = Math.max(0, Math.min(pageW - boxW, Math.round((pageW - boxW) / 2) + cascade));
+    const y = Math.max(0, Math.min(pageH - boxH, Math.round((pageH - boxH) / 3) + cascade));
+    if (t.id === 'radio') {
+      const group = placeRadioGroup({ page: st.page, x, y, to: st.activeRecipient, maxY: pageH });
+      set(prev => ({ fields: prev.fields.concat(group.fields), selected: [group.fields[0].id], dragTool: null, ghost: null }));
+      if (extrasRef.current) {
+        for (const f of group.fields) extrasRef.current(f.id, { apiType: 'radio', options: group.options[f.id] });
+      }
+      if (screenRef.current !== 'builder') go('builder', { documentId });
+      flash(group.fields.length + ' radio buttons placed for ' + recip(st.activeRecipient).name
+        + ' · drag each one where it belongs, or add and rename them in the inspector');
+      return;
+    }
     const id = 'f' + Date.now().toString().slice(-6);
     const annotation = newAnnotationExtras(t.id);
     const nf: SFField = {
@@ -297,8 +359,12 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFie
       const page = f ? sizeOf(f.page) : pageSizeRef.current;
       const maxW = page && f ? page.width - f.x : Infinity;
       const maxH = page && f ? page.height - f.y : Infinity;
-      const w = Math.min(maxW, Math.max(32, snap(o.w + (e.clientX - d.sx) / z)));
-      const h = Math.min(maxH, Math.max(24, snap(o.h + (e.clientY - d.sy) / z)));
+      /* A radio button is a dot: the ordinary 32 × 24 floor would stop the
+         sender from ever sizing one to match the print on the page. */
+      const minW = f && f.type === 'radio' ? RADIO_MIN_SIZE : 32;
+      const minH = f && f.type === 'radio' ? RADIO_MIN_SIZE : 24;
+      const w = Math.min(maxW, Math.max(minW, snap(o.w + (e.clientX - d.sx) / z)));
+      const h = Math.min(maxH, Math.max(minH, snap(o.h + (e.clientY - d.sy) / z)));
       set(prev => ({ fields: prev.fields.map(f => (f.id === o.id ? Object.assign({}, f, { w, h }) : f)) }));
     } else if (d.mode === 'pen') {
       const sheet = sheetsRef.current.get(d.page);
@@ -340,11 +406,29 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFie
       if (hit && r) {
         const z = st.zoom;
         const id = 'f' + Date.now().toString().slice(-6);
+        const dropW = t.id === 'radio' ? RADIO_SIZE : t.w;
+        /* A radio group is dropped as a column of buttons, so the pointer lands
+           on the *first* one rather than in the middle of a block. */
+        const dropH = t.id === 'radio' ? RADIO_SIZE + RADIO_PITCH * 2 : t.h;
         const at = clampToPage(
-          snap((e.clientX - r.left) / z - t.w / 2),
-          snap((e.clientY - r.top) / z - t.h / 2),
-          t.w, t.h, hit.page,
+          snap((e.clientX - r.left) / z - dropW / 2),
+          snap((e.clientY - r.top) / z - dropH / 2),
+          dropW, dropH, hit.page,
         );
+        if (t.id === 'radio') {
+          const size = sizeOf(hit.page);
+          const group = placeRadioGroup({
+            page: hit.page, x: at.x, y: at.y, to: st.activeRecipient,
+            maxY: size ? size.height : undefined,
+          });
+          set(prev => ({ fields: prev.fields.concat(group.fields), selected: [group.fields[0].id], dragTool: null, ghost: null, page: hit.page }));
+          if (extrasRef.current) {
+            for (const f of group.fields) extrasRef.current(f.id, { apiType: 'radio', options: group.options[f.id] });
+          }
+          flash(group.fields.length + ' radio buttons placed on page ' + hit.page
+            + ' for ' + recip(st.activeRecipient).name + ' · drag each one where it belongs');
+          return;
+        }
         const annotation = newAnnotationExtras(t.id);
         const nf: SFField = {
           id, page: hit.page, type: t.id,
@@ -406,12 +490,52 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFie
 
   const duplicateSel = useCallback(() => {
     const st = sRef.current;
-    const dupes = st.fields.filter(f => st.selected.indexOf(f.id) > -1)
+    const sources = st.fields.filter(f => st.selected.indexOf(f.id) > -1);
+    const dupes = sources
       .map((f, i) => Object.assign({}, f, { id: 'f' + (Date.now() + i).toString().slice(-6), x: f.x + 16, y: f.y + 16 }));
     if (!dupes.length) return;
     set(prev => ({ fields: prev.fields.concat(dupes), selected: dupes.map(d => d.id) }));
+    sources.forEach((f, i) => copyExtras(f.id, dupes[i].id));
     flash(dupes.length + ' field(s) duplicated');
-  }, [set, flash]);
+  }, [set, flash, copyExtras]);
+
+  /* Placing the same field on every page, one press instead of one drag per
+     page. Signature blocks, initials and date stamps are routinely wanted on
+     all of them, and duplicating by hand across a 30-page contract is where
+     senders miss a page. Each copy keeps the original's position, clamped to
+     the page it lands on — pages in one PDF need not be the same size — and
+     pages that already carry a copy of this field are left alone so pressing
+     twice does not stack two fields per page. */
+  const copyToAllPages = useCallback(() => {
+    const st = sRef.current;
+    const sources = st.fields.filter(f => st.selected.indexOf(f.id) > -1);
+    const pages = pageCountRef.current;
+    if (!sources.length || pages < 2) return;
+    const stamp = Date.now();
+    const copies: SFField[] = [];
+    const from: { [id: string]: string } = {};
+    sources.forEach((f, si) => {
+      for (let page = 1; page <= pages; page++) {
+        if (page === f.page) continue;
+        // A copy already made for this page, by an earlier press or by hand.
+        const taken = st.fields.some(other => other.page === page && other.type === f.type
+          && other.to === f.to && other.label === f.label
+          && Math.abs(other.x - f.x) < 1 && Math.abs(other.y - f.y) < 1);
+        if (taken) continue;
+        const at = clampToPage(f.x, f.y, f.w, f.h, page);
+        const copy = Object.assign({}, f, {
+          id: 'f' + (stamp + si * 1000 + page).toString().slice(-6),
+          page, x: at.x, y: at.y,
+        });
+        copies.push(copy);
+        from[copy.id] = f.id;
+      }
+    });
+    if (!copies.length) { flash('Already on every page'); return; }
+    set(prev => ({ fields: prev.fields.concat(copies) }));
+    for (const copy of copies) copyExtras(from[copy.id], copy.id);
+    flash(copies.length === 1 ? 'Copied to 1 more page' : 'Copied to ' + copies.length + ' more pages');
+  }, [set, flash, clampToPage, copyExtras]);
 
   const selNow = useCallback((): SFField[] => {
     const st = sRef.current;
@@ -481,8 +605,8 @@ export function useBuilderInteractions({ documentId, pageSize, pageSizes, setFie
 
   return useMemo(() => ({
     registerSheet, onToolDown, placeTool, onFieldDown, onResizeDown, onSheetDown,
-    deleteSel, duplicateSel, alignLeft, alignCenterX, distribute
-  }), [registerSheet, onToolDown, placeTool, onFieldDown, onResizeDown, onSheetDown, deleteSel, duplicateSel, alignLeft, alignCenterX, distribute]);
+    deleteSel, duplicateSel, copyToAllPages, alignLeft, alignCenterX, distribute
+  }), [registerSheet, onToolDown, placeTool, onFieldDown, onResizeDown, onSheetDown, deleteSel, duplicateSel, copyToAllPages, alignLeft, alignCenterX, distribute]);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

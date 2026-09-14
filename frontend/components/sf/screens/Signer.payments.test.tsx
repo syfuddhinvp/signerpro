@@ -137,6 +137,95 @@ describe('the payment field on the signing surface', () => {
     expect(screen.getByText('100%')).toBeTruthy();
   });
 
+  /**
+   * The gap the sibling test above could not see: it seeds `initialValues`
+   * with `paid:pi_1`, so `isDone` was satisfied by the seed and the counter
+   * reached 100% even while completion was blind to payments.
+   *
+   * A payment settled *during* the session has no such seed. The backend
+   * writes `field.value = "paid:<intent>"`, but `initialValues` is merged once
+   * per mount, so the refresh after settlement never brings it in — the field
+   * read "Paid $50.00" while the progress counter still called it outstanding
+   * and "Next required field" kept pointing at money already taken.
+   */
+  it('counts a payment settled in-session as complete, with no seeded field value', () => {
+    const settled: SignerPaymentResponse = {
+      id: 'sp1', organization_id: 'o1', document_id: 'd1', recipient_id: 'r1', field_id: 'pay1',
+      payment_request_id: null, amount_cents: 5000, currency: 'usd', status: 'succeeded',
+      provider: 'stripe', provider_payment_intent_id: 'pi_1', provider_charge_id: 'ch_1',
+      receipt_url: null, failure_code: null, failure_message: null,
+      paid_at: '2026-01-01T00:00:00Z', refunded_at: null, refunded_amount_cents: 0,
+      description: 'Security deposit', created_at: '2026-01-01T00:00:00Z',
+    };
+    // Note: no `initialValues` — this is the live-settlement path.
+    mountSigner({ onPay: vi.fn(), paymentStatuses: { pay1: settled } });
+    expect(screen.getByText(/Paid \$50\.00/)).toBeTruthy();
+    expect(screen.getByText('100%')).toBeTruthy();
+    expect(screen.getByText(/1 of 1 required fields completed/)).toBeTruthy();
+    // The guide has nothing left to point at, so it stops nagging for money
+    // that is already paid.
+    expect(screen.queryByText(/Next required field/)).toBeNull();
+  });
+
+  /**
+   * The guide must walk the document top to bottom and come to rest on the
+   * next required field. A settled payment used to stall it: the auto-advance
+   * effect only recognised a signature or initials, and its deps watched
+   * `signValues`, which a payment never touches.
+   */
+  it('advances the guide down to the signature below once the payment settles', async () => {
+    const onPay = vi.fn();
+    const fields = [
+      // Deliberately out of reading order in the array, so passing can only
+      // come from `inReadingOrder`, not from array position.
+      field({ id: 'sig1', type: 'signature', apiType: 'signature', label: 'Sign here', y: 400 }),
+      field({ id: 'pay1', y: 60 }),
+    ];
+    const settled = {
+      id: 'sp1', organization_id: 'o1', document_id: 'd1', recipient_id: 'r1', field_id: 'pay1',
+      payment_request_id: null, amount_cents: 5000, currency: 'usd', status: 'succeeded',
+      provider: 'stripe', provider_payment_intent_id: 'pi_1', provider_charge_id: 'ch_1',
+      receipt_url: null, failure_code: null, failure_message: null,
+      paid_at: '2026-01-01T00:00:00Z', refunded_at: null, refunded_amount_cents: 0,
+      description: 'Security deposit', created_at: '2026-01-01T00:00:00Z',
+    } satisfies SignerPaymentResponse;
+
+    // The topmost outstanding required field is the payment, so that is where
+    // the guide starts.
+    const { rerender } = mountSigner({ onPay, fields, paymentConfigs: { pay1: FIXED_CONFIG } });
+    expect(screen.getByText(/Next: Deposit/)).toBeTruthy();
+
+    // Paying anchors the guide on the payment field...
+    fireEvent.click(screen.getByText('Pay $50.00'));
+    expect(onPay).toHaveBeenCalledWith('pay1');
+
+    // ...and settlement must carry it on to the signature further down.
+    rerender(
+      <SFProvider>
+        <Signer
+          fields={fields}
+          recipients={RECIPIENTS}
+          pageCount={1}
+          pdfUrl="/sign/tok/pdf"
+          onPay={onPay}
+          paymentConfigs={{ pay1: FIXED_CONFIG }}
+          paymentStatuses={{ pay1: settled }}
+        />
+      </SFProvider>,
+    );
+    // The header's "Next" alone proves nothing — `target` falls back to
+    // `pending[0]` on its own once the payment leaves `pending`. What the
+    // advance actually owes the signer is *movement*: the document scrolled
+    // down and focus landed on the signature, so it is under their cursor
+    // rather than 400px below the fold.
+    await waitFor(() => {
+      const focused = document.activeElement as HTMLElement | null;
+      expect(focused?.closest('[data-sf-field="sig1"]')).toBeTruthy();
+    });
+    expect(screen.getByText(/Next: Sign here/)).toBeTruthy();
+    expect(screen.getByText(/1 of 2 required fields completed/)).toBeTruthy();
+  });
+
   it('renders disabled in the sender preview — no `onPay` means no real charge', () => {
     mountSigner();
     const payBtn = screen.getByText('Pay $50.00').closest('button') as HTMLButtonElement;
@@ -295,6 +384,60 @@ describe('PaymentModal', () => {
     await waitFor(() => expect(screen.getByTestId('stripe-payment-element-stub')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: /Pay \$50\.00/ }));
     await waitFor(() => expect(screen.getByText('Confirming your payment…')).toBeTruthy());
+  });
+
+  /**
+   * The bug this pins: the poll's cancellation ref was only ever *set* (on
+   * unmount), never re-armed on mount. Under StrictMode — which this app
+   * enables (`reactStrictMode: true`) — React's mount/unmount/remount latched
+   * it to `true` before the signer saw the card form, so the poll bailed on
+   * its first tick: an eternal "Confirming your payment…" over a charge
+   * Stripe had already taken, with `refreshPayment` never once called.
+   */
+  it('still settles under StrictMode, whose double-mount must not cancel the poll', async () => {
+    vi.useFakeTimers();
+    try {
+      createIntent.mockResolvedValue({
+        ok: true,
+        data: {
+          client_secret: 'pi_secret', publishable_key: 'pk_test_1', connected_account_id: 'acct_1',
+          amount_cents: 5000, currency: 'usd', description: 'Security deposit',
+        } satisfies PaymentIntentResponse,
+      });
+      confirmPayment.mockResolvedValue({ paymentIntent: { status: 'processing' } });
+      refreshPayment.mockResolvedValue({
+        ok: true,
+        data: { field_id: 'pay1', status: 'succeeded' } as unknown as SignerPaymentResponse,
+      });
+      const onSettled = vi.fn();
+
+      render(
+        <React.StrictMode>
+          <PaymentModal
+            fieldId="pay1"
+            label="Deposit"
+            config={FIXED_CONFIG}
+            onClose={vi.fn()}
+            onSettled={onSettled}
+            createIntent={createIntent}
+            refreshPayment={refreshPayment}
+          />
+        </React.StrictMode>,
+      );
+
+      await vi.waitFor(() => expect(screen.getByTestId('stripe-payment-element-stub')).toBeTruthy());
+      fireEvent.click(screen.getByRole('button', { name: /Pay \$50\.00/ }));
+      await vi.waitFor(() => expect(screen.getByText('Confirming your payment…')).toBeTruthy());
+
+      // Past the first poll delay, the reconciliation must actually run.
+      await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
+      expect(refreshPayment).toHaveBeenCalledWith('pay1');
+      await vi.waitFor(() => expect(onSettled).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'succeeded' }),
+      ));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('surfaces a declined card as an actionable, retryable message', async () => {

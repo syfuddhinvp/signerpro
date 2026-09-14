@@ -6,7 +6,7 @@ test here substitutes a canned callable for it (see `FakeStripe` below,
 modelled on the one in `test_billing_enforcement.py`).
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -1105,3 +1105,69 @@ def test_allocated_field_with_no_amount_raises_400_and_is_not_settled_by_50_cent
         assert False, "expected a 400, not a silent settlement, for a misconfigured allocation"
     except HTTPException as exc:
         assert exc.status_code == 400
+
+
+def test_receipt_url_is_resolved_from_a_bare_latest_charge_id(
+    client: TestClient, pdf_bytes: bytes, monkeypatch
+) -> None:
+    """The modern PaymentIntent shape carries `latest_charge` as an id string.
+
+    Regression: `charges.data` was removed in the API version this service
+    pins, so a succeeded payment settled with no `receipt_url` at all and the
+    sender had nothing to show for money they had actually received.
+    """
+    headers = auth_headers(client)
+    document_id, field_id, raw_token = _signing_context(client, pdf_bytes, headers)
+    fake = FakeStripe(
+        {"GET /v1/charges/ch_9": (200, {"id": "ch_9", "receipt_url": "https://stripe.test/r/ch_9"})}
+    )
+    monkeypatch.setattr(type(signer_payment_service), "transport", staticmethod(fake))
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_fake")
+
+    db = db_session(client)
+    signer_payment_service.create_intent(db, raw_token=raw_token, field_id=field_id)
+    row = db.query(SignerPayment).filter(SignerPayment.field_id == field_id).one()
+    pi_id = row.provider_payment_intent_id
+
+    event = {
+        "type": "payment_intent.succeeded",
+        "data": {"object": {"id": pi_id, "status": "succeeded", "latest_charge": "ch_9"}},
+    }
+    payment = signer_payment_service.apply_webhook_event(db, event=event)
+
+    assert payment.status == "succeeded"
+    assert payment.provider_charge_id == "ch_9"
+    assert payment.receipt_url == "https://stripe.test/r/ch_9"
+
+
+def test_a_settled_payment_missing_its_receipt_is_backfilled_not_re_settled(
+    client: TestClient, pdf_bytes: bytes, monkeypatch
+) -> None:
+    """A row that settled before the charge was resolved gets one more look."""
+    headers = auth_headers(client)
+    document_id, field_id, raw_token = _signing_context(client, pdf_bytes, headers)
+    fake = FakeStripe(
+        {"GET /v1/charges/ch_9": (200, {"id": "ch_9", "receipt_url": "https://stripe.test/r/ch_9"})}
+    )
+    monkeypatch.setattr(type(signer_payment_service), "transport", staticmethod(fake))
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_fake")
+
+    db = db_session(client)
+    signer_payment_service.create_intent(db, raw_token=raw_token, field_id=field_id)
+    row = db.query(SignerPayment).filter(SignerPayment.field_id == field_id).one()
+    pi_id = row.provider_payment_intent_id
+    row.status = "succeeded"
+    row.paid_at = datetime.now(timezone.utc) - timedelta(days=1)
+    row.receipt_url = None
+    db.add(row)
+    db.commit()
+    paid_at_before = row.paid_at.replace(tzinfo=None)
+
+    event = {
+        "type": "payment_intent.succeeded",
+        "data": {"object": {"id": pi_id, "status": "succeeded", "latest_charge": "ch_9"}},
+    }
+    payment = signer_payment_service.apply_webhook_event(db, event=event)
+
+    assert payment.receipt_url == "https://stripe.test/r/ch_9"
+    assert payment.paid_at.replace(tzinfo=None) == paid_at_before, "the backfill must not re-stamp the settlement time"

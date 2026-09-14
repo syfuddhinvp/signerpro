@@ -12,6 +12,7 @@ import { useSF, passwordScore } from '@/lib/sf/state';
 import { STRENGTH_COLORS, STRENGTH_WORDS } from '@/lib/sf/data';
 import { lbl, authInput, authPrimary as authPrimaryOf, BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
 import AuthLayout, { authErrorMessage, authErrorStyle } from './AuthLayout';
+import Icon from '@/components/sf/Icon';
 
 export default function SignUpForm() {
   const { s, set, flash, accent } = useSF();
@@ -38,7 +39,6 @@ export default function SignUpForm() {
     width: '17px', height: '17px', borderRadius: '5px', display: 'grid', placeItems: 'center', fontSize: '.6875rem', color: '#fff',
     flex: '0 0 17px', marginTop: '1px', border: '1px solid ' + (s.reg.terms ? A : BORDER_STRONG), background: s.reg.terms ? A : '#fff',
   };
-  const termsMark = s.reg.terms ? '✓' : '';
   const toggleTerms = () => set(st => ({ reg: Object.assign({}, st.reg, { terms: !st.reg.terms }) }));
 
   const submitSignup = async () => {
@@ -114,7 +114,7 @@ export default function SignUpForm() {
           </select>
         </label>
         <button type="button" role="checkbox" aria-checked={s.reg.terms} onClick={toggleTerms} style={termsRow}>
-          <span style={termsBox}>{termsMark}</span>
+          <span style={termsBox}>{s.reg.terms ? <Icon name="check" size={11} /> : null}</span>
           <span style={{ fontSize: '.71875rem', color: '#475569', lineHeight: 1.5, textAlign: 'left' }}>I agree to the Terms of Service, the Electronic Record and Signature Disclosure, and the DPA.</span>
         </button>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}

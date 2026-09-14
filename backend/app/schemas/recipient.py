@@ -39,7 +39,14 @@ class RecipientResponse(BaseModel):
     id: str
     document_id: str
     name: str
-    email: EmailStr
+    # `""`, not just EmailStr: a template's recipients are role placeholders
+    # ("Employee", "Employer representative") that carry no address until the
+    # sender assigns real people. `recipients.email` is NOT NULL, so blank is
+    # how a placeholder is spelled -- and a bare EmailStr here made GET
+    # /recipients raise a ResponseValidationError for any such template.
+    # Only the response is relaxed: RecipientCreate/Update still demand a real
+    # address, so no caller can write a blank one through the API.
+    email: EmailStr | Literal[""]
     role_name: str | None
     role: str
     color: str | None

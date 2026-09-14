@@ -7,7 +7,8 @@
  * encoding/decoding rules apply in the Node runtime and on the edge.
  *
  * Cookie value: base64url of
- *   `{"t": <access token>, "u": <user record>, "r": <refresh token>, "rm": <remember>}`
+ *   `{"t": <access token>, "u": <user record>, "r": <refresh token>, "rm": <remember>,
+ *     "imp": <the platform admin to return to, while impersonating>}`
  * The access token is short-lived (the backend defaults to 15 minutes), so the
  * refresh token travels in the same httpOnly envelope and is exchanged at
  * `POST /api/auth/refresh` whenever the access token is spent. Neither token
@@ -26,14 +27,34 @@ export type SessionUser = {
   is_platform_admin?: boolean;
 };
 
-export type SessionEnvelope = {
-  /** Access token (JWT, HS256). */
+/**
+ * The platform admin's own session, parked while they impersonate a tenant.
+ *
+ * Impersonation *replaces* the identity in the cookie, because that cookie is
+ * the only thing the proxy and the server components read — so the way back
+ * has to travel with it. Nothing here is new privilege: `t` is the same admin
+ * token the browser already held, and it is verified again on the way back.
+ */
+export type ImpersonationStash = {
   t: string;
   u: SessionUser;
-  /** Opaque refresh token. Absent for sessions minted before refresh existed. */
+  r?: string;
+  rm?: boolean;
+};
+
+export type SessionEnvelope = {
+  /** Access token (JWT, HS256). While impersonating, the impersonation token. */
+  t: string;
+  u: SessionUser;
+  /**
+   * Opaque refresh token. Absent for sessions minted before refresh existed,
+   * and deliberately absent while impersonating — see `impersonationCookie`.
+   */
   r?: string;
   /** Whether the user asked to be remembered — drives the cookie lifetime. */
   rm?: boolean;
+  /** Present only while impersonating. */
+  imp?: ImpersonationStash;
 };
 
 /** Backend session lifetimes (`auth_service.SESSION_TTL_HOURS` / `_REMEMBER_TTL_DAYS`). */
@@ -118,6 +139,10 @@ export function b64urlDecode(raw: string): string | null {
   }
 }
 
+function plausibleUser(value: unknown): value is SessionUser {
+  return typeof value === 'object' && value !== null && typeof (value as SessionUser).id === 'string';
+}
+
 /** Build the cookie value for a successful login / refresh. */
 export function encodeSession(
   token: string,
@@ -141,7 +166,73 @@ export function decodeSession(value: string | undefined): SessionEnvelope | null
     return null;
   }
   if (!envelope || typeof envelope.t !== 'string' || !envelope.u) return null;
+  // A malformed stash is fatal rather than ignorable: dropping it would strand
+  // the admin inside a tenant with no way back to their own identity.
+  if (envelope.imp !== undefined) {
+    const stash = envelope.imp;
+    if (typeof stash?.t !== 'string' || !plausibleUser(stash.u)) return null;
+  }
   return envelope;
+}
+
+// --- impersonation ---------------------------------------------------------
+
+/**
+ * The cookie value for "this admin is now acting as this tenant user".
+ *
+ * The impersonation token carries no refresh token, and this deliberately does
+ * not copy the admin's into the live slot: the backend *rotates* on refresh, so
+ * presenting it here would revoke the admin's own session and hand the rotated
+ * credential to the tenant identity. The impersonation token simply expires at
+ * its `exp`, and `expireImpersonation` puts the admin back.
+ */
+export function impersonationCookie(
+  token: string,
+  user: SessionUser,
+  admin: SessionEnvelope,
+): string {
+  const stash: ImpersonationStash = { t: admin.t, u: admin.u };
+  if (admin.r) stash.r = admin.r;
+  if (admin.rm) stash.rm = true;
+
+  const envelope: SessionEnvelope = { t: token, u: user, imp: stash };
+  if (admin.rm) envelope.rm = true;
+  return b64urlEncode(JSON.stringify(envelope));
+}
+
+export function isImpersonating(envelope: SessionEnvelope | null): boolean {
+  return envelope?.imp !== undefined;
+}
+
+/** The parked admin session as an envelope in its own right. */
+export function adminEnvelope(envelope: SessionEnvelope | null): SessionEnvelope | null {
+  const stash = envelope?.imp;
+  if (!stash) return null;
+  const restored: SessionEnvelope = { t: stash.t, u: stash.u };
+  if (stash.r) restored.r = stash.r;
+  if (stash.rm) restored.rm = true;
+  return restored;
+}
+
+/** Serialise an envelope back to a cookie value, stash and all. */
+export function encodeEnvelope(envelope: SessionEnvelope): string {
+  return b64urlEncode(JSON.stringify(envelope));
+}
+
+/**
+ * The admin cookie to write when an impersonation token is spent, or null when
+ * there is nothing to do.
+ *
+ * An impersonation token cannot be refreshed, so without this an expiring
+ * session would read as a dead cookie and bounce a platform admin to `/login`
+ * — losing a perfectly good admin session because a support visit timed out.
+ */
+export function expireImpersonation(cookieValue: string | undefined): string | null {
+  const envelope = decodeSession(cookieValue);
+  if (!envelope?.imp) return null;
+  if (!accessTokenStale(envelope.t)) return null;
+  const admin = adminEnvelope(envelope);
+  return admin ? encodeEnvelope(admin) : null;
 }
 
 /** Decode a JWT's payload. Says nothing about the signature — see `verify.ts`. */

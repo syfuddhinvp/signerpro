@@ -16,8 +16,22 @@ def _entitled_headers(client: TestClient) -> dict[str, str]:
     upgrade_plan(client, headers, "business")
     return headers
 
-def create_key(client: TestClient, headers: dict[str, str], scopes: list[str], label: str = "Server key") -> tuple[str, str]:
-    response = client.post("/api/api-keys", headers=headers, json={"label": label, "mode": "test", "scopes": scopes})
+def create_key(
+    client: TestClient,
+    headers: dict[str, str],
+    scopes: list[str],
+    label: str = "Server key",
+    mode: str = "live",
+) -> tuple[str, str]:
+    """Mint a key. ``live`` by default, because these tests assert against the
+    tenant's real records.
+
+    ``mode`` is no longer a label: a ``test`` key resolves to the paired
+    sandbox organization (API-11), so a test-mode key here would correctly see
+    an empty tenant and every assertion below would be meaningless. The
+    sandbox side of that behaviour is covered in ``test_sandbox.py``.
+    """
+    response = client.post("/api/api-keys", headers=headers, json={"label": label, "mode": mode, "scopes": scopes})
     assert response.status_code == 201, response.text
     body = response.json()
     return body["id"], body["secret"]
@@ -33,7 +47,7 @@ def test_scope_catalogue(client: TestClient) -> None:
 
 def test_secret_is_returned_exactly_once(client: TestClient) -> None:
     headers = _entitled_headers(client)
-    key_id, secret = create_key(client, headers, ["documents:read"])
+    key_id, secret = create_key(client, headers, ["documents:read"], mode="test")
     assert secret.startswith("sk_test_")
 
     listed = client.get("/api/api-keys", headers=headers)
@@ -187,7 +201,16 @@ def test_embed_session_lifecycle_and_origin_lock(client: TestClient, pdf_bytes: 
     assert body["contacts"][0]["recipient_id"] == recipient_id
     token = body["url"].split("session=")[-1]
 
-    assert client.get("/api/embed/resolve", params={"token": token}).status_code == 403
+    # A cross-site exchange is refused: the allowlist bounds who may trade the
+    # token in, and an origin outside it is not one of them.
+    assert client.get(
+        "/api/embed/resolve", params={"token": token}, headers={"Origin": "https://evil.test"}
+    ).status_code == 403
+    # A server-side exchange (no Origin at all) is *not* refused. It is how the
+    # /embed route itself reads the session, and it is the only way an
+    # allowlisted tenant can be framed: allowed_origins names host
+    # applications, which never send us a request of their own, so the framing
+    # rule is enforced by the frame-ancestors header below rather than here.
     resolved = client.get("/api/embed/resolve", params={"token": token}, headers={"Origin": "https://app.acme.test"})
     assert resolved.status_code == 200, resolved.text
     assert resolved.json()["id"] == body["id"]
@@ -263,3 +286,79 @@ def test_a_key_stops_working_when_the_org_downgrades_below_api_access(client: Te
     # Paying again restores it; the key itself was never revoked.
     upgrade_plan(client, headers, "business")
     assert client.get("/api/v1/documents", headers={"X-API-Key": secret}).status_code == 200
+
+
+def test_frame_ancestors_carry_the_tenant_allowlist(client: TestClient, pdf_bytes: bytes) -> None:
+    """The framing control, which is a header and not an Origin check.
+
+    The frontend middleware turns this into
+    ``Content-Security-Policy: frame-ancestors`` on /embed, so an unknown or
+    expired token must answer with an empty list rather than an error: the page
+    still renders its designed state, just unframed.
+    """
+    headers = _entitled_headers(client)
+    document_id = create_uploaded_document(client, pdf_bytes, headers)
+    client.patch(
+        "/api/organizations/me/api-settings",
+        headers=headers,
+        json={"allowed_origins": ["https://app.acme.test"]},
+    )
+    created = client.post(
+        "/api/embed/sessions",
+        headers=headers,
+        json={"landing": "builder", "document": {"document_id": document_id}},
+    )
+    token = created.json()["url"].split("session=")[-1]
+
+    got = client.get("/api/embed/frame-ancestors", params={"token": token})
+    assert got.status_code == 200
+    assert got.json()["frame_ancestors"] == ["https://app.acme.test"]
+
+    # Fail closed, never loudly.
+    assert client.get("/api/embed/frame-ancestors", params={"token": "x" * 40}).json()["frame_ancestors"] == []
+
+
+def test_embed_context_is_scoped_and_survives_the_exchange(client: TestClient, pdf_bytes: bytes) -> None:
+    """The framed page's own read.
+
+    Single-use belongs to the *exchange*; the framed surface goes on needing
+    its document for as long as the session lives, so ``/context`` must still
+    answer after ``/resolve`` has stamped ``consumed_at``.
+    """
+    headers = _entitled_headers(client)
+    document_id = create_uploaded_document(client, pdf_bytes, headers)
+    recipient_id = add_recipient(client, document_id, headers, "Buyer", "buyer@example.com")
+    created = client.post(
+        "/api/embed/sessions",
+        headers=headers,
+        json={"landing": "builder", "document": {"document_id": document_id, "external_id": "hostcrm:deal_1"}},
+    )
+    token = created.json()["url"].split("session=")[-1]
+
+    assert client.get("/api/embed/resolve", params={"token": token}).status_code == 200
+    assert client.get("/api/embed/resolve", params={"token": token}).status_code == 410
+
+    context = client.get("/api/embed/context", params={"token": token})
+    assert context.status_code == 200, context.text
+    payload = context.json()
+    assert payload["document"]["id"] == document_id
+    assert payload["session"]["external_id"] == "hostcrm:deal_1"
+    assert [r["id"] for r in payload["recipients"]] == [recipient_id]
+
+    # The token unlocks the session's own document and nothing wider.
+    assert client.get("/api/embed/pdf", params={"token": token}).status_code == 200
+    assert client.get("/api/embed/context", params={"token": "y" * 40}).status_code == 404
+
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import get_db
+    from app.main import app
+    from app.models.embed_session import EmbedSession
+
+    db = next(app.dependency_overrides[get_db]())
+    session = db.get(EmbedSession, created.json()["id"])
+    session.expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    db.commit()
+
+    assert client.get("/api/embed/context", params={"token": token}).status_code == 410
+    assert client.get("/api/embed/pdf", params={"token": token}).status_code == 410

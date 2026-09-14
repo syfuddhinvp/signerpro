@@ -1287,7 +1287,15 @@ class DocumentService:
     # Routing settings (RTE-1)
     # ------------------------------------------------------------------
 
-    def routing(self, document: Document) -> RoutingResponse:
+    def routing(self, document: Document, *, db: Session | None = None) -> RoutingResponse:
+        # `effective_branding_theme_id` needs a query, so it is only filled in
+        # when a session is to hand. The two routing endpoints always pass one.
+        effective = None
+        if db is not None:
+            from app.services.branding_service import branding_service
+
+            theme = branding_service.resolve_for_document(db, document=document)
+            effective = theme.id if theme else None
         return RoutingResponse(
             document_id=document.id,
             workflow_type=document.workflow_type,
@@ -1295,11 +1303,24 @@ class DocumentService:
             expires_in_days=document.expires_in_days,
             invite_subject=document.invite_subject,
             invite_message=document.invite_message,
+            branding_theme_id=document.branding_theme_id,
+            effective_branding_theme_id=effective,
         )
 
     def update_routing(self, db: Session, *, document: Document, user: User, payload: RoutingUpdate) -> RoutingResponse:
         self.ensure_editable(document)
         updates = payload.model_dump(exclude_unset=True)
+        # A theme id arrives from the browser, so it is checked against the
+        # caller's own tenant rather than trusted: pointing an envelope at
+        # another tenant's brand would put their logo on this tenant's email.
+        if updates.get("branding_theme_id"):
+            from app.services.branding_service import branding_service
+
+            branding_service.get_for_org(
+                db,
+                theme_id=updates["branding_theme_id"],
+                organization_id=document.organization_id,
+            )
         for key, value in updates.items():
             setattr(document, key, value)
         audit_service.log(
@@ -1312,7 +1333,7 @@ class DocumentService:
         )
         db.commit()
         db.refresh(document)
-        return self.routing(document)
+        return self.routing(document, db=db)
 
     def void(self, db: Session, *, document: Document, user: User, reason: str | None = None) -> Document:
         if document.is_template:

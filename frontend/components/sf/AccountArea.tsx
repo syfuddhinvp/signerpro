@@ -14,11 +14,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSF } from '@/lib/sf/state';
 import { useModalBehaviour } from '@/components/sf/useModalBehaviour';
 import SignatureComposer, { type ComposedSignature } from '@/components/sf/parts/SignatureComposer';
+import QrCode from '@/components/sf/parts/QrCode';
 import { credentialToJson, passkeysSupported, toCreationOptions } from '@/lib/sf/webauthn';
 import { useSession } from '@/components/sf/SessionProvider';
 import { useDialogs } from '@/components/sf/DialogProvider';
 import type { AccountSection } from '@/lib/sf/routes';
-import { ACCOUNT_TITLES } from '@/lib/sf/data';
+import { ACCOUNT_TITLES, TYPES } from '@/lib/sf/data';
+import { apiFieldType, builderFieldType } from '@/lib/sf/adapters';
+import { fieldTypeEnabled } from '@/lib/sf/orgFieldTypes';
 import { apiCall, proxyPath } from '@/lib/api/browser';
 import { account as accountApi, auth as authApi, invitations as invitationsApi, organizations as organizationsApi, teams as teamsApi } from '@/lib/api/resources';
 import type {
@@ -30,6 +33,7 @@ import type {
 } from '@/lib/api/types';
 import { btn, pill, inputStyle, lbl as lblStyle, railHead, TONE_GOOD, TONE_INDIGO, TONE_MUTED, BORDER_STRONG } from '@/lib/sf/ui';
 import { typeFaceStack } from '@/lib/sf/fonts';
+import Icon from '@/components/sf/Icon';
 
 const card: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'13px' };
 const emptyBox: CSSProperties = { border:'1px dashed #8492a6', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:'#64748b', lineHeight:1.6 };
@@ -47,6 +51,27 @@ function joinMeta(parts: (string | null | undefined)[]): string {
   const kept = parts.map(p => (p ?? '').trim()).filter(p => p.length > 0);
   return kept.length ? kept.join(' · ') : 'no further detail recorded';
 }
+
+/** `CRCMC2CS…` → `CRCM C2CS …`, so the key can be read off in chunks. */
+function groupSecret(secret: string): string {
+  return (secret.match(/.{1,4}/g) || [secret]).join(' ');
+}
+
+/** Recovery codes are shown once; let the sender keep a file of them. */
+function downloadRecoveryCodes(codes: string[]): void {
+  const blob = new Blob([codes.join('\n') + '\n'], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'recovery-codes.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const enrolStep: CSSProperties = { display:'flex', gap:'11px', padding:'13px 14px', borderBottom:'1px solid #eef2ff', alignItems:'flex-start' };
+const stepNum: CSSProperties = { flex:'0 0 20px', width:'20px', height:'20px', borderRadius:'99px', background:'#eef2ff', color:'#4338ca', fontSize:'.6875rem', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', marginTop:'1px' };
+const secretBox: CSSProperties = { fontFamily:'var(--font-mono, ui-monospace, monospace)', fontSize:'.75rem', letterSpacing:'.04em', background:'#f8fafc', border:'1px solid #e3e7ee', borderRadius:'8px', padding:'8px 10px', wordBreak:'break-all', lineHeight:1.6 };
+const codeChip: CSSProperties = { fontFamily:'var(--font-mono, ui-monospace, monospace)', fontSize:'.71875rem', background:'#f8fafc', border:'1px solid #e3e7ee', borderRadius:'6px', padding:'5px 7px', textAlign:'center' };
 
 function sessionLabel(row: SessionResponse): string {
   const name = joinMeta([row.browser, row.os, row.device]);
@@ -81,11 +106,18 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   const [passkeys, setPasskeys] = useState<PasskeyResponse[] | null>(null);
   const [sso, setSso] = useState<SsoConnectionResponse | null>(null);
   const [enrolment, setEnrolment] = useState<MfaEnrollResponse | null>(null);
+  /* Which enrolment value was last copied, so the button can confirm it. */
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [notifPrefsData, setNotifPrefs] = useState<NotificationPreferenceResponse[] | null>(null);
   const [integrationsData, setIntegrations] = useState<IntegrationResponse[] | null>(null);
   const [cloudData, setCloud] = useState<CloudTargetItem[] | null>(null);
   const [teamsData, setTeams] = useState<TeamResponse[] | null>(null);
   const [orgData, setOrg] = useState<OrganizationResponse | null>(null);
+  /* The builder palette choice, held as a draft so the checkboxes respond at
+     once and one Save writes the whole set (ORG-6). `null` means every type is
+     offered, which is what a tenant that has never touched this holds. */
+  const [paletteDraft, setPaletteDraft] = useState<string[] | null>(null);
+  const [paletteSaving, setPaletteSaving] = useState(false);
   const [membersData, setMembers] = useState<UserResponse[] | null>(null);
   const [invitesData, setInvites] = useState<InvitationResponse[] | null>(null);
   /** The team whose member list is unfolded. One at a time: the point of the
@@ -190,7 +222,12 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   }, []);
 
   const loadOrganization = useCallback(() => {
-    void organizationsApi.me(apiCall).then(res => { if (res.ok) setOrg(res.data); else markFailed('orgs'); });
+    void organizationsApi.me(apiCall).then(res => {
+      if (!res.ok) { markFailed('orgs'); return; }
+      setOrg(res.data);
+      const stored = res.data.enabled_field_types;
+      setPaletteDraft(Array.isArray(stored) && stored.length ? stored.map(builderFieldType) : null);
+    });
     loadMembers();
     loadTeams();
     loadInvites();
@@ -548,6 +585,18 @@ export default function AccountArea({ section }: { section: AccountSection }) {
 
   const toggle2fa = () => { if (mfa?.enrolled) void disableMfa(); else beginEnrolment(); };
 
+  /* Clipboard writes fail on an insecure origin or a denied permission; say so
+     rather than leaving a button that silently did nothing. */
+  const copyValue = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey(current => (current === key ? null : current)), 2000);
+    } catch {
+      flash('Could not copy \u00b7 select the text and copy it by hand');
+    }
+  };
+
   /* ── organization & teams ─────────────────────────────────────────────
      Every write here is org-admin only server-side (`require_org_admin`), so
      the buttons that raise them are only rendered for an admin. The checks
@@ -799,6 +848,40 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   };
   });
 
+  /* ── builder field palette (ORG-6) ──────────────────────────────────────
+     The palette offers every field type the product implements, and most
+     workspaces place four of them. Turning the rest off is what keeps the
+     builder's left rail readable; it changes authoring only, so a document or
+     template already carrying a type that is now off keeps rendering it. */
+  const togglePaletteType = useCallback((typeId: string) => {
+    setPaletteDraft(current => {
+      // "Everything" has to become a concrete list before one can be removed
+      // from it, so the first uncheck expands `null` into the full set.
+      const base = current ?? TYPES.map(t => t.id);
+      return base.indexOf(typeId) > -1 ? base.filter(t => t !== typeId) : base.concat([typeId]);
+    });
+  }, []);
+
+  const savePalette = useCallback(() => {
+    const chosen = paletteDraft;
+    if (chosen && chosen.length === 0) { flash('At least one field type must stay enabled'); return; }
+    // Every tile ticked is stored as "no restriction" rather than as a list of
+    // all of them: a type added to the product later should then appear for
+    // this tenant too, instead of being silently absent from a frozen list.
+    const body = chosen === null || chosen.length === TYPES.length
+      ? null
+      : chosen.map(apiFieldType);
+    setPaletteSaving(true);
+    void organizationsApi.update(apiCall, { enabled_field_types: body }).then(res => {
+      setPaletteSaving(false);
+      if (!res.ok) { flash('Could not save the field palette · ' + res.error.message); return; }
+      setOrg(res.data);
+      const stored = res.data.enabled_field_types;
+      setPaletteDraft(Array.isArray(stored) && stored.length ? stored.map(builderFieldType) : null);
+      flash(body === null ? 'Every field type is offered' : 'Field palette saved · ' + body.length + ' types');
+    });
+  }, [paletteDraft, flash]);
+
   /* Org writes are admin-only server-side; the controls follow that. */
   const isOrgAdmin = (me?.role || session.role) === 'admin';
 
@@ -857,7 +940,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   /** A header that is also the sort control; the arrow shows the active key. */
   const auditSortBtn: CSSProperties = { background: 'none', border: 0, padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' };
   const auditArrow = (key: 'time' | 'action' | 'document' | 'actor') =>
-    auditSort.key === key ? (auditSort.dir === 'asc' ? '↑' : '↓') : '';
+    auditSort.key === key ? <Icon name={auditSort.dir === 'asc' ? 'sortAsc' : 'sortDesc'} size={11} /> : null;
   const auditDate: CSSProperties = { ...inputStyle, flex: '0 0 auto', width: 'auto', minWidth: '140px' };
   const pagerBtn = (disabled: boolean): CSSProperties =>
     ({ ...btn('#fff', '#475569', '#e3e7ee'), opacity: disabled ? 0.45 : 1, cursor: disabled ? 'default' : 'pointer' });
@@ -922,7 +1005,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     <button
                       type="button" aria-label="Close" onClick={closeSigModal}
                       style={{ width:'30px', height:'30px', borderRadius:'9px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 }}>
-                      ✕
+                      <Icon name="close" size={13} />
                     </button>
                   </div>
                   <div style={{ padding:'16px 18px', display:'flex', flexDirection:'column', gap:'14px' }}>
@@ -1113,17 +1196,87 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     </button>
                   </div>
                   {enrolment ? (
-                    <div style={{ border:'1px solid #c7d2fe', background:'#eef2ff', borderRadius:'12px', padding:'13px', display:'flex', flexDirection:'column', gap:'8px' }}>
-                      <span style={{ fontSize:'.78125rem', fontWeight:600 }}>Finish enrolment</span>
-                      <span style={{ fontSize:'.71875rem', color:'#3730a3', lineHeight:1.6, wordBreak:'break-all', fontFamily:'var(--font-sans)' }}>
-                        Add this secret to your authenticator app: {enrolment.secret}
-                      </span>
-                      <span style={{ fontSize:'.71875rem', color:'#3730a3', lineHeight:1.6, wordBreak:'break-all' }}>
-                        Recovery codes (store them now): {enrolment.recovery_codes.join(', ')}
-                      </span>
-                      <div style={{ display:'flex', gap:'7px' }}>
-                        <button type="button" onClick={confirmEnrolment} style={primaryBtn}>Enter code</button>
-                        <button type="button" onClick={() => setEnrolment(null)} style={ghostBtn}>Cancel</button>
+                    <div style={{ border:'1px solid #c7d2fe', background:'#fff', borderRadius:'12px', overflow:'hidden' }}>
+                      <div style={{ background:'#eef2ff', padding:'11px 14px', borderBottom:'1px solid #c7d2fe' }}>
+                        <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#3730a3' }}>Finish setting up two-factor</span>
+                        <span style={{ display:'block', fontSize:'.6875rem', color:'#4f46e5', marginTop:'2px' }}>
+                          Three steps. Two-factor stays off until you enter a code.
+                        </span>
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column' }}>
+                        {/* Step 1 — pair the authenticator */}
+                        <div style={enrolStep}>
+                          <span style={stepNum}>1</span>
+                          <div style={{ display:'flex', flexDirection:'column', gap:'9px', minWidth:0, flex:1 }}>
+                            <span style={{ fontSize:'.78125rem', fontWeight:600 }}>Add the account to your authenticator app</span>
+                            <div style={{ display:'flex', alignItems:'flex-start', gap:'14px', flexWrap:'wrap' }}>
+                              {enrolment.otpauth_url ? (
+                                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'5px' }}>
+                                  <QrCode value={enrolment.otpauth_url} label="Scan this QR code with your authenticator app" />
+                                  <span style={{ fontSize:'.6875rem', color:'#64748b' }}>Scan with your app</span>
+                                </div>
+                              ) : null}
+                              <div style={{ display:'flex', flexDirection:'column', gap:'6px', flex:'1 1 220px', minWidth:'200px' }}>
+                                <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
+                                  Can&rsquo;t scan? Enter this setup key by hand instead.
+                                </span>
+                                <code style={secretBox}>{groupSecret(enrolment.secret)}</code>
+                                <button
+                                  type="button"
+                                  onClick={() => void copyValue('secret', enrolment.secret)}
+                                  style={{ ...ghostBtn, alignSelf:'flex-start' }}
+                                >
+                                  {copiedKey === 'secret' ? 'Copied' : 'Copy setup key'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 2 — the recovery codes, shown once */}
+                        <div style={enrolStep}>
+                          <span style={stepNum}>2</span>
+                          <div style={{ display:'flex', flexDirection:'column', gap:'9px', minWidth:0, flex:1 }}>
+                            <span style={{ fontSize:'.78125rem', fontWeight:600 }}>Save your recovery codes</span>
+                            <span style={{ fontSize:'.6875rem', color:'#64748b', lineHeight:1.55 }}>
+                              Each code signs you in once if you lose your phone. This is the only
+                              time they are shown — store them somewhere safe now.
+                            </span>
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(120px, 1fr))', gap:'5px' }}>
+                              {enrolment.recovery_codes.map(code => (
+                                <code key={code} style={codeChip}>{code}</code>
+                              ))}
+                            </div>
+                            <div style={{ display:'flex', gap:'7px', flexWrap:'wrap' }}>
+                              <button
+                                type="button"
+                                onClick={() => void copyValue('codes', enrolment.recovery_codes.join('\n'))}
+                                style={ghostBtn}
+                              >
+                                {copiedKey === 'codes' ? 'Copied' : 'Copy all codes'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => downloadRecoveryCodes(enrolment.recovery_codes)}
+                                style={ghostBtn}
+                              >
+                                Download as .txt
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 3 — the confirmation that actually turns 2FA on */}
+                        <div style={{ ...enrolStep, borderBottom:'none' }}>
+                          <span style={stepNum}>3</span>
+                          <div style={{ display:'flex', flexDirection:'column', gap:'9px', minWidth:0, flex:1 }}>
+                            <span style={{ fontSize:'.78125rem', fontWeight:600 }}>Enter the six-digit code from the app</span>
+                            <div style={{ display:'flex', gap:'7px', flexWrap:'wrap' }}>
+                              <button type="button" onClick={confirmEnrolment} style={primaryBtn}>Enter code</button>
+                              <button type="button" onClick={() => { setEnrolment(null); setCopiedKey(null); }} style={ghostBtn}>Cancel</button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -1279,7 +1432,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
               ) : integrations.length === 0 ? (
                 <div style={emptyBox}>{failed.integrations ? 'Integrations could not be loaded.' : 'No integrations are available on this deployment.'}</div>
               ) : (
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap:'12px' }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
                   {integrations.map(i => (
                     <div key={i.key} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px', display:'flex', flexDirection:'column', gap:'10px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
@@ -1335,6 +1488,65 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     You belong to one organization. Membership of additional organizations is not
                     supported on this deployment.
                   </span>
+                </div>
+
+                {/* Which field types the builder palette offers. An admin
+                    setting, because it is the workspace's decision what its
+                    authors are asked to choose between. */}
+                <div style={{ ...card, gap:'11px' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap' }}>
+                    <span style={railHead}>Field palette</span>
+                    {isOrgAdmin && orgData !== null ? (
+                      <button
+                        type="button"
+                        onClick={savePalette}
+                        disabled={paletteSaving}
+                        style={{ ...primaryBtn, marginLeft:'auto', flex:'0 0 auto', opacity: paletteSaving ? .6 : 1 }}
+                      >{paletteSaving ? 'Saving…' : 'Save palette'}</button>
+                    ) : null}
+                  </div>
+                  <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.6 }}>
+                    The types an author may place in the builder. Turning a type off removes its
+                    tile from the palette for everyone here; fields already placed on a document or
+                    template are untouched and keep working. With every type ticked the palette
+                    offers all of them, including any added to the product later.
+                  </span>
+                  {orgData === null ? (
+                    <div style={emptyBox}>{failed.orgs ? 'The field palette could not be loaded.' : 'Loading…'}</div>
+                  ) : (
+                    <>
+                      <div role="group" aria-label="Field types offered in the builder palette" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(190px, 1fr))', gap:'6px' }}>
+                        {TYPES.map(t => {
+                          const on = fieldTypeEnabled(paletteDraft, t.id);
+                          return (
+                            <label
+                              key={t.id}
+                              style={{ display:'flex', alignItems:'center', gap:'9px', padding:'8px 10px', borderRadius:'10px', fontSize:'.75rem',
+                                border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? A + '0f' : '#fbfcfd',
+                                cursor: isOrgAdmin ? 'pointer' : 'default', color:'#334155' }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                disabled={!isOrgAdmin}
+                                onChange={() => togglePaletteType(t.id)}
+                              />
+                              <span aria-hidden="true" style={{ width:'20px', height:'20px', borderRadius:'6px', background:'#eef1f6', display:'grid', placeItems:'center', fontSize:'.625rem', color:'#475569', flex:'0 0 20px' }}>{t.svg ? <Icon name={t.svg} size={12} /> : t.icon}</span>
+                              <span>{t.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {/* An admin can tick every box back on without knowing
+                          that "all of them" is stored differently from a list. */}
+                      {isOrgAdmin && paletteDraft !== null ? (
+                        <button type="button" onClick={() => setPaletteDraft(null)} style={{ ...linkBtn, alignSelf:'flex-start' }}>Offer every field type</button>
+                      ) : null}
+                      {!isOrgAdmin ? (
+                        <span style={{ fontSize:'.6875rem', color:'#64748b' }}>Only an organization administrator can change which field types are offered.</span>
+                      ) : null}
+                    </>
+                  )}
                 </div>
 
                 {/* Everyone in it, and everyone invited into it. */}

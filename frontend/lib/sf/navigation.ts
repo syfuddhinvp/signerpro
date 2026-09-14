@@ -250,7 +250,24 @@ export function sidebarGroups(ctx: NavContext): SidebarGroup[] {
   }
 
   if (area === 'platform') {
-    return [{ key: 'console', title: 'Admin console', rows: sectionRows('platform', ctx) }];
+    return [
+      { key: 'console', title: 'Admin console', rows: sectionRows('platform', ctx) },
+      {
+        /* Not a section of the console screen: the outbox is its own screen
+           with its own filters and its own compose form, and folding it into
+           the console's tab strip would make it the one tab that is a
+           different URL shape from the other five. */
+        key: 'comms', title: 'Communications',
+        rows: [row('mail', 'Mail outbox', pathFor('mail', workspace), screen === 'mail')],
+      },
+      {
+        /* The library every tenant imports ready-made forms from. Its own
+           screen for the same reason the outbox is: it has its own uploads,
+           its own publish state and its own URL shape. */
+        key: 'content', title: 'Content',
+        rows: [row('catalog', 'Form catalog', pathFor('catalog', workspace), screen === 'catalog')],
+      },
+    ];
   }
 
   if (area === 'account') {

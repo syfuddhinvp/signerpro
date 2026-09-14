@@ -19,6 +19,8 @@ class ContactCreate(BaseModel):
     company: str | None = Field(default=None, max_length=255)
     title: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=2000)
     default_role: str = Field(default="sign", max_length=20)
     group: str = Field(default="customers", max_length=40)
     source: str = Field(default="manual", max_length=20)
@@ -33,6 +35,8 @@ class ContactUpdate(BaseModel):
     company: str | None = Field(default=None, max_length=255)
     title: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=2000)
     default_role: str | None = Field(default=None, max_length=20)
     group: str | None = Field(default=None, max_length=40)
     tags: list[str] | None = None
@@ -49,6 +53,8 @@ class ContactResponse(BaseModel):
     company: str | None
     title: str | None
     phone: str | None
+    address: str | None = None
+    description: str | None = None
     default_role: str
     group: str
     source: str
@@ -57,6 +63,9 @@ class ContactResponse(BaseModel):
     envelope_count: int = 0
     last_signed_at: datetime | None = None
     external_id: str | None = None
+    # The teammate who created the record — SignNow's "Owner" row.
+    owner_name: str | None = None
+    owner_email: str | None = None
     created_at: datetime
     updated_at: datetime
 

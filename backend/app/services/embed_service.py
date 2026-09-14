@@ -41,6 +41,23 @@ class EmbedService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
         return org
 
+    def _settings_org(self, db: Session, org: Organization) -> Organization:
+        """The organization whose embed settings govern ``org``.
+
+        A sandbox has no settings surface of its own -- the allow-list and
+        return URL are configured once, on the live tenant, under Apply & keys.
+        Reading them through here rather than copying them onto the sandbox row
+        keeps one source of truth: a snapshot taken when the sandbox was
+        created goes stale the moment an admin edits the allow-list, and a
+        stale *empty* allow-list would silently weaken the origin lock for
+        every sandbox session (API-11).
+        """
+        if org.is_sandbox and org.sandbox_of_organization_id:
+            live = db.get(Organization, org.sandbox_of_organization_id)
+            if live is not None:
+                return live
+        return org
+
     # ---- settings (API-9) -------------------------------------------------
     def get_settings_payload(self, db: Session, *, organization_id: str) -> dict:
         org = self._get_org(db, organization_id)
@@ -97,8 +114,8 @@ class EmbedService:
             token_hash=hash_embed_token(raw_token),
             landing=payload.landing,
             external_id=payload.document.external_id,
-            return_url=payload.return_url or org.default_return_url,
-            allowed_origins=list(org.allowed_origins or []),
+            return_url=payload.return_url or self._settings_org(db, org).default_return_url,
+            allowed_origins=list(self._settings_org(db, org).allowed_origins or []),
             contact_ids=contacts,
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=payload.ttl_minutes),
         )
@@ -167,7 +184,20 @@ class EmbedService:
 
         allowed = [_normalize_origin(item) for item in (session.allowed_origins or [])]
         if allowed:
-            if not origin or _normalize_origin(origin) not in allowed:
+            # A configured allowlist is authoritative for the exchange, with no
+            # first-party exemption: this endpoint is called either server-side
+            # by the host application (no Origin header at all) or from the
+            # host page itself, whose origin is precisely what the tenant put
+            # on the list. Our own framed page reads /api/embed/context, not
+            # this route, so exempting ``app_base_url`` here would buy nothing
+            # and would let a leaked token be exchanged from our own origin
+            # against the tenant's stated wishes.
+            #
+            # Framing is a separate question, enforced where a browser can
+            # actually enforce it: the ``frame-ancestors`` directive this same
+            # list feeds (``frame_ancestors``, emitted on /embed by the
+            # frontend middleware).
+            if origin is not None and _normalize_origin(origin) not in allowed:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Origin is not allowed for this embed session")
         elif origin is not None:
             # No allowlist is the default for every new organization, and the
@@ -188,6 +218,35 @@ class EmbedService:
         session.consumed_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(session)
+        return session
+
+    # ---- context (the framed surface) -------------------------------------
+    def frame_ancestors(self, db: Session, *, raw_token: str) -> list[str]:
+        """The CSP source list for a token, without consuming or 403-ing.
+
+        Called by the frontend middleware before the page renders, so an
+        expired or bogus token must not raise: it yields an empty list, the
+        page emits ``frame-ancestors 'none'`` and the designed error state is
+        what the (unframed) request sees.
+        """
+        session = db.scalar(select(EmbedSession).where(EmbedSession.token_hash == hash_embed_token(raw_token)))
+        if not session or self.is_expired(session):
+            return []
+        return [_normalize_origin(item) for item in (session.allowed_origins or [])]
+
+    def context(self, db: Session, *, raw_token: str) -> EmbedSession:
+        """Resolve a token for *reading* the framed surface.
+
+        Deliberately not ``resolve``: the single-use rule belongs to the
+        exchange (one token, one hand-off), while the framed page goes on
+        needing its own document for as long as the session lives. So this
+        accepts a consumed session and rejects only an unknown or expired one.
+        """
+        session = db.scalar(select(EmbedSession).where(EmbedSession.token_hash == hash_embed_token(raw_token)))
+        if not session:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Embed session is invalid")
+        if self.is_expired(session):
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail="Embed session has expired")
         return session
 
 

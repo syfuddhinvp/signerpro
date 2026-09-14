@@ -74,22 +74,45 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
     { label:'CYCLE', value: sub.cycleLabel, meta: sub.cycleMeta },
   ];
 
-  const paymentMethods_ = toPaymentMethodRows(paymentMethods).map(p => {
-    const def = p.isDefault;
+  /* Each saved method is drawn as a physical card face: brand-tinted plate,
+     chip, masked number, holder and expiry — so a wallet of several methods
+     reads at a glance instead of as three identical rows. */
+  const cardFace = (brand: string): CSSProperties => {
+    const b = brand.toLowerCase();
+    const plate =
+      b.startsWith('visa') ? 'linear-gradient(135deg,#1a1f71,#2a3fb8 55%,#4356d6)'
+      : b.startsWith('maste') || b.startsWith('mc') ? 'linear-gradient(135deg,#231f20,#7a2a12 55%,#eb001b)'
+      : b.startsWith('amex') ? 'linear-gradient(135deg,#0b6b53,#0f8f6c 55%,#2ec49a)'
+      : b.startsWith('disco') ? 'linear-gradient(135deg,#2b2b2b,#8a4a12 55%,#f76b1c)'
+      : 'linear-gradient(135deg,#0f172a,#243044 55%,#3d4c66)';
     return {
-      id: p.id, brand: p.brand, label: p.label, meta: p.meta, isDefault: def, notDefault: !def,
-      rowStyle: { display:'flex', alignItems:'center', gap:'12px', padding:'11px', border:'1px solid ' + (def ? '#c7d2fe' : '#eef1f6'), borderRadius:'12px', background: def ? '#f8faff' : '#fbfcfd' } as CSSProperties,
-      brandStyle: { width:'46px', height:'30px', borderRadius:'7px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'.59375rem', fontWeight:700, fontFamily:'var(--font-sans)', flex:'0 0 46px' } as CSSProperties,
-      defaultPill: pill({ bg:'#eef2ff', fg:'#3730a3', bd:'#c7d2fe' }),
-      onDefault: () => {
-        flash(p.label + ' set as default payment method');
-        void billingApi.setDefaultPaymentMethod(apiCall, p.id).then(res => {
-          if (!res.ok) { flash('Could not change the default · ' + res.error.message); return; }
-          router.refresh();
-        });
-      },
+      position:'relative', overflow:'hidden', width:'100%', maxWidth:'320px', aspectRatio:'1.586',
+      borderRadius:'14px', padding:'14px', color:'#f8fafc', background: plate,
+      boxShadow:'0 10px 22px -12px rgba(15,23,42,.55)',
+      display:'flex', flexDirection:'column', justifyContent:'space-between',
     };
-  });
+  };
+  const cardSheen: CSSProperties = { position:'absolute', inset:'-40% -20% auto -20%', height:'140%', background:'radial-gradient(60% 60% at 20% 10%, rgba(255,255,255,.22), transparent 70%)', pointerEvents:'none' };
+  const cardChip: CSSProperties = { width:'34px', height:'25px', borderRadius:'5px', background:'linear-gradient(135deg,#f7e39b,#c9a227)', border:'1px solid rgba(0,0,0,.18)', flex:'0 0 34px' };
+  const cardBrand: CSSProperties = { fontSize:'.8125rem', fontWeight:800, letterSpacing:'.06em', fontFamily:'var(--font-sans)', flex:'0 1 auto', textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' };
+  const cardNumber: CSSProperties = { fontSize:'.9375rem', fontWeight:600, letterSpacing:'.1em', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' };
+  const cardCaption: CSSProperties = { fontSize:'.53125rem', letterSpacing:'.11em', color:'rgba(248,250,252,.62)', fontFamily:'var(--font-sans)' };
+  const cardValue: CSSProperties = { fontSize:'.6875rem', fontWeight:600, letterSpacing:'.06em', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' };
+  const cardDefaultPill: CSSProperties = { display:'inline-flex', alignItems:'center', height:'20px', padding:'0 8px', borderRadius:'99px', fontSize:'.59375rem', fontWeight:700, letterSpacing:'.06em', background:'rgba(255,255,255,.18)', border:'1px solid rgba(255,255,255,.35)', color:'#fff', flex:'0 0 auto' };
+  const cardDefaultBtn: CSSProperties = { height:'26px', padding:'0 10px', borderRadius:'99px', fontSize:'.65625rem', fontWeight:600, cursor:'pointer', background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.35)', color:'#fff', flex:'0 0 auto' };
+
+  const paymentMethods_ = toPaymentMethodRows(paymentMethods).map(p => ({
+    id: p.id, brand: p.brand, label: p.label, number: p.number, expiry: p.expiry, holder: p.holder,
+    isDefault: p.isDefault, notDefault: !p.isDefault,
+    faceStyle: Object.assign(cardFace(p.brand), p.isDefault ? { outline:'2px solid ' + A, outlineOffset:'2px' } : {}),
+    onDefault: () => {
+      flash(p.label + ' set as default payment method');
+      void billingApi.setDefaultPaymentMethod(apiCall, p.id).then(res => {
+        if (!res.ok) { flash('Could not change the default · ' + res.error.message); return; }
+        router.refresh();
+      });
+    },
+  }));
 
   const upcomingLines = toUpcomingLines(upcoming);
 
@@ -157,19 +180,35 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
           {paymentMethods_.length ? null : (
             <div style={emptyNote}>No payment method on file — add one to enable autopay.</div>
           )}
-          {paymentMethods_.map(p => (
-            <div key={p.id} style={p.rowStyle}>
-              <span style={p.brandStyle}>{p.brand}</span>
-              <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
-                <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{p.label}</span>
-                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{p.meta}</span>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(260px, 1fr))', gap:'12px' }}>
+            {paymentMethods_.map(p => (
+              <div key={p.id} style={p.faceStyle}>
+                <span style={cardSheen} aria-hidden="true"></span>
+                <div style={{ position:'relative', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'10px' }}>
+                  <span style={cardChip} aria-hidden="true"></span>
+                  {p.isDefault ? (<span style={cardDefaultPill}>DEFAULT</span>) : null}
+                  {p.notDefault ? (
+                    <button type="button" onClick={p.onDefault} style={cardDefaultBtn}>Make default</button>
+                  ) : null}
+                </div>
+                <div style={{ position:'relative', display:'flex', flexDirection:'column', gap:'3px' }}>
+                  <span style={cardNumber}>{p.number || p.label}</span>
+                  {p.number ? (<span style={cardCaption}>{p.label}</span>) : null}
+                </div>
+                <div style={{ position:'relative', display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap:'10px' }}>
+                  <span style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
+                    <span style={cardCaption}>CARD HOLDER</span>
+                    <span style={cardValue}>{p.holder}</span>
+                  </span>
+                  <span style={{ display:'flex', flexDirection:'column', gap:'2px', flex:'0 0 auto' }}>
+                    <span style={cardCaption}>VALID THRU</span>
+                    <span style={cardValue}>{p.expiry}</span>
+                  </span>
+                  <span style={cardBrand}>{p.brand}</span>
+                </div>
               </div>
-              {p.isDefault ? (<span style={p.defaultPill}>Default</span>) : null}
-              {p.notDefault ? (
-                <button type="button" onClick={p.onDefault} style={ghostBtn}>Make default</button>
-              ) : null}
-            </div>
-          ))}
+            ))}
+          </div>
           <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
             <button type="button" onClick={openCardModal} style={primaryBtn}>Add payment method</button>
             <button type="button" role="switch" aria-checked={autopayStr === 'true'} onClick={toggleAutopay} style={autopayRow}>

@@ -206,3 +206,142 @@ def test_the_certificate_is_never_returned(client: TestClient) -> None:
     body = _configure(client, headers)
     assert "idp_x509_cert" not in body
     assert "idp_x509_cert" not in client.get("/api/auth/sso/connection", headers=headers).json()
+
+
+# --- enforcement closes every password-credential path ----------------------
+
+
+def _issue_reset_token(client: TestClient, monkeypatch, email: str = "admin@example.com") -> str:
+    from app.core import email as email_module
+
+    sent: list = []
+    monkeypatch.setattr(email_module.email_service, "send", lambda message, organization=None: sent.append(message))
+    response = client.post("/api/auth/password/forgot", json={"email": email})
+    assert response.status_code == 204, response.text
+    assert len(sent) == 1
+    body = sent[0].body
+    return body.split("token=", 1)[1].split()[0]
+
+
+def test_enforcing_sso_closes_the_password_reset_path(client: TestClient, monkeypatch) -> None:
+    """A reset link must not be a standing bypass of "password login is refused"."""
+    headers = auth_headers(client)
+    token = _issue_reset_token(client, monkeypatch)
+    _configure(client, headers, enforced=True)
+
+    response = client.post(
+        "/api/auth/password/reset", json={"token": token, "password": "a-brand-new-password"}
+    )
+    assert response.status_code == 403
+    assert "single sign-on" in response.text
+
+
+def test_not_enforcing_leaves_password_reset_working(client: TestClient, monkeypatch) -> None:
+    """A connection can exist -- even be enabled -- without enforcement closing anything."""
+    headers = auth_headers(client)
+    token = _issue_reset_token(client, monkeypatch)
+    _configure(client, headers, enforced=False)
+
+    response = client.post(
+        "/api/auth/password/reset", json={"token": token, "password": "a-brand-new-password"}
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_enforcing_sso_closes_the_invitation_accept_path(client: TestClient) -> None:
+    """Accepting a pending invitation still mints a password, so it must be closed too."""
+    from app.models.invitation import Invitation
+    from app.core.security import generate_signing_token, hash_signing_token
+    from app.models.mixins import now_utc
+    from datetime import timedelta
+
+    headers = auth_headers(client)
+    _configure(client, headers, enforced=True)
+
+    db = _db()
+    from app.models.user import User
+
+    admin = db.query(User).filter(User.email == "admin@example.com").one()
+    raw_token = generate_signing_token()
+    db.add(
+        Invitation(
+            organization_id=admin.organization_id,
+            email="new-hire@example.com",
+            role="sender",
+            token_hash=hash_signing_token(raw_token),
+            invited_by_user_id=admin.id,
+            expires_at=now_utc() + timedelta(days=1),
+        )
+    )
+    db.commit()
+
+    response = client.post(
+        "/api/invitations/accept",
+        json={"token": raw_token, "name": "New Hire", "password": "a-brand-new-password"},
+    )
+    assert response.status_code == 403
+    assert "single sign-on" in response.text
+
+
+def test_a_platform_admin_is_break_glass_exempt_from_enforcement(client: TestClient) -> None:
+    """A misconfigured IdP must not permanently lock everyone out.
+
+    The exemption is scoped to the existing ``is_platform_admin`` role -- not
+    a new secret -- so the only people who can still use a password against
+    an SSO-enforced organization are the same people who could already act
+    across every tenant.
+    """
+    from app.models.user import User
+
+    headers = auth_headers(client)
+    _configure(client, headers, enforced=True)
+
+    db = _db()
+    user = db.query(User).filter(User.email == "admin@example.com").one()
+    user.is_platform_admin = True
+    db.commit()
+
+    response = client.post(
+        "/api/auth/login", json={"email": "admin@example.com", "password": "strong-password"}
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_enabling_enforcement_ends_existing_password_sessions(client: TestClient) -> None:
+    """Blocking ``login`` alone left every session minted *before* enforcement
+    renewing itself through ``/api/auth/refresh`` forever, so an admin who
+    switched SSO on had a control that only bit people who happened to log out.
+    """
+    registered = client.post(
+        "/api/auth/register",
+        json={
+            "organization_name": "Acme Realty",
+            "name": "Admin User",
+            "email": "admin@acme.example",
+            "password": "strong-password",
+        },
+    )
+    assert registered.status_code == 201, registered.text
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    refresh_token = registered.json()["refresh_token"]
+
+    # A password session that works, and can renew itself.
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+    first = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert first.status_code == 200, first.text
+    rotated = first.json()["refresh_token"]
+    # The refresh rotated the session, so configure with the live token.
+    headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+
+    _configure(client, headers, allowed_email_domains="acme.example", enforced=True)
+
+    # The pre-existing session can no longer be renewed.
+    denied = client.post("/api/auth/refresh", json={"refresh_token": rotated})
+    assert denied.status_code == 401, denied.text
+
+    # ...and password login stays refused, so no new one can be minted.
+    relogin = client.post(
+        "/api/auth/login",
+        json={"email": "admin@acme.example", "password": "strong-password"},
+    )
+    assert relogin.status_code == 403, relogin.text

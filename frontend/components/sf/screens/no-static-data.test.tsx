@@ -101,7 +101,7 @@ const SCREENS: [string, () => React.ReactElement, string?][] = [
   )],
   ['Contacts', () => (
     <Contacts {...p<React.ComponentProps<typeof Contacts>>({
-      contacts: [], groupLabels: {}, counts: {}, draftDocumentId: null,
+      contacts: [], groupLabels: {}, counts: {},
     })} />
   )],
   ['Audit', () => (

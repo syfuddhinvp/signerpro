@@ -28,7 +28,21 @@ import { backendUrl, getSession } from '@/lib/auth/session';
  */
 const REQUEST_ID_HEADER = 'x-request-id';
 
-const FORWARDED_REQUEST_HEADERS = ['content-type', 'accept', 'idempotency-key', REQUEST_ID_HEADER];
+/**
+ * Lets the API console run one request against the caller's sandbox
+ * organization. It is forwarded rather than set here because it must be the
+ * caller's per-request choice; the proxy never decides which tenant a request
+ * targets.
+ */
+const SANDBOX_HEADER = 'x-signerpro-sandbox';
+
+const FORWARDED_REQUEST_HEADERS = [
+  'content-type',
+  'accept',
+  'idempotency-key',
+  SANDBOX_HEADER,
+  REQUEST_ID_HEADER,
+];
 
 /**
  * Response headers copied from upstream. Everything else (hop-by-hop headers,

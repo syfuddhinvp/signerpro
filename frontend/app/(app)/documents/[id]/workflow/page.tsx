@@ -7,11 +7,11 @@ import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import Routing from '@/components/sf/screens/Routing';
 import { serverCaller } from '@/lib/api/client';
-import { documents as documentsApi, recipients as recipientsApi } from '@/lib/api/resources';
+import { brandingThemes as brandingApi, documents as documentsApi, recipients as recipientsApi } from '@/lib/api/resources';
 import { toBuilderRouting } from '@/lib/sf/adapters';
 import { documentPathFor } from '@/lib/sf/routes';
 import { isSealedStatus } from '@/lib/sf/sealed';
-import type { RecipientResponse, RoutingResponse } from '@/lib/api/types';
+import type { BrandingThemeResponse, RecipientResponse, RoutingResponse } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
 export const metadata: Metadata = { title: 'Signing workflow · SignerPro' };
@@ -20,10 +20,13 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const { id: documentId } = await params;
   const api = serverCaller(documentPathFor('routing', documentId));
 
-  const [documentResult, recipientsResult, routingResult] = await Promise.all([
+  const [documentResult, recipientsResult, routingResult, themesResult] = await Promise.all([
     documentsApi.get(api, documentId),
     recipientsApi.list(api, documentId),
     documentsApi.routing(api, documentId),
+    /* The theme picker needs the tenant's list. A tenant with no themes gets
+       an empty array and the picker says so rather than disappearing. */
+    brandingApi.list(api),
   ]);
 
   if (!documentResult.ok) notFound();
@@ -36,6 +39,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   const recipients: RecipientResponse[] = recipientsResult.ok ? recipientsResult.data : [];
   const routing: RoutingResponse | null = routingResult.ok ? routingResult.data : null;
+  const themes: BrandingThemeResponse[] = themesResult.ok ? themesResult.data : [];
 
   return (
     <>
@@ -49,6 +53,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         title={documentResult.data.title}
         recipients={recipients}
         routing={routing ? toBuilderRouting(routing) : null}
+        brandingThemes={themes}
       />
     </>
   );

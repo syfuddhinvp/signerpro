@@ -17,6 +17,7 @@ from app.models.organization import Organization
 from app.models.recipient import Recipient
 from app.models.user import User
 from app.services.billing_service import billing_service
+from app.services.catalog_seed import seed_catalog
 
 
 def main() -> None:
@@ -29,6 +30,11 @@ def main() -> None:
             print(f"Seeded {len(created_plans)} plan(s): {', '.join(p.code for p in created_plans)}")
         for org in db.scalars(select(Organization)):
             billing_service.get_or_create_subscription(db, org.id)
+
+        # Platform template catalog blueprints (idempotent, unpublished until
+        # a curator attaches the authoritative PDF).
+        entries = seed_catalog(db)
+        print(f"Catalog templates available: {len(entries)}")
 
         # Check and migrate old local email if it exists
         old_admin = db.scalar(select(User).where(User.email == "admin@signflow.local"))

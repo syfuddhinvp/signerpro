@@ -17,6 +17,7 @@ import { btn, lbl, authInput, authPrimary as authPrimaryOf, linkBtn as linkBtnOf
 import { AUTH_PATHS } from '@/lib/sf/routes';
 import { clearChallenge, readChallenge, type MfaChallenge } from '@/lib/auth/mfa-challenge';
 import AuthLayout, { authErrorMessage, authErrorStyle } from './AuthLayout';
+import Icon from '@/components/sf/Icon';
 
 export default function MfaForm() {
   const { s, set, flash, accent } = useSF();
@@ -157,7 +158,7 @@ export default function MfaForm() {
           Recovery codes work once each. Using one here leaves the rest valid.
         </span>
 
-        <Link href={AUTH_PATHS.signin} onClick={startOver} style={Object.assign({}, linkBtn, { textDecoration: 'none' })}>← Use a different account</Link>
+        <Link href={AUTH_PATHS.signin} onClick={startOver} style={Object.assign({}, linkBtn, { textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' })}><Icon name="arrowLeft" size={12} />Use a different account</Link>
       </form>
     </AuthLayout>
   );

@@ -12,7 +12,7 @@ import {
   TK_PRIO_LABEL
 } from '@/lib/sf/data';
 import SignatureComposer, { type ComposedSignature } from '@/components/sf/parts/SignatureComposer';
-import { pathFor } from '@/lib/sf/routes';
+import { contactPathFor, pathFor } from '@/lib/sf/routes';
 import { btn, inputStyle, lbl as lblStyle, TEXT_MUTED } from '@/lib/sf/ui';
 import { useDocumentPersistence } from '@/lib/sf/builderInteractions';
 import { apiCall } from '@/lib/api/browser';
@@ -43,6 +43,7 @@ import type {
   SubscriptionResponse,
 } from '@/lib/api/types';
 import StripeCheckoutPanel, { stripeIsConfigured } from '@/components/sf/StripeCheckout';
+import Icon from '@/components/sf/Icon';
 
 /* There is no ACH tab any more: it existed only to collect a routing and
    account number in our own DOM. Bank debits are offered by Stripe inside the
@@ -224,8 +225,10 @@ export default function Modals() {
       .then(res => {
         if (!res.ok) { flash('Could not save ' + name + ' · ' + res.error.message); return; }
         flash(name + ' saved');
-        set({ openContact: res.data.id });
         router.refresh();
+        /* The record is a route now — go straight to it, the way the design
+           lands you on a contact after you create it. */
+        router.push(contactPathFor(res.data.id));
       });
   };
 
@@ -566,7 +569,7 @@ export default function Modals() {
             <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>{modalTitle}</span>
             <span style={{ fontSize: '.75rem', color: '#64748b' }}>{modalSub}</span>
           </div>
-          <button type="button" aria-label="Close" onClick={closeModal} style={iconBtn}>✕</button>
+          <button type="button" aria-label="Close" onClick={closeModal} style={iconBtn}><Icon name="close" size={13} /></button>
         </div>
 
         {isSigModal ? (

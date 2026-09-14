@@ -247,6 +247,11 @@ export function toContact(api: ContactResponse, index = 0): Contact {
     company: api.company || EMPTY,
     title: api.title || EMPTY,
     phone: api.phone || EMPTY,
+    address: api.address || EMPTY,
+    description: api.description || EMPTY,
+    /* The owner row prefers the teammate's name and falls back to their
+       sign-in address, which is what the API has for an SCIM-provisioned user. */
+    owner: api.owner_name || api.owner_email || EMPTY,
     role: api.default_role,
     group: api.group,
     source: contactSourceLabel(api.source),
@@ -315,12 +320,53 @@ export function docStatusBucket(status: DocumentStatus | string): string {
   return DOC_STATUS_BUCKET[status as DocumentStatus] ?? 'draft';
 }
 
+/**
+ * The *precise* status, for the pill on a library row. The bucket above is what
+ * the filters and counts are built on — it deliberately flattens nine backend
+ * states into five — but a sender reading the list wants to know whether an
+ * envelope was merely sent or has actually been opened, so the pill says so.
+ *
+ * Tones stay inside the bucket's palette, so a "Sent" and a "Viewed" row still
+ * read as the same family of "out for signature" at a glance.
+ */
+const DOC_STATUS_DETAIL: Record<DocumentStatus, { label: string; bg: string; fg: string; bd: string }> = {
+  draft:               { label: 'Draft',      bg: '#f5f6f8', fg: '#475569', bd: '#e3e7ee' },
+  prepared:            { label: 'Prepared',   bg: '#f5f6f8', fg: '#475569', bd: '#e3e7ee' },
+  sent:                { label: 'Sent',       bg: '#eef2ff', fg: '#4338ca', bd: '#c7d2fe' },
+  viewed:              { label: 'Viewed',     bg: '#eff6ff', fg: '#1d4ed8', bd: '#bfdbfe' },
+  partially_completed: { label: 'In progress', bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' },
+  completed:           { label: 'Signed',     bg: '#ecfdf5', fg: '#047857', bd: '#a7f3d0' },
+  declined:            { label: 'Declined',   bg: '#fef2f2', fg: '#b91c1c', bd: '#fecaca' },
+  expired:             { label: 'Expired',    bg: '#fff7ed', fg: '#c2410c', bd: '#fed7aa' },
+  voided:              { label: 'Voided',     bg: '#fef2f2', fg: '#b91c1c', bd: '#fecaca' },
+};
+
+export type DocStatusDetail = { label: string; bg: string; fg: string; bd: string };
+
+export function docStatusDetail(status: DocumentStatus | string): DocStatusDetail {
+  return DOC_STATUS_DETAIL[status as DocumentStatus] ?? DOC_STATUS_DETAIL.draft;
+}
+
+/**
+ * The line under the pill: how far the envelope has actually got. "Signers: 2"
+ * said nothing about progress; "1 of 2 signed" is the number the sender is
+ * chasing. An unsent envelope has no progress yet, only a headcount.
+ */
+export function signerProgressLabel(status: DocumentStatus | string, signed: number, total: number): string {
+  const count = total || 0;
+  if (!count) return 'No signers yet';
+  if (status === 'draft' || status === 'prepared') return count === 1 ? '1 signer' : `${count} signers`;
+  return `${Math.min(signed, count)} of ${count} signed`;
+}
+
 /** The row shape `Library.tsx` renders (the `DOCS[]` entry shape in data.ts). */
 export type LibraryRow = {
   id: string;
   title: string;
   pages: number;
   status: string;
+  /** The backend's precise `DocumentStatus`, before the bucket flattens it. */
+  rawStatus: string;
   signed: number;
   total: number;
   updated: string;
@@ -348,6 +394,7 @@ export function toLibraryRow(api: DocumentListItem): LibraryRow {
     title: api.title,
     pages: api.page_count ?? 0,
     status: docStatusBucket(api.status),
+    rawStatus: api.status,
     signed: api.recipients_completed ?? 0,
     total: api.recipients_total ?? 0,
     updated: formatRelative(api.updated_at),
@@ -1043,6 +1090,9 @@ export type BuilderRouting = {
   message: string;
   /** The invite subject. `SFState` has no slot for it, so the screen holds it locally. */
   subject: string;
+  /** Branding theme id, or '' for the tenant's default. Held as a string so it
+   *  drops straight into a `<select value>` without a null check. */
+  brandingThemeId: string;
 };
 
 export function toBuilderRouting(api: RoutingResponse): BuilderRouting {
@@ -1052,6 +1102,7 @@ export function toBuilderRouting(api: RoutingResponse): BuilderRouting {
     expiry: builderExpiry(api.expires_in_days),
     message: api.invite_message ?? '',
     subject: api.invite_subject ?? '',
+    brandingThemeId: api.branding_theme_id ?? '',
   };
 }
 
@@ -1065,6 +1116,9 @@ export function toRoutingUpdate(patch: Partial<BuilderRouting>): RoutingUpdate {
   }
   if (patch.subject !== undefined) body.invite_subject = patch.subject;
   if (patch.message !== undefined) body.invite_message = patch.message;
+  /* '' is the "use the tenant's default" choice, and the API spells that as an
+     explicit null — omitting the key would leave the old theme in place. */
+  if (patch.brandingThemeId !== undefined) body.branding_theme_id = patch.brandingThemeId || null;
   return body;
 }
 

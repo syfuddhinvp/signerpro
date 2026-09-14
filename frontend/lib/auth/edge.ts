@@ -10,6 +10,7 @@ import {
   accessTokenStale,
   decodeJwtPayload,
   decodeSession,
+  isImpersonating,
   secondsUntilExpiry,
   type SessionEnvelope,
 } from './cookie';
@@ -24,6 +25,8 @@ export type EdgeSession = {
   verified: boolean;
   /** The access token is spent (or nearly): middleware should refresh. */
   stale: boolean;
+  /** The cookie is a platform admin acting as a tenant user. */
+  impersonating: boolean;
   envelope: SessionEnvelope;
 };
 
@@ -58,6 +61,7 @@ export async function readEdgeSession(cookieValue: string | undefined): Promise<
     isPlatformAdmin: envelope.u.is_platform_admin === true,
     verified: outcome === 'valid',
     stale: accessTokenStale(envelope.t),
+    impersonating: isImpersonating(envelope),
     envelope,
   };
 }

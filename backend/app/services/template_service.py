@@ -186,6 +186,9 @@ class TemplateService:
             doc_type=source.doc_type,
             folder_id=folder_id,
             source_template_id=source_template_id,
+            # Provenance survives every copy, so a document made from an
+            # imported government form still names the form it came from.
+            source_catalog_slug=source.source_catalog_slug,
             reminder_cadence=source.reminder_cadence,
             expires_in_days=source.expires_in_days,
             invite_subject=source.invite_subject,

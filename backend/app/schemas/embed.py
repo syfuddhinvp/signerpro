@@ -3,6 +3,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.schemas.document import DocumentResponse
+from app.schemas.field import FieldResponse
+from app.schemas.recipient import RecipientResponse
+
 
 class EmbedContactRef(BaseModel):
     id: str | None = None
@@ -43,3 +47,19 @@ class EmbedSessionResponse(BaseModel):
     consumed_at: datetime | None = None
     created_at: datetime
     expired: bool = False
+
+
+class EmbedFrameAncestors(BaseModel):
+    """The CSP source list the frontend middleware turns into a header."""
+
+    frame_ancestors: list[str] = Field(default_factory=list)
+
+
+class EmbedContextResponse(BaseModel):
+    """Everything the framed surface needs, keyed by the embed token alone."""
+
+    session: EmbedSessionResponse
+    frame_ancestors: list[str] = Field(default_factory=list)
+    document: DocumentResponse | None = None
+    fields: list[FieldResponse] = Field(default_factory=list)
+    recipients: list[RecipientResponse] = Field(default_factory=list)

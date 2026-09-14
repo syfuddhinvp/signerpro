@@ -115,7 +115,7 @@ describe('modal focus management', () => {
     await user.click(trigger);
     await screen.findByRole('dialog');
 
-    // The header ✕ — the modal also has a footer dismiss with the same label.
+    // The header close button — the modal also has a footer dismiss with the same label.
     await user.click(screen.getAllByRole('button', { name: 'Close' })[0]);
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

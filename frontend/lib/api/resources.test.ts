@@ -47,6 +47,7 @@ describe('every endpoint builds a real /api path', () => {
   /** Endpoints whose trailing argument is not an id/body — a multipart file. */
   const ARG_OVERRIDES: Record<string, unknown[]> = {
     'documents.uploadPdf': ['id-one', new File([new Uint8Array([1])], 'a.pdf', { type: 'application/pdf' })],
+    'platformCatalog.uploadFile': ['id-one', new File([new Uint8Array([1])], 'a.pdf', { type: 'application/pdf' })],
   };
 
   it.each(entries)('%s', (name, fn) => {
@@ -130,6 +131,29 @@ describe('the endpoints that are easy to get wrong', () => {
     expect(calls[0].init.body).toBeUndefined();
   });
 
+  it('replay is addressed by delivery id, not nested under the endpoint', () => {
+    const { calls, call } = recorder();
+    resources.webhooks.deliveries(call, 'ep_1', { status: 'exhausted', limit: 50 });
+    resources.webhooks.replay(call, 'dl_9');
+    expect(calls.map(c => c.path)).toEqual([
+      '/api/webhooks/ep_1/deliveries',
+      // NOT /api/webhooks/ep_1/deliveries/dl_9/replay — the backend routes
+      // this one off the delivery alone and derives the endpoint from it.
+      '/api/webhooks/deliveries/dl_9/replay',
+    ]);
+    expect(calls[0].init.query).toEqual({ status: 'exhausted', limit: 50 });
+    expect(calls[1].init.method).toBe('POST');
+  });
+
+  it('rotate-secret is a POST, and event-types is not an endpoint id', () => {
+    const { calls, call } = recorder();
+    resources.webhooks.rotateSecret(call, 'ep_1');
+    resources.webhooks.eventTypes(call);
+    expect(calls[0]).toMatchObject({ path: '/api/webhooks/ep_1/rotate-secret', init: { method: 'POST' } });
+    // `/api/webhooks/{id}` would happily match this if it were a GET by id.
+    expect(calls[1]).toMatchObject({ path: '/api/webhooks/event-types', init: { method: 'GET' } });
+  });
+
   it('platform logs and tenant logs are different endpoints', () => {
     const { calls, call } = recorder();
     resources.logs.tenant(call, { limit: 50 });
@@ -157,12 +181,11 @@ describe('the endpoints that are easy to get wrong', () => {
     expect(calls[0].path).toBe('/api/invitations/');
   });
 
-  it('impersonation is started per tenant and stopped globally', () => {
-    const { calls, call } = recorder();
-    resources.tenants.impersonate(call, 'org_1', { justification: 'support' });
-    resources.tenants.stopImpersonation(call);
-    expect(calls[0].path).toBe('/api/saas/tenants/org_1/impersonate');
-    expect(calls[1]).toMatchObject({ path: '/api/saas/impersonation', init: { method: 'DELETE' } });
+  it('does not expose impersonation, which must go through the cookie swap', () => {
+    // Calling the backend endpoints through this transport mints a session
+    // that nothing then acts under — see the note in `resources.ts`.
+    expect('impersonate' in resources.tenants).toBe(false);
+    expect('stopImpersonation' in resources.tenants).toBe(false);
   });
 
   it('ids are interpolated, never concatenated into the wrong segment', () => {

@@ -16,6 +16,7 @@ import { lbl, authInput, authPrimary as authPrimaryOf, linkBtn as linkBtnOf, BOR
 import { AUTH_PATHS } from '@/lib/sf/routes';
 import { storeChallenge } from '@/lib/auth/mfa-challenge';
 import AuthLayout, { authErrorMessage, authErrorStyle } from './AuthLayout';
+import Icon from '@/components/sf/Icon';
 
 export default function SignInForm() {
   const { s, set, flash, accent } = useSF();
@@ -35,7 +36,6 @@ export default function SignInForm() {
     width: '17px', height: '17px', borderRadius: '5px', display: 'grid', placeItems: 'center', fontSize: '.6875rem',
     color: '#fff', flex: '0 0 17px', border: '1px solid ' + (s.remember ? A : BORDER_STRONG), background: s.remember ? A : '#fff',
   };
-  const rememberMark = s.remember ? '✓' : '';
 
   const submitSignin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -104,7 +104,7 @@ export default function SignInForm() {
         </label>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
           <button type="button" role="switch" aria-checked={s.remember} onClick={() => set({ remember: !s.remember })} style={rememberRow}>
-            <span style={rememberBox}>{rememberMark}</span>
+            <span style={rememberBox}>{s.remember ? <Icon name="check" size={11} /> : null}</span>
             <span style={{ fontSize: '.75rem', color: '#334155' }}>Remember this device</span>
           </button>
           <Link href={AUTH_PATHS.forgot} style={linkStyle}>Forgot password?</Link>

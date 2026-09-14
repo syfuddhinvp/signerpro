@@ -73,6 +73,7 @@ class InvitationService:
                     f"Accept your invitation here: {link}\n\n"
                     "This invitation is single-use and expires in 7 days."
                 ),
+                category="member_invite",
             ),
             organization=organization,
         )
@@ -115,6 +116,21 @@ class InvitationService:
         # Re-check on the path that actually consumes the seat: the plan may have
         # changed, or other invites may have been accepted, since this one was sent.
         entitlement_service.check_entitlement(db, invitation.organization_id, "max_users", amount=1)
+
+        # An invitation carries a password just like registration does. If the
+        # org has since turned SSO enforcement on, accepting it must not mint a
+        # password-authenticated account any more than /auth/login would --
+        # otherwise "enforce SSO" would only apply to people who were already
+        # members, not to whoever accepts a pending invite afterward. A brand
+        # new user is never a platform admin, so there is no break-glass case
+        # to exempt here.
+        from app.services.sso_service import sso_service
+
+        if sso_service.is_enforced(db, invitation.organization_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This workspace requires single sign-on; ask an admin for the workspace's SSO login link",
+            )
 
         user = User(
             organization_id=invitation.organization_id,

@@ -51,6 +51,9 @@ class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     folder_id: Mapped[str | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"), nullable=True)
     source_template_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    # Set on templates imported from the platform catalog, and inherited by
+    # documents made from them, so a form's provenance survives the copy.
+    source_catalog_slug: Mapped[str | None] = mapped_column(String(80), nullable=True)
     # agreement | nda | order | hr
     doc_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -62,6 +65,15 @@ class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     expires_in_days: Mapped[int] = mapped_column(Integer, nullable=False, default=14, server_default="14")
     invite_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     invite_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Sender branding (ORG-7). NULL means "whatever the tenant's default theme
+    # is at send time" -- resolved on read, never copied onto the row, so
+    # editing the default re-brands the drafts that never chose one.
+    # SET NULL rather than RESTRICT: deleting a theme must not be blocked by a
+    # draft that merely pointed at it, and falling back to the default is the
+    # right behaviour for one that does.
+    branding_theme_id: Mapped[str | None] = mapped_column(
+        ForeignKey("branding_themes.id", ondelete="SET NULL"), nullable=True
+    )
 
     organization: Mapped["Organization"] = relationship(back_populates="documents")
     sender: Mapped["User"] = relationship(back_populates="documents", foreign_keys=[sender_id])

@@ -109,9 +109,24 @@ def save_connection(
             detail="An IdP signing certificate is required",
         )
     connection.allowed_email_domains = ",".join(domains)
+    was_enforcing = bool(connection.enabled and connection.enforced)
     connection.enabled = payload.enabled
     connection.enforced = payload.enforced
     connection.auto_provision = payload.auto_provision
+
+    now_enforcing = bool(connection.enabled and connection.enforced)
+    revoked = 0
+    if now_enforcing and not was_enforcing:
+        # Turning enforcement on must end the password sessions that already
+        # exist. Blocking `login` alone left every session minted before this
+        # moment renewing itself through `auth_service.refresh` indefinitely,
+        # so an admin who switched SSO on saw a control that only applied to
+        # people who happened to log out. Sessions carry no auth-method, so
+        # every session in the org is ended and users return through the IdP.
+        #
+        # Platform admins are skipped for the same reason they are exempt from
+        # the login check: they are the way back in if the IdP is misconfigured.
+        revoked = sso_service.revoke_password_sessions(db, organization_id=user.organization_id)
 
     from app.services.platform_service import record_platform_audit
 
@@ -120,7 +135,10 @@ def save_connection(
         action="sso.connection_saved",
         actor=user,
         organization_id=user.organization_id,
-        detail=f"SAML connection {'enabled' if payload.enabled else 'disabled'} for {','.join(domains)}",
+        detail=(
+            f"SAML connection {'enabled' if payload.enabled else 'disabled'} for {','.join(domains)}"
+            + (f" · enforcement on, {revoked} existing session(s) ended" if revoked else "")
+        ),
     )
     db.commit()
     db.refresh(connection)

@@ -10,7 +10,15 @@ import type { CSSProperties, ReactNode } from 'react';
 import {
   fallbackBody, fallbackCard, fallbackCode, fallbackMark, fallbackPage, fallbackTitle,
 } from '@/lib/sf/fallback';
-import type { TokenProblem } from './types';
+import type { SignerBranding, TokenProblem } from './types';
+
+/** `Acme Realty` → `AR`. Shared with the signing chrome so the card's mark and
+ *  the header's mark can never disagree about what a sender is called. */
+export function brandInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  if (!words.length) return 'SF';
+  return words.map((w) => w[0]!.toUpperCase()).join('');
+}
 
 const chip = (bg: string, fg: string, bd: string): CSSProperties => ({
   display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 9px', borderRadius: '99px',
@@ -24,20 +32,44 @@ const TONE: Record<string, CSSProperties> = {
   info: chip('#eef2ff', '#4338ca', '#c7d2fe'),
 };
 
+/**
+ * The card's mark is the *sender's* (ORG-7), matching the chrome above it: a
+ * recipient told to expect a document from Acme should not meet a SignerPro
+ * monogram in the middle of the card. An unbranded tenant, and every state
+ * rendered before a token resolves, falls back to SignerPro's own mark.
+ */
+function Mark({ brand }: { brand?: SignerBranding | null }) {
+  const name = brand?.organization_name ?? null;
+  if (brand?.logo_url) {
+    return (
+      <img
+        src={brand.logo_url}
+        alt={name ?? ''}
+        style={{ maxHeight: '34px', maxWidth: '170px', objectFit: 'contain' }}
+      />
+    );
+  }
+  const style: CSSProperties = brand?.primary_color
+    ? { ...fallbackMark, background: brand.primary_color, color: brand.primary_text_color ?? '#fff' }
+    : fallbackMark;
+  return <div style={style}>{name ? brandInitials(name) : 'SF'}</div>;
+}
+
 export function SignState({
-  tone = 'info', label, title, body, detail, children,
+  tone = 'info', label, title, body, detail, brand, children,
 }: {
   tone?: keyof typeof TONE;
   label: string;
   title: string;
   body: string;
   detail?: string | null;
+  brand?: SignerBranding | null;
   children?: ReactNode;
 }) {
   return (
     <main style={fallbackPage}>
       <div style={fallbackCard}>
-        <div style={fallbackMark}>SF</div>
+        <Mark brand={brand} />
         <span style={TONE[tone]}>{label}</span>
         <h1 style={fallbackTitle}>{title}</h1>
         <p style={fallbackBody}>{body}</p>

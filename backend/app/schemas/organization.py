@@ -33,6 +33,19 @@ class OrganizationSettingsUpdate(BaseModel):
     )
     logo_url: str | None = Field(default=None, max_length=1024)
 
+    # Builder field palette (ORG-6). The whole set, not a delta: the settings
+    # form knows its own state, so a replace is idempotent when two tabs
+    # disagree. An explicit ``null`` restores the full palette; omitting the
+    # key leaves the current choice alone.
+    enabled_field_types: list[str] | None = Field(
+        default=None,
+        max_length=60,
+        description=(
+            "Field types the builder palette offers. Omit to leave unchanged, "
+            "null to offer every type."
+        ),
+    )
+
     # SMTP
     smtp_host: str | None = Field(default=None, max_length=255)
     smtp_port: int | None = Field(default=None)
@@ -63,6 +76,9 @@ class OrganizationResponse(BaseModel):
     seats_licensed: int = 0
     accent_color: str | None = None
     logo_url: str | None = None
+
+    # Builder field palette (ORG-6). ``None`` means every type is offered.
+    enabled_field_types: list[str] | None = None
 
     # Non-sensitive SMTP details
     smtp_host: str | None = None

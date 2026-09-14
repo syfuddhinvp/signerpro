@@ -19,7 +19,7 @@ from app.core.database import get_db
 from app.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from app.models.mixins import now_utc
 from app.models.organization import Organization
-from app.models.platform_setting import SecurityPosture
+from app.models.platform_setting import IpAllowlistEntry, SecurityPosture
 from app.models.user import User
 from app.schemas.platform import (
     CertificationRow,
@@ -28,6 +28,8 @@ from app.schemas.platform import (
     FeatureFlagUpdate,
     FlagOverridesResponse,
     FlagOverridesUpdate,
+    IpAllowlistEntryCreate,
+    IpAllowlistEntryRow,
     SecurityPostureRow,
     SecurityPostureUpdate,
 )
@@ -260,6 +262,73 @@ def update_security_posture(
     )
     db.commit()
     return get_security_posture(db=db, admin=admin)
+
+
+@platform_router.get("/ip-allowlist", response_model=list[IpAllowlistEntryRow])
+def list_ip_allowlist(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> list[IpAllowlistEntryRow]:
+    rows = db.scalars(select(IpAllowlistEntry).order_by(IpAllowlistEntry.created_at)).all()
+    return [IpAllowlistEntryRow.model_validate(row) for row in rows]
+
+
+@platform_router.post("/ip-allowlist", response_model=IpAllowlistEntryRow, status_code=status.HTTP_201_CREATED)
+def add_ip_allowlist_entry(
+    payload: IpAllowlistEntryCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> IpAllowlistEntryRow:
+    import ipaddress
+
+    try:
+        ipaddress.ip_network(payload.cidr, strict=False)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{payload.cidr}' is not a valid CIDR range"
+        ) from exc
+
+    existing = db.scalar(select(IpAllowlistEntry).where(IpAllowlistEntry.cidr == payload.cidr))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This range is already on the allowlist")
+
+    entry = IpAllowlistEntry(cidr=payload.cidr, label=payload.label, created_by_user_id=admin.id)
+    db.add(entry)
+    platform_service.record_platform_audit(
+        db,
+        action="ip_allowlist.added",
+        actor=admin,
+        detail=f"Added {payload.cidr} to the platform admin IP allowlist",
+        ip_address=request_ip(request),
+        metadata={"cidr": payload.cidr},
+    )
+    db.commit()
+    db.refresh(entry)
+    return IpAllowlistEntryRow.model_validate(entry)
+
+
+@platform_router.delete("/ip-allowlist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_ip_allowlist_entry(
+    entry_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> None:
+    entry = db.get(IpAllowlistEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allowlist entry not found")
+    db.delete(entry)
+    platform_service.record_platform_audit(
+        db,
+        action="ip_allowlist.removed",
+        actor=admin,
+        detail=f"Removed {entry.cidr} from the platform admin IP allowlist",
+        ip_address=request_ip(request),
+        metadata={"cidr": entry.cidr},
+    )
+    db.commit()
+    return None
 
 
 @platform_router.get("/compliance", response_model=ComplianceResponse)

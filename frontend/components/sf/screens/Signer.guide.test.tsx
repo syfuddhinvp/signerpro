@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SFProvider } from '@/lib/sf/state';
 import Signer from './Signer';
 import type { SignerField } from '@/lib/sf/adapters';
@@ -77,7 +77,9 @@ describe('the signing surface guide', () => {
     const scrollTo = vi.fn();
     box.scrollTo = scrollTo as never;
     // jsdom lays nothing out, so the field's position is asserted directly.
-    const target = screen.getByLabelText(/Signature date/).closest('div') as HTMLElement;
+    // Matched on the field's own label, not a bare name: the corner guide is
+    // labelled with the same field name and would match too.
+    const target = screen.getByLabelText(/— Signature date/).closest('div') as HTMLElement;
     box.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600 }) as DOMRect;
     target.getBoundingClientRect = () => ({ top: 2400, height: 28, bottom: 2428 }) as DOMRect;
     Object.defineProperty(box, 'clientHeight', { value: 600, configurable: true });
@@ -87,6 +89,80 @@ describe('the signing surface guide', () => {
     expect(scrollTo).toHaveBeenCalledTimes(1);
     // 2400 down the scroll box, less the centring inset — not ~340 (y*scale).
     expect((scrollTo.mock.calls[0][0] as { top: number }).top).toBeCloseTo(2400 - 286, 0);
+  });
+
+  /**
+   * Opening a part-finished 25-page envelope used to land on page 1, with the
+   * guide naming a field a dozen pages away and no movement until the signer
+   * found and pressed "Next required field".
+   */
+  it('lands on the first outstanding field when the envelope opens', async () => {
+    vi.useFakeTimers();
+    try {
+      mount([
+        field({ id: 'f2', label: 'Job title', page: 3, y: 400 }),
+        field({ id: 'f1', label: 'Full name', page: 1, y: 200 }),
+      ]);
+      const box = document.querySelector('[data-sf-scroll="1"]') as HTMLElement;
+      const scrollTo = vi.fn();
+      box.scrollTo = scrollTo as never;
+      box.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600 }) as DOMRect;
+      Object.defineProperty(box, 'clientHeight', { value: 600, configurable: true });
+      Object.defineProperty(box, 'scrollHeight', { value: 5000, configurable: true });
+      // Reading order puts `f1` first, so that is what it must land on.
+      const target = document.querySelector('[data-sf-field="f1"]') as HTMLElement;
+      target.getBoundingClientRect = () => ({ top: 900, height: 28, bottom: 928 }) as DOMRect;
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      const call = scrollTo.mock.calls[0][0] as { top: number; behavior: string };
+      expect(call.top).toBeCloseTo(900 - 286, 0);
+      // Instant, not smooth: a 25-page jump animated is seconds of scenery
+      // before the signer can act.
+      expect(call.behavior).toBe('auto');
+
+      // Once only — it must not re-land and fight the signer later.
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves the document alone if the signer scrolls before it can land', async () => {
+    vi.useFakeTimers();
+    try {
+      mount([field({ id: 'f1', label: 'Full name', page: 3, y: 200 })]);
+      const box = document.querySelector('[data-sf-scroll="1"]') as HTMLElement;
+      const scrollTo = vi.fn();
+      box.scrollTo = scrollTo as never;
+      box.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600 }) as DOMRect;
+      Object.defineProperty(box, 'clientHeight', { value: 600, configurable: true });
+      Object.defineProperty(box, 'scrollHeight', { value: 5000, configurable: true });
+      const target = document.querySelector('[data-sf-field="f1"]') as HTMLElement;
+      target.getBoundingClientRect = () => ({ top: 900, height: 28, bottom: 928 }) as DOMRect;
+
+      // The signer got there first. Arriving to find the page yanked out from
+      // under you is worse than arriving at the top.
+      fireEvent.wheel(box);
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the corner guide up even when the field is already in view', async () => {
+    mount([field({ id: 'f1', label: 'Full name', type: 'signature' })]);
+    const box = document.querySelector('[data-sf-scroll="1"]') as HTMLElement;
+    const target = screen.getByLabelText(/— Full name/).closest('div') as HTMLElement;
+    box.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600 }) as DOMRect;
+    target.getBoundingClientRect = () => ({ top: 120, height: 28, bottom: 148 }) as DOMRect;
+    fireEvent.scroll(box);
+    // Not hidden because the field happens to be on screen — it says so.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign here · Full name' })).toBeTruthy());
   });
 
   it('says nothing is left once every required field is done', () => {

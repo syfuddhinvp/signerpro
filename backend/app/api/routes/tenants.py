@@ -428,6 +428,8 @@ def impersonate_tenant(
         organization_name=org.name,
         impersonated_user_id=target.id,
         impersonated_user_email=target.email,
+        impersonated_user_name=target.name or target.email,
+        impersonated_user_role=str(target.role or "sender"),
         justification=session.justification,
         scopes=list(session.scopes or []),
         expires_at=session.expires_at,

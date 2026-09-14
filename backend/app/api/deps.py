@@ -126,6 +126,20 @@ def authorize_impersonation(
     return session
 
 
+#: Opt-in header letting a session-authenticated caller run one request
+#: against its organization's sandbox (API-11). It is per-request and never
+#: sticky: the app UI stays live unless a caller asks for the sandbox
+#: explicitly, which is what keeps a "test mode" toggle from silently
+#: becoming the state the whole UI is in.
+SANDBOX_HEADER = "X-SignerPro-Sandbox"
+_SANDBOX_TRUE = {"1", "true", "yes", "on", "sandbox", "test"}
+
+
+def wants_sandbox(request: Request) -> bool:
+    """Whether the caller asked for the sandbox on this request."""
+    return (request.headers.get(SANDBOX_HEADER) or "").strip().lower() in _SANDBOX_TRUE
+
+
 def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
@@ -205,6 +219,15 @@ def get_current_user(
         if user.organization_id != impersonation.organization_id or user.is_platform_admin:
             raise _INVALID
 
+    if wants_sandbox(request):
+        # Hand the service layer the sandbox mirror instead of the live user.
+        # Everything downstream reads ``user.organization_id``, so this single
+        # substitution moves the entire request into the sandbox org without
+        # any service or query needing to know that sandboxes exist.
+        from app.services.sandbox_service import sandbox_service
+
+        user = sandbox_service.mirror_user_for(db, live_user=user)
+
     # The request middleware cannot know the tenant; stamp it so every log record
     # emitted downstream carries it.
     set_user_id(user.id)
@@ -274,13 +297,32 @@ def request_user_agent(request: Request) -> str | None:
 
 
 
-def require_platform_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Enforce that the current user is a SignFlow platform administrator."""
+def require_platform_admin(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Enforce that the current user is a SignFlow platform administrator.
+
+    Also enforces the ``ipAllow`` security-posture control: when it is
+    enabled *and* at least one CIDR has been configured, callers outside
+    every configured range are rejected. An empty allowlist is never treated
+    as "deny all" -- see ``platform_service.ip_allowlist_enforced``.
+    """
     if not current_user.is_platform_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: Requires SaaS Super Admin permissions.",
         )
+
+    from app.services import platform_service
+
+    if platform_service.ip_allowlist_enforced(db):
+        if not platform_service.ip_allowed(db, request_ip(request)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: your network is not on the platform admin IP allowlist.",
+            )
     return current_user
 
 
@@ -309,6 +351,27 @@ from app.models.api_key import ApiKey  # noqa: E402
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
+def effective_organization_id(db: Session, *, api_key: "ApiKey") -> str:
+    """The organization a key's calls act on (API-11).
+
+    A ``test``-mode key resolves to the sandbox paired with the key's own
+    organization, created on first use. ``mode`` used to be a label the backend
+    never read, so a key marked ``test`` wrote real documents; this is the line
+    that makes the distinction real.
+
+    Only *data* moves. Entitlements, the monthly call quota and usage metering
+    all key off ``api_key.organization_id`` in ``api_key_service.authenticate``
+    — the live organization that owns the key — so sandbox traffic is still
+    metered to the paying tenant and a test key is not a way around a plan
+    limit.
+    """
+    if api_key.mode != "test":
+        return api_key.organization_id
+    from app.services.sandbox_service import sandbox_service
+
+    return sandbox_service.sandbox_for(db, live_organization_id=api_key.organization_id).id
+
+
 @dataclass
 class ApiKeyPrincipal:
     """The caller identified by an API key."""
@@ -335,10 +398,11 @@ def get_api_key_principal(
             headers={"WWW-Authenticate": "X-API-Key"},
         )
     api_key = api_key_service.authenticate(db, raw_key=raw_key.strip())
-    set_organization_id(api_key.organization_id)
+    organization_id = effective_organization_id(db, api_key=api_key)
+    set_organization_id(organization_id)
     return ApiKeyPrincipal(
         api_key=api_key,
-        organization_id=api_key.organization_id,
+        organization_id=organization_id,
         scopes=list(api_key.scopes or []),
         mode=api_key.mode,
     )
@@ -368,6 +432,34 @@ class OrgPrincipal:
     api_key: ApiKey | None = None
 
 
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer  # noqa: E402
+
+from app.models.scim_token import ScimToken  # noqa: E402
+
+scim_bearer = HTTPBearer(auto_error=False, scheme_name="ScimBearer")
+
+
+@dataclass
+class ScimPrincipal:
+    """The organization identified by a SCIM bearer token (never a user)."""
+
+    token: ScimToken
+    organization_id: str
+
+
+def get_scim_principal(
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(scim_bearer),
+) -> ScimPrincipal:
+    from app.services.scim_service import scim_error, scim_token_service
+
+    if not credentials or not credentials.credentials:
+        raise scim_error("Missing SCIM bearer token", status_code=status.HTTP_401_UNAUTHORIZED)
+    token = scim_token_service.authenticate(db, raw_token=credentials.credentials.strip())
+    set_organization_id(token.organization_id)
+    return ScimPrincipal(token=token, organization_id=token.organization_id)
+
+
 def get_org_principal(
     request: Request,
     db: Session = Depends(get_db),
@@ -379,8 +471,9 @@ def get_org_principal(
         from app.services.api_key_service import api_key_service
 
         api_key = api_key_service.authenticate(db, raw_key=raw_key.strip())
-        set_organization_id(api_key.organization_id)
-        return OrgPrincipal(organization_id=api_key.organization_id, api_key=api_key)
+        organization_id = effective_organization_id(db, api_key=api_key)
+        set_organization_id(organization_id)
+        return OrgPrincipal(organization_id=organization_id, api_key=api_key)
     if token:
         user = get_current_user(request=request, db=db, token=token)
         return OrgPrincipal(organization_id=user.organization_id, user=user)

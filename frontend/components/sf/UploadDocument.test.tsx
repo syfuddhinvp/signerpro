@@ -104,15 +104,30 @@ describe('UploadDocument', () => {
     expect(apiCall.mock.calls.some(c => c[1]?.method === 'DELETE')).toBe(false);
   });
 
-  it('refuses a non-PDF and an oversized file before calling the API', async () => {
+  it('refuses an unsupported type and an oversized file before calling the API', async () => {
     mount();
-    pick(new File(['x'], 'notes.txt', { type: 'text/plain' }));
-    await waitFor(() => expect(toast()).toBe('Only PDF files can be uploaded'));
+    pick(new File(['x'], 'installer.exe', { type: 'application/octet-stream' }));
+    await waitFor(() => expect(toast()).toMatch(/cannot be uploaded/i));
 
     const huge = pdf('big.pdf');
     Object.defineProperty(huge, 'size', { value: 26 * 1024 * 1024 });
     pick(huge);
-    await waitFor(() => expect(toast()).toBe('That PDF is larger than 25 MB'));
+    await waitFor(() => expect(toast()).toBe('That file is larger than 25 MB'));
     expect(apiCall).not.toHaveBeenCalled();
+  });
+
+  /* The server converts images and office documents at the upload boundary,
+     so the picker must let them through rather than insisting on a PDF. */
+  it('uploads an image or a .docx, which the server converts to pages', async () => {
+    for (const [name, type] of [['scan.png', 'image/png'], ['terms.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']]) {
+      apiCall.mockReset();
+      apiCall.mockResolvedValueOnce(ok({ document: { id: 'doc_2' }, sha256: 'a', page_count: 2 }));
+      mount({ documentId: 'doc_2' });
+      pick(new File(['x'], name, { type }));
+
+      await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(1));
+      expect(apiCall.mock.calls[0][0]).toBe('/api/documents/doc_2/upload-pdf');
+      cleanup();
+    }
   });
 });

@@ -9,9 +9,9 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import audit, auth, billing, documents, fields, invitations, recipients, signing, organizations, saas, webhooks
 from app.api.routes import account, activity, invoices, revenue, support
-from app.api.routes import contacts, folders, teams, templates
+from app.api.routes import branding, catalog, contacts, folders, teams, templates
 from app.api.routes import api_keys, embed, public_api, reports, sandbox
-from app.api.routes import erasure, flags, logs, notifications, passkeys, payments, scim, sso, tenants, verification
+from app.api.routes import erasure, flags, logs, mail, notifications, passkeys, payments, scim, sso, tenants, verification
 from app.services import notification_service
 from app.services.billing_service import StripeApiError
 from app.services.scim_service import ScimException
@@ -181,6 +181,7 @@ app.include_router(flags.platform_router)
 app.include_router(flags.tenant_router)
 app.include_router(logs.tenant_router)
 app.include_router(logs.platform_router)
+app.include_router(mail.platform_router)
 app.include_router(api_keys.router)
 app.include_router(api_keys.settings_router)
 app.include_router(embed.router)
@@ -193,7 +194,11 @@ app.include_router(passkeys.router)
 app.include_router(sso.router)
 app.include_router(account.router)
 app.include_router(contacts.router)
+# Before templates.router: its '/{template_id}' would otherwise match the
+# literal path segment 'catalog'.
+app.include_router(catalog.router)
 app.include_router(templates.router)
+app.include_router(catalog.platform_router)
 app.include_router(folders.router)
 app.include_router(teams.router)
 app.include_router(notifications.router)
@@ -202,6 +207,8 @@ app.include_router(scim.token_router)
 app.include_router(payments.router)
 app.include_router(payments.document_payments_router)
 app.include_router(payments.connect_webhook_router)
+app.include_router(branding.router)
+app.include_router(branding.public_router)
 
 
 @app.get("/api/health")

@@ -27,16 +27,8 @@ import { documents as documentsApi } from '@/lib/api/resources';
 import { documentPathFor } from '@/lib/sf/routes';
 import { useSF } from '@/lib/sf/state';
 import { btn, TEXT_MUTED } from '@/lib/sf/ui';
+import { MAX_UPLOAD_BYTES, UPLOAD_ACCEPT, isSupportedUpload, titleFromFilename } from '@/lib/sf/uploads';
 
-/** Mirrors `settings.max_upload_bytes` — checked here so a 40 MB file is
- *  refused before it is pushed over the wire only to come back a 413. */
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-
-/** `Master services agreement.pdf` → `Master services agreement`. */
-function titleFromFilename(name: string): string {
-  const stripped = name.replace(/\.pdf$/i, '').trim();
-  return (stripped || 'Untitled document').slice(0, 200);
-}
 
 export type UploadDocumentProps = {
   /** Upload into this envelope. Omitted, a draft is created for the file. */
@@ -62,12 +54,15 @@ export default function UploadDocument({ documentId, label = 'Upload & prepare',
 
   const onPick = useCallback(async (file: File | null | undefined) => {
     if (!file || busy) return;
-    if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
-      flash('Only PDF files can be uploaded');
+    /* The server converts images and office documents to PDF at the upload
+       boundary, so the guard here has to be the same list — not "PDFs only",
+       which is what it used to say while the picker offered everything. */
+    if (!isSupportedUpload(file.name) && file.type !== 'application/pdf') {
+      flash('That file type cannot be uploaded — try a PDF, an image, or a document such as .docx');
       return;
     }
     if (file.size === 0) { flash('That file is empty'); return; }
-    if (file.size > MAX_UPLOAD_BYTES) { flash('That PDF is larger than 25 MB'); return; }
+    if (file.size > MAX_UPLOAD_BYTES) { flash('That file is larger than 25 MB'); return; }
 
     setBusy(true);
     try {
@@ -118,7 +113,7 @@ export default function UploadDocument({ documentId, label = 'Upload & prepare',
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.tif,.tiff,.webp,.doc,.docx,.odt,.rtf,.txt,.md,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp"
+        accept={UPLOAD_ACCEPT}
         onChange={e => { void onPick(e.target.files?.[0]); }}
         aria-label="Choose a file to upload"
         // Off-screen rather than `display:none` so it stays reachable to AT.

@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
-from app.models.enums import DocumentStatus, RecipientStatus, UserRole
+from app.models.enums import DocumentStatus, FieldType, RecipientStatus, UserRole
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.organization import Organization
 from app.models.recipient import Recipient
@@ -31,6 +31,10 @@ from app.schemas.organization import (
 
 #: ``range`` query value -> (days covered, label). Twelve buckets always.
 RANGES: dict[str, int] = {"7d": 7, "30d": 30, "90d": 90, "12m": 365}
+
+#: Every field type the product implements. A palette choice is validated
+#: against this, so a type withdrawn from the enum can never be stored.
+_FIELD_TYPES = {t.value for t in FieldType}
 
 #: Statuses that mean "still out with a signer".
 _OPEN_STATUSES = (
@@ -76,12 +80,41 @@ class OrganizationService:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT, detail="That slug is already taken"
                 )
+        if "enabled_field_types" in data:
+            data["enabled_field_types"] = self._normalise_field_types(data["enabled_field_types"])
         for field, value in data.items():
             setattr(org, field, value)
         db.add(org)
         db.commit()
         db.refresh(org)
         return org
+
+    @staticmethod
+    def _normalise_field_types(types: list[str] | None) -> list[str] | None:
+        """Validate a palette choice, or ``None`` for "offer every type".
+
+        An empty list is rejected rather than stored: a palette with no tiles in
+        it is indistinguishable from a broken builder, and the way to say "all
+        of them" is ``null``.
+        """
+        if types is None:
+            return None
+        unknown = [t for t in types if t not in _FIELD_TYPES]
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown field types: {', '.join(sorted(set(unknown)))}",
+            )
+        # De-duplicated; the canonical enum order is kept so the settings form
+        # and the palette list the same types in the same order.
+        chosen = set(types)
+        ordered = [t.value for t in FieldType if t.value in chosen]
+        if not ordered:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one field type must stay enabled.",
+            )
+        return ordered
 
     # ------------------------------------------------------------- overview
     def overview(self, db: Session, *, user: User, range_key: str = "30d") -> OrganizationOverview:
