@@ -7,6 +7,7 @@
  */
 import { fallbackPage, fallbackPrimary } from '@/lib/sf/fallback';
 import FallbackHero from '@/components/sf/parts/FallbackHero';
+import Icon from '@/components/sf/Icon';
 
 export default function SignError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
@@ -15,7 +16,7 @@ export default function SignError({ error, reset }: { error: Error & { digest?: 
         title="This signing session could not be opened"
         body="Something went wrong loading your envelope. Nothing you have already signed has been lost — every completed field is stored the moment you leave it."
         digest={error.digest}
-        actions={<button type="button" onClick={reset} style={fallbackPrimary}>Try again</button>}
+        actions={<button type="button" onClick={reset} style={fallbackPrimary}><Icon name="refresh" size={14} />Try again</button>}
       />
     </main>
   );

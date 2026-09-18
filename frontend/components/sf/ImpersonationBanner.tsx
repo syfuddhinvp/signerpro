@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { btn } from '@/lib/sf/ui';
 import { endImpersonation, useSession } from '@/components/sf/SessionProvider';
+import Icon from '@/components/sf/Icon';
 
 const bar: CSSProperties = {
   position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 70,
@@ -91,14 +92,14 @@ export default function ImpersonationBanner() {
         </span>
       ) : null}
       <button type="button" onClick={stop} disabled={busy} style={btn('#fff', '#7c2d12', '#fff')}>
-        {busy ? 'Ending…' : 'End impersonation'}
+        <Icon name="signOut" size={13} />{busy ? 'Ending…' : 'End impersonation'}
       </button>
       <button
         type="button"
         onClick={() => router.refresh()}
         style={btn('transparent', '#fff7ed', '#c2410c')}
       >
-        Refresh view
+        <Icon name="refresh" size={13} />Refresh view
       </button>
     </div>
   );

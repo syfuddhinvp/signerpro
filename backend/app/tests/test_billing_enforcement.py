@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.core.security import hash_password
 from app.main import app
 from app.models.charge import Charge
 from app.models.invoice import Invoice, InvoiceStatus
@@ -31,6 +32,7 @@ from app.models.plan import (
     Plan,
 )
 from app.models.subscription import Subscription, SubscriptionStatus
+from app.models.user import User
 from app.services.billing_service import (
     BillingProviderMisconfigured,
     InsecureBillingWebhookSecret,
@@ -126,9 +128,14 @@ def test_a_paid_upgrade_issues_an_invoice_and_a_charge(client: TestClient) -> No
 
 
 def test_a_downgrade_needs_no_payment_method(client: TestClient) -> None:
+    """Nothing is owed either way -- scheduled costs nothing, immediate credits."""
     headers = auth_headers(client)
     upgrade_plan(client, headers, "business")
-    back = client.post("/api/billing/change-plan", json={"plan_code": "team"}, headers=headers)
+    back = client.post(
+        "/api/billing/change-plan",
+        json={"plan_code": "team", "effective": "immediately"},
+        headers=headers,
+    )
     assert back.status_code == 200, back.text
     assert back.json()["plan_code"] == "team"
 
@@ -1373,3 +1380,252 @@ def test_stripe_list_invoices_pages_through_the_transport_seam(
     assert fake.params_for("GET", "/v1/invoices")["customer"] == "cus_1"
     # The second page is anchored on the last id of the first, not re-read.
     assert fake.calls[1][2]["starting_after"] == "in_a"
+
+
+# ---------------------------------------------------------------------------
+# BIL-12: the two ceilings an invite can hit
+# ---------------------------------------------------------------------------
+
+
+def test_inviting_past_licensed_seats_asks_for_a_seat_not_an_upgrade(
+    client: TestClient,
+) -> None:
+    """Within the plan's cap but out of bought seats: buy a seat.
+
+    The invite path used to check only the plan cap, so an organization could
+    quietly take on members it was not paying for.
+    """
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    upgrade_plan(client, headers, "business")  # allows 10 users
+    # Buy a seat, so the organization has an explicit licensed count. Until it
+    # does there is no ceiling to hit -- an org that never bought seats is
+    # governed by the plan cap alone, exactly as before.
+    bought = client.post("/api/billing/seats", json={"delta": 1}, headers=headers)
+    assert bought.status_code == 200, bought.text
+    assert bought.json()["seats_licensed"] == 2
+
+    # One user, two seats: the first invite fits.
+    first = client.post("/api/invitations/", json={"email": "seated@example.com"}, headers=headers)
+    assert first.status_code == 201, first.text
+    session, generator = _db()
+    session.add(
+        User(
+            organization_id=_org_id(client, headers),
+            name="Seated",
+            email="seated@example.com",
+            password_hash=hash_password("strong-password"),
+            role="sender",
+        )
+    )
+    session.commit()
+    generator.close()
+
+    refused = client.post(
+        "/api/invitations/", json={"email": "unseated@example.com"}, headers=headers
+    )
+    assert refused.status_code == 402, refused.text
+    detail = refused.json()["detail"]
+    assert detail["error"] == "seat_purchase_required"
+    assert detail["seats_needed"] == 1
+    # A real price, so the client can put a number on the button.
+    assert detail["proration_cents"] > 0
+
+
+def test_inviting_past_the_plan_cap_names_the_plan_that_fits(client: TestClient) -> None:
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    add_payment_method(client, headers)
+    # Team allows two users; buy the second seat so the plan cap is what bites.
+    client.post("/api/billing/seats", json={"delta": 1}, headers=headers)
+    accepted = client.post(
+        "/api/invitations/", json={"email": "second@example.com"}, headers=headers
+    )
+    assert accepted.status_code == 201, accepted.text
+
+    session, generator = _db()
+    session.add(
+        User(
+            organization_id=_org_id(client, headers),
+            name="Second",
+            email="second@example.com",
+            password_hash=hash_password("strong-password"),
+            role="sender",
+        )
+    )
+    session.commit()
+    generator.close()
+
+    refused = client.post(
+        "/api/invitations/", json={"email": "third@example.com"}, headers=headers
+    )
+    assert refused.status_code == 402, refused.text
+    detail = refused.json()["detail"]
+    assert detail["error"] == "plan_upgrade_required"
+    # Not "upgrade your plan" -- which one.
+    assert detail["suggested_plan"] == "business"
+
+
+# ---------------------------------------------------------------------------
+# REV-3: the balance tiles read Stripe, not the local charge ledger
+# ---------------------------------------------------------------------------
+
+
+def _balance_transport(
+    *,
+    default_currency: str = "usd",
+    available: list[dict] | None = None,
+    pending: list[dict] | None = None,
+    payouts: dict[str, list[dict]] | None = None,
+    disputes: list[dict] | None = None,
+):
+    """A Stripe responder for the four calls ``fetch_balance`` makes.
+
+    ``FakeStripe`` keys on path alone, which cannot distinguish the two
+    ``/v1/payouts`` reads (``status=pending`` and ``status=in_transit``), so
+    this one dispatches on the query params too.
+    """
+    calls: list[tuple[str, str, dict]] = []
+
+    def transport(method, url, params, headers):
+        path = url.split("api.stripe.com", 1)[-1]
+        calls.append((method, path, params))
+        if path == "/v1/account":
+            return 200, {"id": "acct_platform", "default_currency": default_currency}
+        if path == "/v1/balance":
+            return 200, {"available": available or [], "pending": pending or []}
+        if path == "/v1/payouts":
+            # Stripe 400s on any parameter it does not define for this
+            # endpoint, and `currency` is one of them -- the reason the live
+            # balance card failed with "Received unknown parameter: currency".
+            assert set(params) <= {"limit", "status"}, f"unknown payout params: {sorted(params)}"
+            return 200, {"data": (payouts or {}).get(params.get("status"), [])}
+        if path == "/v1/disputes":
+            return 200, {"data": disputes or []}
+        raise AssertionError(f"unexpected Stripe call: {method} {path}")
+
+    transport.calls = calls
+    return transport
+
+
+def test_stripe_balance_is_read_from_stripe_not_the_charge_ledger(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    transport = _balance_transport(
+        available=[{"amount": 412_55, "currency": "usd"}],
+        pending=[{"amount": 98_00, "currency": "usd"}],
+        payouts={"pending": [{"amount": 400_00, "arrival_date": 1_800_000_000, "currency": "usd"}]},
+    )
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(transport))
+
+    balance = stripe_provider.fetch_balance()
+
+    assert balance.currency == "USD"
+    assert balance.available_cents == 412_55
+    assert balance.pending_cents == 98_00
+    assert balance.next_payout_cents == 400_00
+    assert balance.next_payout_at == datetime.fromtimestamp(1_800_000_000, tz=timezone.utc)
+    # Pending money cannot leave before the next payout does.
+    assert balance.pending_settles_at == balance.next_payout_at
+
+
+def test_stripe_balance_reports_only_the_default_currency_and_names_the_rest(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    """Summing currencies would invent a number that is true of no account."""
+    transport = _balance_transport(
+        default_currency="eur",
+        available=[{"amount": 100_00, "currency": "eur"}, {"amount": 900_00, "currency": "usd"}],
+        pending=[{"amount": 0, "currency": "gbp"}],
+    )
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(transport))
+
+    balance = stripe_provider.fetch_balance()
+
+    assert balance.currency == "EUR"
+    assert balance.available_cents == 100_00
+    # A zero GBP balance is not a currency the account "holds".
+    assert balance.other_currencies == ["USD"]
+
+
+def test_stripe_balance_counts_only_unsettled_disputes(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    transport = _balance_transport(
+        disputes=[
+            {"amount": 50_00, "currency": "usd", "status": "needs_response"},
+            {"amount": 25_00, "currency": "usd", "status": "under_review"},
+            # Already decided: money is no longer at risk either way.
+            {"amount": 999_00, "currency": "usd", "status": "won"},
+            {"amount": 777_00, "currency": "usd", "status": "lost"},
+        ],
+    )
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(transport))
+
+    balance = stripe_provider.fetch_balance()
+
+    assert balance.dispute_count == 2
+    assert balance.disputes_cents == 75_00
+    # No denominator Stripe will cheaply give us, so no rate is claimed.
+    assert balance.dispute_rate_pct is None
+
+
+def test_stripe_next_payout_is_the_soonest_across_both_statuses(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    """`in_transit` payouts arrive sooner than `pending` ones and must win."""
+    transport = _balance_transport(
+        payouts={
+            "pending": [{"amount": 300_00, "arrival_date": 1_800_090_000, "currency": "usd"}],
+            "in_transit": [{"amount": 120_00, "arrival_date": 1_800_000_000, "currency": "usd"}],
+        },
+    )
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(transport))
+
+    balance = stripe_provider.fetch_balance()
+
+    assert balance.next_payout_cents == 120_00
+    assert balance.next_payout_at == datetime.fromtimestamp(1_800_000_000, tz=timezone.utc)
+
+
+def test_stripe_balance_with_no_scheduled_payout_is_unscheduled(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    transport = _balance_transport(available=[{"amount": 10_00, "currency": "usd"}])
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(transport))
+
+    balance = stripe_provider.fetch_balance()
+
+    assert balance.next_payout_cents == 0
+    assert balance.next_payout_at is None
+    assert balance.pending_settles_at is None
+
+
+def test_null_provider_reports_no_balance_of_its_own() -> None:
+    """It never holds money, so the caller must fall back to the ledger."""
+    assert NullPaymentProvider().fetch_balance() is None
+
+
+def test_stripe_next_payout_ignores_other_currencies(
+    monkeypatch, stripe_provider: StripePaymentProvider
+) -> None:
+    """`/v1/payouts` cannot filter by currency, so the rows must be filtered.
+
+    Sending `currency` to that endpoint is a 400, which is what took the whole
+    balance card down rather than just this one figure.
+    """
+    transport = _balance_transport(
+        payouts={
+            "pending": [
+                # Sooner, but denominated in a currency these tiles do not show.
+                {"amount": 500_00, "arrival_date": 1_800_000_000, "currency": "eur"},
+                {"amount": 70_00, "arrival_date": 1_800_050_000, "currency": "usd"},
+            ],
+        },
+    )
+    monkeypatch.setattr(StripePaymentProvider, "transport", staticmethod(transport))
+
+    balance = stripe_provider.fetch_balance()
+
+    assert balance.next_payout_cents == 70_00
+    assert balance.next_payout_at == datetime.fromtimestamp(1_800_050_000, tz=timezone.utc)

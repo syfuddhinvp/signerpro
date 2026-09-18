@@ -67,19 +67,53 @@ class FieldFavoritesUpdate(BaseModel):
 
 
 class IntegrationResponse(BaseModel):
+    """A connector as the account screen sees it.
+
+    Deliberately carries no credential of any kind: the OAuth tokens behind a
+    connected integration are encrypted at rest and never serialised.
+    ``account_email`` is the only thing about the remote account that leaves
+    the backend, and it exists so a user can tell *which* Drive they attached.
+    """
+
     provider: str
     label: str
     detail: str | None = None
     connected: bool = False
     connected_at: datetime | None = None
+    #: The deployment has a client id/secret for this provider. Without it the
+    #: connect button has nothing to talk to, so the UI disables it.
+    configured: bool = False
+    account_email: str | None = None
+    #: Tokens exist but the grant is dead; the tenant has to consent again.
+    needs_reauth: bool = False
+    last_error: str | None = None
 
 
-class IntegrationConnectRequest(BaseModel):
-    label: str | None = Field(default=None, max_length=80)
-    detail: str | None = Field(default=None, max_length=255)
-    # OAuth callback payload. Persisted through EncryptedString; never returned.
-    credentials: dict[str, Any] | None = None
-    config: dict[str, Any] | None = None
+class AuthorizeResponse(BaseModel):
+    """Where to send the browser, plus the signed state it must come back with."""
+
+    authorization_url: str
+    state: str
+
+
+class OAuthCallbackRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=2048)
+    state: str = Field(min_length=1, max_length=4096)
+
+
+class CloudExportItem(BaseModel):
+    id: str
+    provider: str
+    document_id: str
+    document_title: str | None = None
+    #: "pending" | "succeeded" | "failed"
+    status: str
+    attempts: int = 0
+    remote_path: str | None = None
+    remote_file_id: str | None = None
+    last_error: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
 
 
 class CloudTargetItem(BaseModel):

@@ -28,6 +28,7 @@ import {
   declineNotice,
   defaultPaymentMethodLabel,
   formatCents,
+  formatDate,
   toInvoiceRow,
   toPlanChoices,
   toPlanPreviewPairs,
@@ -79,6 +80,17 @@ const EMPTY_FIELD_ROWS: FieldResponse[] = [];
 const EMPTY_RECIPIENT_ROWS: RecipientResponse[] = [];
 
 const SLA_MAP: Record<string, string> = { urgent: '1h 00m left', high: '4h 00m left', normal: '1d 0h left', low: '3d 0h left' };
+
+/* The seat endpoint accepts any integer delta up to 1000 (SeatChangeRequest),
+   so that — not a round number chosen for a slider — is the ceiling here. */
+const SEAT_MAX = 1000;
+
+/** A seat count the server will accept: a whole number within 0..SEAT_MAX. */
+function clampSeats(raw: string): number {
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(SEAT_MAX, Math.max(0, parsed));
+}
 
 const textareaStyle: CSSProperties = {
   border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem',
@@ -465,9 +477,22 @@ export default function Modals() {
     fontSize: '.71875rem', fontFamily: 'var(--font-sans)', color: '#475569'
   };
   const payMethodLabel = defaultPaymentMethodLabel(billingPms);
+  /* A plan change the organization is over the capacity of has no coherent
+     state on the other side, so the CTA is disabled and the remedy is shown
+     instead. Feature loss is a warning: it is confirmable, not refused. */
+  const planBlockers = s.modal === 'plan' && planPreview ? planPreview.blockers : [];
+  const planWarnings = s.modal === 'plan' && planPreview ? planPreview.warnings : [];
+  const planBlocked = planBlockers.length > 0;
+  const planScheduled = s.modal === 'plan' && planPreview ? planPreview.scheduled : false;
   const checkoutCta = s.modal === 'pay'
     ? 'Pay ' + (inv ? formatCents(inv.amountDueCents, inv.currency) : EMPTY)
-    : (s.modal === 'seats' ? 'Confirm & charge' : 'Switch plan');
+    : s.modal === 'seats'
+      ? 'Confirm & charge'
+      : planScheduled
+        /* Not "Switch plan": nothing switches today, and a button that says
+           it does is a promise the backend deliberately does not keep. */
+        ? 'Schedule switch'
+        : 'Switch plan';
 
   /* A 402 carries `decline_code` and the dunning state in its body, which
      `ApiError` does not keep — so the failed charge and the invoice are re-read
@@ -487,7 +512,14 @@ export default function Modals() {
 
   const confirmCheckout = () => {
     const m = s.modal;
-    if (m === 'plan' && stripeReady) {
+    /* Checkout is for a FIRST purchase only. A Stripe Checkout Session in
+       subscription mode creates a new subscription rather than modifying the
+       existing one, so sending a plan *change* through it left the old
+       subscription live and billing alongside the new one — four at once on
+       one customer. An organization that already has a provider subscription
+       therefore falls through to `changePlan`, which modifies it in place and
+       prorates (BIL-13). */
+    if (m === 'plan' && stripeReady && !billingSub?.has_provider_subscription) {
       if (!targetPlan) { flash(s.checkoutPlan + ' is not in the plan catalogue'); return; }
       /* The modal stays open and swaps to the payment frame. Nothing is
          charged until Stripe says so, and Stripe says so to the webhook and
@@ -528,14 +560,37 @@ export default function Modals() {
     }
     if (!targetPlan) { flash(s.checkoutPlan + ' is not in the plan catalogue'); return; }
     const plan = targetPlan;
-    void billingApi.changePlan(apiCall, plan.code).then(res => {
-      if (!res.ok) { flash('Could not switch to ' + plan.name + ' · ' + res.error.message); return; }
-      /* Reached only when Stripe is not configured in this browser build, so
-         the change went through the local provider. Say that, rather than
-         implying a card was charged. */
-      flash('Plan switched to ' + plan.name + ' · no card payment was taken');
-      router.refresh();
-    });
+    const quote = planPreview;
+    void billingApi
+      .changePlan(apiCall, plan.code, {
+        effective: quote ? quote.effective_mode : undefined,
+        /* The figure the summary rows just showed. The backend refuses with
+           409 rather than charging a different one, so a stale modal cannot
+           take money nobody agreed to. */
+        quoted_amount_cents: quote ? quote.amount_due_cents : undefined,
+      })
+      .then(res => {
+        if (!res.ok) { flash('Could not switch to ' + plan.name + ' · ' + res.error.message); return; }
+        if (res.data.pending_plan_code) {
+          /* Scheduled, not applied: the current plan is still in force and
+             saying "switched" here would be a lie the billing page contradicts. */
+          flash(
+            plan.name + ' starts ' + formatDate(res.data.pending_plan_effective_at)
+            + ' · you keep ' + res.data.plan_name + ' until then',
+          );
+        } else if (quote && quote.wallet_credit_cents > 0) {
+          flash(
+            'Plan switched to ' + plan.name + ' · ' + formatCents(quote.wallet_credit_cents)
+            + ' credited to your account balance',
+          );
+        } else {
+          /* Reached only when Stripe is not configured in this browser build,
+             so the change went through the local provider. Say that, rather
+             than implying a card was charged. */
+          flash('Plan switched to ' + plan.name + ' · no card payment was taken');
+        }
+        router.refresh();
+      });
   };
 
   /* ── text modal ── */
@@ -586,8 +641,8 @@ export default function Modals() {
                 By selecting Adopt and sign, I agree this signature and initials are the electronic representation of my signature for all purposes.
               </span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                <button type="button" onClick={closeModal} style={ghostBtn}>Cancel</button>
-                <button type="button" onClick={adopt} style={primaryBtn}>Adopt and sign</button>
+                <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
+                <button type="button" onClick={adopt} style={primaryBtn}><Icon name="sign" size={13} />Adopt and sign</button>
               </div>
             </div>
           </div>
@@ -626,8 +681,8 @@ export default function Modals() {
                 Contacts created here are returned by GET /v1/contacts and can be injected into an embed session.
               </span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                <button type="button" onClick={closeModal} style={ghostBtn}>Cancel</button>
-                <button type="button" onClick={createContact} style={primaryBtn}>Save contact</button>
+                <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
+                <button type="button" onClick={createContact} style={primaryBtn}><Icon name="save" size={13} />Save contact</button>
               </div>
             </div>
           </div>
@@ -659,8 +714,8 @@ export default function Modals() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
               <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, lineHeight: 1.5, maxWidth: '300px' }}>{ntSlaNote}</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                <button type="button" onClick={closeModal} style={ghostBtn}>Cancel</button>
-                <button type="button" onClick={createTicket} style={primaryBtn}>Submit ticket</button>
+                <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
+                <button type="button" onClick={createTicket} style={primaryBtn}><Icon name="send" size={13} />Submit ticket</button>
               </div>
             </div>
           </div>
@@ -701,11 +756,11 @@ export default function Modals() {
                   : 'No card details are collected on this tab'}
               </span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                <button type="button" onClick={closeModal} style={ghostBtn}>Cancel</button>
+                <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
                 {/* The Card tab has no submit of ours: Stripe's own button in
                     the frame submits, then redirects to the return url. */}
                 {s.payTab === 'invoice' ? (
-                  <button type="button" onClick={requestInvoiceBilling} style={primaryBtn}>{savePaymentLabel}</button>
+                  <button type="button" onClick={requestInvoiceBilling} style={primaryBtn}><Icon name="save" size={13} />{savePaymentLabel}</button>
                 ) : null}
               </div>
             </div>
@@ -723,7 +778,7 @@ export default function Modals() {
               livemode={stripeSession ? stripeSession.livemode : undefined}
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
-              <button type="button" onClick={closeModal} style={ghostBtn}>Cancel</button>
+              <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
             </div>
           </div>
         ) : null}
@@ -742,21 +797,53 @@ export default function Modals() {
             ) : null}
             {s.modal === 'seats' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
-                <label style={lblStyle}>Additional seats
+                <label style={lblStyle} htmlFor="seat-count">Additional seats</label>
+                {/* The slider is the coarse gesture and the box is the exact
+                    one. A slider alone cannot express 58 seats, and at a
+                    per-seat price that rounding is money, not pixels: the API
+                    takes any integer delta, so the UI must not invent steps. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <input
-                    type="range" min="0" max="500" step="10"
+                    type="range" min="0" max={SEAT_MAX} step="1"
                     value={String(s.addSeats)}
-                    onChange={(e) => set({ addSeats: parseInt(e.target.value, 10) })}
+                    onChange={(e) => set({ addSeats: clampSeats(e.target.value) })}
                     aria-label="Additional seats"
                     style={{ width: '100%', accentColor: '#4f46e5' }}
                   />
-                </label>
+                  <input
+                    id="seat-count"
+                    type="number" inputMode="numeric" min="0" max={SEAT_MAX} step="1"
+                    value={String(s.addSeats)}
+                    onChange={(e) => set({ addSeats: clampSeats(e.target.value) })}
+                    style={Object.assign({}, inputStyle, { width: '84px', flex: '0 0 auto', textAlign: 'right' as const })}
+                  />
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.78125rem' }}>
-                  <span style={{ color: '#64748b' }}>{String(s.addSeats)} seats added</span>
+                  <span style={{ color: '#64748b' }}>{s.addSeats === 1 ? '1 seat added' : String(s.addSeats) + ' seats added'}</span>
                   <span style={{ fontFamily: 'var(--font-sans)', fontWeight: 600 }}>{formatCents(seatCostCents)}</span>
                 </div>
               </div>
             ) : null}
+            {planBlockers.map(issue => (
+              <div
+                key={issue.code}
+                role="alert"
+                style={{ display: 'flex', flexDirection: 'column', gap: '3px', border: '1px solid #fecaca', borderRadius: '12px', padding: '12px', background: '#fef2f2' }}
+              >
+                <span style={{ fontSize: '.78125rem', fontWeight: 700, color: '#991b1b' }}>{issue.message}</span>
+                {issue.remedy ? (
+                  <span style={{ fontSize: '.71875rem', color: '#b91c1c' }}>{issue.remedy}</span>
+                ) : null}
+              </div>
+            ))}
+            {planWarnings.map(issue => (
+              <div
+                key={issue.code}
+                style={{ display: 'flex', flexDirection: 'column', gap: '3px', border: '1px solid #fde68a', borderRadius: '12px', padding: '12px', background: '#fffbeb' }}
+              >
+                <span style={{ fontSize: '.78125rem', color: '#92400e' }}>{issue.message}</span>
+              </div>
+            ))}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', border: '1px solid #eef1f6', borderRadius: '12px', padding: '12px', background: '#fbfcfd' }}>
               {checkoutLines.map(l => (
                 <div key={l.k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.78125rem' }}>
@@ -766,10 +853,18 @@ export default function Modals() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={payMethodChip}>{payMethodLabel}</span>
-              <button type="button" onClick={() => set({ modal: 'card' })} style={ghostBtn}>Change</button>
+              <button type="button" onClick={() => set({ modal: 'card' })} style={ghostBtn}><Icon name="card" size={13} />Change</button>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                <button type="button" onClick={closeModal} style={ghostBtn}>Cancel</button>
-                <button type="button" onClick={confirmCheckout} style={primaryBtn}>{checkoutCta}</button>
+                <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
+                <button
+                  type="button"
+                  onClick={confirmCheckout}
+                  disabled={planBlocked}
+                  aria-disabled={planBlocked}
+                  style={planBlocked ? { ...primaryBtn, opacity: .5, cursor: 'not-allowed' } : primaryBtn}
+                >
+                  <Icon name="card" size={13} />{checkoutCta}
+                </button>
               </div>
             </div>
           </div>
@@ -789,8 +884,8 @@ export default function Modals() {
               />
             ) : null}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button type="button" onClick={closeModal} style={ghostBtn}>Close</button>
-              <button type="button" onClick={confirmModal} style={modalCtaStyle}>{modalCta}</button>
+              <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Close</button>
+              <button type="button" onClick={confirmModal} style={modalCtaStyle}><Icon name="check" size={13} />{modalCta}</button>
             </div>
           </div>
         ) : null}

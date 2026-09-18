@@ -55,7 +55,8 @@ from app.schemas.payment import (
     PaymentRequestResponse,
     validate_allocations,
 )
-from app.services.audit_service import audit_service
+from app.services.audit_service import UNSET, audit_service
+from app.services.payment_receipt_service import payment_receipt_service
 from app.services.billing_service import (
     STRIPE_API_BASE,
     StripeApiError,
@@ -81,6 +82,16 @@ _SETTLED_STATUSES = (SignerPaymentStatus.succeeded, SignerPaymentStatus.refunded
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _money(cents: int, currency: str) -> str:
+    """Amounts in audit messages are human-readable, not raw cents.
+
+    An audit trail is read by lawyers, auditors and support staff, not only
+    by the code that wrote it; "25.00 USD" is evidence, "2500" is a puzzle.
+    The machine-readable cents go into the entry's metadata alongside.
+    """
+    return f"{cents / 100:,.2f} {currency.upper()}"
 
 
 def _idempotency_key(*, field_id: str, amount_cents: int) -> str:
@@ -402,6 +413,11 @@ class SignerPaymentService:
         if payment.refunded_amount_cents >= payment.amount_cents:
             payment.status = SignerPaymentStatus.refunded
         db.add(payment)
+        # The receipt is brought in line *before* the commit, so a refunded
+        # payment and a receipt still reading "PAID" can never both be
+        # persisted. `apply_refund` reads the payment's refunded total rather
+        # than adding a delta, so a retried refund cannot double-count.
+        receipt = payment_receipt_service.apply_refund(db, payment=payment)
         db.commit()
         db.refresh(payment)
 
@@ -410,10 +426,30 @@ class SignerPaymentService:
             document_id=payment.document_id,
             recipient_id=payment.recipient_id,
             event_type="signer_payment_refunded",
-            event_message=f"Refunded {amount} cents of a {payment.amount_cents}-cent payment.",
+            event_message=(
+                f"Refunded {_money(amount, payment.currency)} of a "
+                f"{_money(payment.amount_cents, payment.currency)} payment."
+            ),
             user_id=actor_user_id,
-            metadata={"payment_id": payment.id, "amount_cents": amount, "stripe_refund_id": body.get("id")},
+            metadata={
+                "payment_id": payment.id,
+                "amount_cents": amount,
+                "currency": payment.currency,
+                "refunded_total_cents": payment.refunded_amount_cents,
+                "stripe_refund_id": body.get("id"),
+                "stripe_payment_intent_id": payment.provider_payment_intent_id,
+                "receipt_id": receipt.id if receipt else None,
+                "receipt_number": receipt.number if receipt else None,
+                "receipt_checksum": receipt.checksum if receipt else None,
+            },
         )
+        # This commit is load-bearing and was missing. `get_db` only closes
+        # the session, it never commits, so the refund audit entry above was
+        # added to the session and then discarded -- a refund moved real money
+        # and left no record of who authorised it. Tests did not catch it
+        # because they share one session, where an uncommitted row is still
+        # visible to the assertions that read it back.
+        db.commit()
         return payment
 
     # ================================================================
@@ -456,7 +492,14 @@ class SignerPaymentService:
         return sum(max(row.amount_cents - (row.refunded_amount_cents or 0), 0) for row in rows)
 
     def create_intent(
-        self, db: Session, *, raw_token: str, field_id: str, amount_cents: int | None = None
+        self,
+        db: Session,
+        *,
+        raw_token: str,
+        field_id: str,
+        amount_cents: int | None = None,
+        ip_address: str | None | Any = UNSET,
+        user_agent: str | None | Any = UNSET,
     ) -> PaymentIntentResponse:
         """Create (or reuse) the Stripe PaymentIntent for one payment field.
 
@@ -543,9 +586,15 @@ class SignerPaymentService:
         idempotency_key = _idempotency_key(field_id=field.id, amount_cents=amount)
 
         reusable = self._existing_reusable_payment(db, field_id=field.id, amount_cents=amount)
+        # Only a *newly minted* intent is an initiation worth logging. A
+        # double-click that retrieves the existing in-flight intent is the
+        # same attempt, and logging it again would fill the trail with noise
+        # that looks like repeated payment attempts.
+        started = True
         if reusable is not None:
             payment = reusable
             if payment.provider_payment_intent_id:
+                started = False
                 # Same field, same amount, same in-flight attempt: retrieve
                 # the existing intent rather than creating a second one.
                 body = self._request(
@@ -594,6 +643,34 @@ class SignerPaymentService:
             )
             db.add(payment)
 
+        # A brand-new row's `id` is a Python-side default applied at flush,
+        # and the audit metadata references it, so flush before logging.
+        db.flush()
+
+        # Logged before the money moves, from the signer's own request, so the
+        # trail records who was shown the amount and asked to pay it -- not
+        # only the eventual outcome. A signer who abandons the payment leaves
+        # this entry and no settlement entry, which is the correct reading of
+        # what happened; previously they left nothing at all.
+        if started:
+            audit_service.log(
+                db,
+                document_id=document.id,
+                recipient_id=recipient.id,
+                event_type="signer_payment_started",
+                event_message=f"Payment of {_money(amount, config.currency)} initiated by the signer.",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                metadata={
+                    "payment_id": payment.id,
+                    "amount_cents": amount,
+                    "currency": config.currency,
+                    "field_id": field.id,
+                    "stripe_payment_intent_id": payment.provider_payment_intent_id,
+                    "stripe_connected_account_id": account.provider_account_id,
+                },
+            )
+
         db.commit()
         db.refresh(payment)
 
@@ -635,7 +712,15 @@ class SignerPaymentService:
             "POST", "/v1/payment_intents", params, connected_account_id=account_id, idempotency_key=idempotency_key
         )
 
-    def refresh_payment(self, db: Session, *, raw_token: str, field_id: str) -> SignerPayment:
+    def refresh_payment(
+        self,
+        db: Session,
+        *,
+        raw_token: str,
+        field_id: str,
+        ip_address: str | None | Any = UNSET,
+        user_agent: str | None | Any = UNSET,
+    ) -> SignerPayment:
         """Reconcile a `SignerPayment` against Stripe's own view of the intent.
 
         This is the fallback that matters. Webhooks arrive late (or never, in
@@ -666,7 +751,18 @@ class SignerPaymentService:
             {"expand[0]": "latest_charge"},
             connected_account_id=payment.provider_account_id,
         )
-        self._reconcile(db, payment=payment, body=body, field=field)
+        # This is the ONLY settlement path that can attribute the payment to
+        # the signer: the request came from their browser. The webhook path
+        # cannot, and records that fact rather than guessing.
+        self._reconcile(
+            db,
+            payment=payment,
+            body=body,
+            field=field,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            settled_via="signer_poll",
+        )
         db.commit()
         db.refresh(payment)
         return payment
@@ -697,9 +793,121 @@ class SignerPaymentService:
             return {"id": latest}
         return {}
 
-    def _reconcile(
-        self, db: Session, *, payment: SignerPayment, body: dict[str, Any], field: Field | None, event_type: str | None = None
+    def _record_settlement(
+        self,
+        db: Session,
+        *,
+        payment: SignerPayment,
+        ip_address: str | None | Any = UNSET,
+        user_agent: str | None | Any = UNSET,
+        settled_via: str = "unknown",
     ) -> None:
+        """Write the two records a settled payment legally requires.
+
+        Until this existed, settlement wrote nothing but mutable columns on
+        `signer_payments`. The certificate of completion read those columns
+        and printed "Paid" -- so a sealed, hash-chained document made a
+        financial claim that chain verification did not cover, and the only
+        human-readable proof was a Stripe-hosted page on the tenant's own
+        connected account that vanished if they disconnected it.
+
+        So: one chained `AuditLog` entry (tamper-evident, survives document
+        purge via ``document_ref``) and one `PaymentReceipt` (a numbered,
+        checksummed financial document this application holds), pointing at
+        each other. Both join the settlement's own transaction, so a payment
+        marked received and its evidence can never diverge.
+
+        Never raises. The money has already moved by the time this runs; an
+        exception here would roll back the row marking the payment as
+        received, leaving a charged signer unable to sign. A missing receipt
+        is recoverable (``scripts/backfill_provider_invoices.py``-style
+        backfill); an unsettled paid signer is not.
+        """
+        try:
+            entry = audit_service.log(
+                db,
+                document_id=payment.document_id,
+                recipient_id=payment.recipient_id,
+                event_type="signer_payment_succeeded",
+                event_message=(
+                    f"Payment of {_money(payment.amount_cents, payment.currency)} received"
+                    f" from the signer to the sender's own Stripe account."
+                ),
+                ip_address=ip_address,
+                user_agent=user_agent,
+                metadata={
+                    "payment_id": payment.id,
+                    "amount_cents": payment.amount_cents,
+                    "currency": payment.currency,
+                    "field_id": payment.field_id,
+                    "stripe_payment_intent_id": payment.provider_payment_intent_id,
+                    "stripe_charge_id": payment.provider_charge_id,
+                    "stripe_connected_account_id": payment.provider_account_id,
+                    # Recorded explicitly so nobody reading this trail later
+                    # has to infer where the money went: not to the platform.
+                    "merchant_of_record": "tenant_connected_account",
+                    # How we learned the money arrived, and therefore whether
+                    # the signer's own IP/user-agent could be captured at all.
+                    # A trail that silently showed no IP for a webhook-settled
+                    # payment would read as "we failed to record it" rather
+                    # than "it was never ours to record".
+                    "settled_via": settled_via,
+                },
+            )
+            # `AuditLog.id` is a Python-side default applied at flush, and the
+            # receipt stores it, so the flush has to happen here rather than
+            # at the caller's commit.
+            db.flush()
+            receipt = payment_receipt_service.issue_for_payment(
+                db, payment=payment, audit_log_id=entry.id
+            )
+            if receipt is not None:
+                audit_service.log(
+                    db,
+                    document_id=payment.document_id,
+                    recipient_id=payment.recipient_id,
+                    event_type="payment_receipt_issued",
+                    event_message=f"Receipt {receipt.number} issued for this payment.",
+                    ip_address=None,
+                    user_agent=None,
+                    metadata={
+                        "payment_id": payment.id,
+                        "receipt_id": receipt.id,
+                        "receipt_number": receipt.number,
+                        "receipt_checksum": receipt.checksum,
+                        "total_cents": receipt.total_cents,
+                        "currency": receipt.currency,
+                    },
+                )
+        except Exception:  # noqa: BLE001 - see the docstring: never fail a settlement
+            logger.exception(
+                "signer_payment.settlement_record_failed", extra={"payment_id": payment.id}
+            )
+
+    def _reconcile(
+        self,
+        db: Session,
+        *,
+        payment: SignerPayment,
+        body: dict[str, Any],
+        field: Field | None,
+        event_type: str | None = None,
+        ip_address: str | None | Any = UNSET,
+        user_agent: str | None | Any = UNSET,
+        settled_via: str = "unknown",
+    ) -> None:
+        """Apply Stripe's view of the intent to our row.
+
+        ``ip_address``/``user_agent`` describe *the signer*, and only the
+        polling path can supply them, because only there did the signer's own
+        browser make the request. A webhook is delivered by Stripe's servers,
+        so recording their address would attribute the payment to Stripe.
+
+        ``settled_via`` is therefore recorded alongside: it is the difference
+        between "we have no device evidence for this charge" and "we captured
+        it", which is precisely what a chargeback turns on, and it cannot be
+        reconstructed from a null IP alone.
+        """
         stripe_status = body.get("status")
         if stripe_status == "succeeded" or event_type == "payment_intent.succeeded":
             first_settlement = payment.status != SignerPaymentStatus.succeeded
@@ -723,13 +931,46 @@ class SignerPaymentService:
                     # signer-typed answer.
                     field.value = f"paid:{payment.provider_payment_intent_id}"
                     db.add(field)
+                db.add(payment)
+                self._record_settlement(
+                    db,
+                    payment=payment,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    settled_via=settled_via,
+                )
             db.add(payment)
         elif event_type == "payment_intent.payment_failed" or stripe_status in {"canceled"}:
             last_error = body.get("last_payment_error") or {}
+            previous_status = payment.status
             payment.status = SignerPaymentStatus.failed
             payment.failure_code = last_error.get("code")
             payment.failure_message = last_error.get("message")
             db.add(payment)
+            if previous_status != SignerPaymentStatus.failed:
+                # Logged as well as succeeded payments: a signer who says
+                # "your site took my money" when it did not is answered by a
+                # chained record of the attempt and its decline code, and a
+                # run of failures on one envelope is itself a fraud signal.
+                audit_service.log(
+                    db,
+                    document_id=payment.document_id,
+                    recipient_id=payment.recipient_id,
+                    event_type="signer_payment_failed",
+                    event_message=(
+                        f"Payment of {_money(payment.amount_cents, payment.currency)} failed"
+                        + (f": {payment.failure_message}" if payment.failure_message else ".")
+                    ),
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    metadata={
+                        "payment_id": payment.id,
+                        "amount_cents": payment.amount_cents,
+                        "currency": payment.currency,
+                        "failure_code": payment.failure_code,
+                        "stripe_payment_intent_id": payment.provider_payment_intent_id,
+                    },
+                )
         else:
             payment.status = SignerPaymentStatus.processing
             db.add(payment)
@@ -765,7 +1006,21 @@ class SignerPaymentService:
             return payment
 
         field = db.get(Field, payment.field_id)
-        self._reconcile(db, payment=payment, body=data_object, field=field, event_type=event_type)
+        # Explicitly ``None`` -- the audit service's convention for "the
+        # caller knows there is none" rather than "the caller forgot". The
+        # request came from Stripe's servers, so there is genuinely no signer
+        # IP or user-agent here, and ``settled_via`` records that so the
+        # absence reads as a fact about the channel, not a gap in our logging.
+        self._reconcile(
+            db,
+            payment=payment,
+            body=data_object,
+            field=field,
+            event_type=event_type,
+            ip_address=None,
+            user_agent=None,
+            settled_via="stripe_webhook",
+        )
         db.commit()
         db.refresh(payment)
         return payment

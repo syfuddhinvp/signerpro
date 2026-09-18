@@ -80,7 +80,8 @@ const NEEDS_COMPLETE_DTO: Record<string, unknown[]> = {
   toBalanceTiles: [{
     currency: '', available_cents: 0, pending_cents: 0, pending_settles_at: null,
     next_payout_cents: 0, next_payout_at: null, payout_destination: '',
-    disputes_cents: 0, dispute_count: 0, dispute_rate_pct: 0,
+    disputes_cents: 0, dispute_count: 0, dispute_rate_pct: null,
+    source: 'ledger', other_currencies: [],
   }],
   toChurnRows: [{
     gross_logo_churn_pct: 0, net_revenue_retention_pct: 0,

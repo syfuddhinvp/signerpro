@@ -21,7 +21,7 @@ import { documents as documentsApi, fields as fieldsApi, recipients as recipient
 import { toSignerFields, toSignerRecipients, toSignValues } from '@/lib/sf/adapters';
 import { isAnnotationType } from '@/lib/sf/annotations';
 import { documentPathFor } from '@/lib/sf/routes';
-import { isSealedStatus } from '@/lib/sf/sealed';
+import { isLockedStatus, isSealedStatus } from '@/lib/sf/sealed';
 import type { FieldResponse, RecipientResponse } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
@@ -107,6 +107,7 @@ export default async function Page({
           recipients={recipientList}
           pageCount={document.page_count || 1}
           title={document.title}
+          locked={isLockedStatus(document.status)}
           initialValues={toSignValues(assigned)}
           pdfUrl={pdfUrl}
           otherPlacements={others}

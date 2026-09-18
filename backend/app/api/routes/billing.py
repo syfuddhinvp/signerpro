@@ -24,9 +24,12 @@ from app.schemas.billing import (
     SubscriptionResponse,
     UpcomingInvoiceResponse,
     UsageResponse,
+    WalletEntryResponse,
+    WalletResponse,
 )
 from app.services.billing_service import billing_service
 from app.services.entitlement_service import entitlement_service
+from app.services.wallet_service import wallet_service
 
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
@@ -57,6 +60,22 @@ def _subscription_response(db: Session, organization_id: str) -> SubscriptionRes
         trial_ends_at=subscription.trial_ends_at if subscription else None,
         cancel_at_period_end=bool(subscription.cancel_at_period_end) if subscription else False,
         canceled_at=subscription.canceled_at if subscription else None,
+        has_provider_subscription=bool(
+            subscription is not None and subscription.provider_subscription_id
+        ),
+        pending_plan_code=(
+            subscription.pending_plan.code
+            if subscription is not None and subscription.pending_plan is not None
+            else None
+        ),
+        pending_plan_name=(
+            subscription.pending_plan.name
+            if subscription is not None and subscription.pending_plan is not None
+            else None
+        ),
+        pending_plan_effective_at=(
+            subscription.pending_plan_effective_at if subscription else None
+        ),
         provider=subscription.provider if subscription else None,
         entitlements=context.entitlements,
     )
@@ -158,12 +177,38 @@ def change_plan(
     db: Session = Depends(get_db),
     user: User = Depends(require_org_admin),
 ) -> SubscriptionResponse:
+    """Move onto ``plan_code``, or schedule the move.
+
+    An upgrade is charged and applied now. A downgrade is scheduled for the
+    end of the period the organization has already paid for unless
+    ``effective`` says otherwise; taking it immediately credits the unused
+    remainder to their account balance, which is spent on future invoices and
+    is never refunded to a card (BIL-12).
+
+    Refuses 409 when the organization is over the target plan's capacity --
+    the ``blockers`` in the preview say by how much and what to do about it.
+    """
     billing_service.change_plan(
         db,
         organization_id=user.organization_id,
         plan_code=payload.plan_code,
         payment_method_id=payload.payment_method_id,
+        effective=payload.effective,
+        quoted_amount_cents=payload.quoted_amount_cents,
+        # `force` is a platform-admin affordance; an org admin cannot grant
+        # themselves one by posting it.
+        force=bool(payload.force) and bool(user.is_platform_admin),
     )
+    return _subscription_response(db, user.organization_id)
+
+
+@router.delete("/change-plan/pending", response_model=SubscriptionResponse)
+def cancel_pending_plan_change(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+) -> SubscriptionResponse:
+    """Call off a scheduled downgrade. Idempotent."""
+    billing_service.cancel_pending_plan_change(db, organization_id=user.organization_id)
     return _subscription_response(db, user.organization_id)
 
 
@@ -221,14 +266,48 @@ async def provider_webhook(
 @router.get("/change-plan/preview", response_model=PlanChangePreview)
 def preview_change_plan(
     plan_code: str = Query(max_length=50),
+    effective: str | None = Query(default=None, max_length=20),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> PlanChangePreview:
-    """What switching to ``plan_code`` costs today. Read-only."""
+    """What switching to ``plan_code`` costs, when it lands, and what breaks.
+
+    Read-only, and the figures ``POST /change-plan`` will honour: pass
+    ``amount_due_cents`` back as ``quoted_amount_cents`` to be sure the tenant
+    is charged what they were shown.
+    """
     return PlanChangePreview.model_validate(
         billing_service.preview_plan_change(
-            db, organization_id=user.organization_id, plan_code=plan_code
+            db,
+            organization_id=user.organization_id,
+            plan_code=plan_code,
+            effective=effective,
         )
+    )
+
+
+@router.get("/wallet", response_model=WalletResponse)
+def get_wallet(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> WalletResponse:
+    """Account balance and the ledger behind it (BIL-12).
+
+    Balance is spent automatically on the next invoice. There is deliberately
+    no endpoint that moves it anywhere else.
+    """
+    summary = wallet_service.summary(db, user.organization_id)
+    entries, total = wallet_service.history(
+        db, user.organization_id, limit=limit, offset=offset
+    )
+    return WalletResponse(
+        balance_cents=summary["balance_cents"],
+        currency=summary["currency"],
+        withdrawable=summary["withdrawable"],
+        total=total,
+        entries=[WalletEntryResponse.model_validate(entry) for entry in entries],
     )
 
 
@@ -251,6 +330,7 @@ def change_seats(
         seats_activated=result["seats_activated"],
         proration_cents=result["proration_cents"],
         effective_at=result["effective_at"],
+        wallet_credit_cents=result.get("wallet_credit_cents", 0),
     )
 
 

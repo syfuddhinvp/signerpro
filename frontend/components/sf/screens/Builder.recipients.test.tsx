@@ -80,7 +80,7 @@ const nameField = () => screen.getByLabelText('Recipient name (optional)');
 
 /** Reveal the rail's form and type an address (and optionally a name). */
 async function fillForm(email: string, name?: string) {
-  fireEvent.click(screen.getAllByRole('button', { name: '+ Add recipient' })[0]);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Add recipient' })[0]);
   fireEvent.change(await screen.findByLabelText('Recipient email'), { target: { value: email } });
   if (name !== undefined) fireEvent.change(nameField(), { target: { value: name } });
 }
@@ -99,7 +99,7 @@ beforeEach(() => {
 describe('recipients on the prepare screen', { timeout: 20_000 }, () => {
   it('offers the control even on an envelope with nobody on it', () => {
     mount([]);
-    expect(screen.getAllByRole('button', { name: '+ Add recipient' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Add recipient' }).length).toBeGreaterThan(0);
     expect(screen.getByText(/Nobody is on this envelope yet/)).toBeTruthy();
   });
 

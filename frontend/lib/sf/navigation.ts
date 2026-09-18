@@ -105,6 +105,9 @@ export type NavContext = {
   /** True when that envelope is sealed — completed, voided, declined, expired.
    *  Its authoring stages redirect to the audit trail, so they are not offered. */
   documentSealed?: boolean;
+  /** True once the envelope is past draft/prepared: Prepare and Workflow
+   *  redirect to the audit trail, so the rail stops linking to them. */
+  documentLocked?: boolean;
   counts: {
     quick: Record<string, number> | null;
     folders: Record<string, number> | null;
@@ -210,9 +213,15 @@ export function sidebarGroups(ctx: NavContext): SidebarGroup[] {
          rail and pushed the stages out of view. The group only has to say
          which envelope these rows belong to. */
       title: 'This envelope',
+      /* A sealed envelope has one screen. One that is merely out for signature
+         keeps its signer preview — what the recipient is looking at right now
+         is still worth seeing — but not the two authoring stages, which
+         redirect here anyway. */
       rows: (ctx.documentSealed
         ? DOCUMENT_STAGES.filter(([stage]) => stage === 'audit')
-        : DOCUMENT_STAGES
+        : ctx.documentLocked
+          ? DOCUMENT_STAGES.filter(([stage]) => stage === 'sign' || stage === 'audit')
+          : DOCUMENT_STAGES
       ).map(([stage, label]) => ({
         key: 'stage:' + stage, label,
         href: documentPathFor(stage as 'builder', ctx.documentId),

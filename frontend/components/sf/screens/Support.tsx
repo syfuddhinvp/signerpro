@@ -26,6 +26,7 @@ import {
 } from '@/lib/sf/adapters';
 import type { Dict } from '@/lib/sf/data';
 import type { SupportAgent, TicketDetailResponse, TicketPage, TicketResponse } from '@/lib/api/types';
+import Icon from '@/components/sf/Icon';
 
 export type SupportProps = {
   /** `GET /api/support/tickets/page` — rows plus the pill counts. */
@@ -376,7 +377,8 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
     label,
     style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', fontFamily:'var(--font-sans)' } as CSSProperties
   })) : [];
-  const tkEnvelopeStyle: CSSProperties = { padding:'4px 9px', borderRadius:'99px', border:'1px solid #c7d2fe', background:'#eef2ff', fontSize:'.65625rem', color:'#3730a3', fontFamily:'var(--font-sans)', cursor:'pointer' };
+  const tkEnvelopeStyle: CSSProperties = { padding:'4px 9px', borderRadius:'99px', border:'1px solid #c7d2fe', background:'#eef2ff', fontSize:'.65625rem', color:'#3730a3', fontFamily:'var(--font-sans)', cursor:'pointer',
+    display:'inline-flex', alignItems:'center', gap:'5px' };
 
   const internalRow: CSSProperties = { display:'inline-flex', alignItems:'center', gap:'9px', height:'30px', padding:'0 11px', borderRadius:'9px', cursor:'pointer',
     border:'1px solid ' + (s.replyInternal ? '#fde68a' : '#e3e7ee'), background: s.replyInternal ? '#fffbeb' : '#fff' };
@@ -386,7 +388,8 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const macros = quickReplies.map(([label, body]) => ({
     label,
     onClick: () => set({ replyDraft: body }),
-    style: { padding:'5px 10px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.6875rem', color:'#475569', cursor:'pointer' } as CSSProperties
+    style: { padding:'5px 10px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.6875rem', color:'#475569', cursor:'pointer',
+      display:'inline-flex', alignItems:'center', gap:'5px' } as CSSProperties
   }));
 
   /* Internal notes are platform-only and the API enforces it (403); the switch
@@ -462,7 +465,8 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const kebabStyle: CSSProperties = { border:'1px solid transparent', background:'none', borderRadius:'7px', padding:'3px', cursor:'pointer', color:TEXT_MUTED, display:'inline-flex' };
   const menuStyle: CSSProperties = { position:'absolute', top:'100%', right:0, zIndex:5, minWidth:'168px', background:'#fff',
     border:'1px solid #e3e7ee', borderRadius:'11px', boxShadow:'0 8px 24px rgba(15,23,42,.14)', padding:'5px', display:'flex', flexDirection:'column' };
-  const menuItem: CSSProperties = { border:'none', background:'none', textAlign:'left', padding:'7px 9px', borderRadius:'7px', fontSize:'.71875rem', color:'#334155', cursor:'pointer' };
+  const menuItem: CSSProperties = { border:'none', background:'none', textAlign:'left', padding:'7px 9px', borderRadius:'7px', fontSize:'.71875rem', color:'#334155', cursor:'pointer',
+    display:'inline-flex', alignItems:'center', gap:'6px' };
   const searchWrapStyle: CSSProperties = { position:'relative', flex:'1 1 260px', minWidth:'200px', maxWidth:'380px' };
   const searchInputStyle: CSSProperties = { width:'100%', height:'34px', display:'block', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 11px 0 31px',
     fontSize:'.78125rem', outline:'none', background:'#fbfcfd', color:'#0f172a' };
@@ -480,7 +484,8 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const selectStyle: CSSProperties = Object.assign({}, inputStyle, {
     height:'34px', fontSize:'.71875rem', background:'#fbfcfd', width:'auto', minWidth:'126px', flex:'0 1 auto', cursor:'pointer',
   });
-  const linkBtn: CSSProperties = { border:'none', background:'none', padding:0, color:A, fontSize:'.65625rem', fontWeight:600, cursor:'pointer', fontFamily:'var(--font-sans)' };
+  const linkBtn: CSSProperties = { border:'none', background:'none', padding:0, color:A, fontSize:'.65625rem', fontWeight:600, cursor:'pointer', fontFamily:'var(--font-sans)',
+    display:'inline-flex', alignItems:'center', gap:'4px' };
 
   return (
     <section data-screen-label="Support" style={{ padding:'22px 22px 40px', display:'flex', flexDirection:'column', gap:'16px' }}>
@@ -536,7 +541,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
               style={{ ...ghostBtn, padding:'0 9px', display:'inline-flex', alignItems:'center' }}>
               <Download width={15} height={15} aria-hidden="true" />
             </button>
-            <button type="button" onClick={openNewTicket} style={primaryBtn}>New ticket</button>
+            <button type="button" onClick={openNewTicket} style={primaryBtn}><Icon name="plus" size={13} />New ticket</button>
           </div>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
@@ -552,7 +557,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
               </button>
             ))}
           </div>
-          {filtersOn ? (<button type="button" onClick={clearFilters} style={{ ...linkBtn, marginLeft:'auto' }}>Clear filters</button>) : null}
+          {filtersOn ? (<button type="button" onClick={clearFilters} style={{ ...linkBtn, marginLeft:'auto' }}><Icon name="close" size={11} />Clear filters</button>) : null}
         </div>
       </div>
 
@@ -565,11 +570,11 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
               {selected.length + (selected.length === 1 ? ' ticket selected' : ' tickets selected')}
             </span>
             <div style={{ marginLeft:'auto', display:'flex', gap:'7px' }}>
-              <button type="button" onClick={() => setSelectedIds([])} style={ghostBtn}>Clear</button>
+              <button type="button" onClick={() => setSelectedIds([])} style={ghostBtn}><Icon name="close" size={13} />Clear</button>
               {/* "Resolve selected", not "Mark resolved": the thread below has
                   its own resolve button, and two identically-named buttons on
                   one screen act on different things. */}
-              <button type="button" disabled={busy} onClick={bulkResolve} style={whileBusy(successBtn)}>Resolve selected</button>
+              <button type="button" disabled={busy} onClick={bulkResolve} style={whileBusy(successBtn)}><Icon name="check" size={13} />Resolve selected</button>
             </div>
           </div>
         ) : null}
@@ -642,9 +647,9 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
                         </button>
                         {menuFor === t.id ? (
                           <span style={menuStyle} role="menu">
-                            <button type="button" role="menuitem" style={menuItem} onClick={() => { setMenuFor(null); t.onOpen(); }}>Open thread</button>
+                            <button type="button" role="menuitem" style={menuItem} onClick={() => { setMenuFor(null); t.onOpen(); }}><Icon name="eye" size={12} />Open thread</button>
                             <button type="button" role="menuitem" style={menuItem} disabled={busy}
-                              onClick={() => { setMenuFor(null); setSelectedIds([t.id]); }}>Select</button>
+                              onClick={() => { setMenuFor(null); setSelectedIds([t.id]); }}><Icon name="checkbox" size={12} />Select</button>
                           </span>
                         ) : null}
                       </span>
@@ -704,12 +709,12 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
             </div>
             <div style={{ display:'flex', gap:'6px', flex:'0 0 auto', alignItems:'center' }}>
               {busy ? (<span aria-live="polite" style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>Saving…</span>) : null}
-              <button type="button" onClick={copyReference} style={ghostBtn}>Copy ref</button>
+              <button type="button" onClick={copyReference} style={ghostBtn}><Icon name="copy" size={13} />Copy ref</button>
               {tk.status !== 'resolved' ? (
-                <button type="button" disabled={busy} onClick={() => { flash(tk.id + ' resolved · CSAT survey sent to ' + tk.requesterEmail); mutate(() => supportApi.update(apiCall, tk.ticketId, { status: 'resolved' }), 'Could not resolve the ticket'); }} style={whileBusy(successBtn)}>Mark resolved</button>
+                <button type="button" disabled={busy} onClick={() => { flash(tk.id + ' resolved · CSAT survey sent to ' + tk.requesterEmail); mutate(() => supportApi.update(apiCall, tk.ticketId, { status: 'resolved' }), 'Could not resolve the ticket'); }} style={whileBusy(successBtn)}><Icon name="check" size={13} />Mark resolved</button>
               ) : null}
               {tk.status === 'resolved' ? (
-                <button type="button" disabled={busy} onClick={() => { flash(tk.id + ' reopened'); mutate(() => supportApi.update(apiCall, tk.ticketId, { status: 'open' }), 'Could not reopen the ticket'); }} style={whileBusy(ghostBtn)}>Reopen</button>
+                <button type="button" disabled={busy} onClick={() => { flash(tk.id + ' reopened'); mutate(() => supportApi.update(apiCall, tk.ticketId, { status: 'open' }), 'Could not reopen the ticket'); }} style={whileBusy(ghostBtn)}><Icon name="undo" size={13} />Reopen</button>
               ) : null}
               <button type="button" onClick={closeDrawer} aria-label="Close ticket" style={closeBtnStyle}>
                 <X width={15} height={15} aria-hidden="true" />
@@ -747,7 +752,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           <div style={{ display:'flex', gap:'7px', flexWrap:'wrap' }}>
             {tkTags.map((g, i) => (<span key={g.label + i} style={g.style}>{g.label}</span>))}
             {tk.envelope ? (
-              <button type="button" onClick={() => go('audit', { workspace: 'tenant', documentId: tk.documentId })} style={tkEnvelopeStyle}>{'Envelope ' + tk.envelope + ' ›'}</button>
+              <button type="button" onClick={() => go('audit', { workspace: 'tenant', documentId: tk.documentId })} style={tkEnvelopeStyle}><Icon name="documents" size={12} />{'Envelope ' + tk.envelope}<Icon name="chevronRight" size={11} /></button>
             ) : null}
           </div>
         </div>
@@ -759,7 +764,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           </span>
           {isPlat && internalCount ? (
             <button type="button" aria-pressed={customerView ? 'true' : 'false'} onClick={() => setCustomerView(v => !v)} style={linkBtn}>
-              {customerView ? 'Show internal notes' : 'View as the customer'}
+              <Icon name="eye" size={11} />{customerView ? 'Show internal notes' : 'View as the customer'}
             </button>
           ) : null}
         </div>
@@ -796,13 +801,13 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
                 <span style={internalSwitch}><span style={internalKnob}></span></span>
               </button>
             ) : null}
-            {macros.map(m => (<button key={m.label} type="button" onClick={m.onClick} style={m.style}>{m.label}</button>))}
+            {macros.map(m => (<button key={m.label} type="button" onClick={m.onClick} style={m.style}><Icon name="asterisk" size={11} />{m.label}</button>))}
             <div style={{ marginLeft:'auto', display:'flex', gap:'8px', alignItems:'center' }}>
               <span style={{ fontSize:'.625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>⌘↵ to send</span>
               {tk.status !== 'escalated' && tk.status !== 'resolved' ? (
-                <button type="button" disabled={busy} onClick={() => { flash(tk.id + ' escalated to on-call engineering · P1'); mutate(() => supportApi.escalate(apiCall, tk.ticketId), 'Could not escalate the ticket'); }} style={whileBusy(dangerStyle)}>Escalate</button>
+                <button type="button" disabled={busy} onClick={() => { flash(tk.id + ' escalated to on-call engineering · P1'); mutate(() => supportApi.escalate(apiCall, tk.ticketId), 'Could not escalate the ticket'); }} style={whileBusy(dangerStyle)}><Icon name="alert" size={13} />Escalate</button>
               ) : null}
-              <button type="button" disabled={busy} onClick={sendReply} style={whileBusy(primaryBtn)}>{sendReplyLabel}</button>
+              <button type="button" disabled={busy} onClick={sendReply} style={whileBusy(primaryBtn)}><Icon name="send" size={13} />{sendReplyLabel}</button>
             </div>
           </div>
         </div>

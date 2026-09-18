@@ -6,11 +6,15 @@ and that the stored body has had its bearer link masked -- an outbox that keeps
 signing links verbatim is a credential store every platform admin can read.
 """
 
+import base64
+
 from fastapi.testclient import TestClient
 
 from app.core.database import get_db
+from app.core.email import EmailMessage, SendOutcome, email_service
 from app.main import app
 from app.models.user import User
+from app.schemas.mail import MailAttachment
 from app.tests.conftest import auth_headers
 from app.tests.test_document_flow import add_field, add_recipient, create_uploaded_document
 
@@ -115,3 +119,84 @@ def test_the_outbox_is_platform_admin_only(client: TestClient) -> None:
         json={"to": ["one@example.com"], "subject": "Hi", "body": "Hello"},
         headers=headers,
     ).status_code == 403
+
+
+def test_composed_mail_carries_copies_and_attachments(client: TestClient, monkeypatch) -> None:
+    """Cc, Bcc and files reach the gateway, and copies ride one message only.
+
+    A Cc repeated on every addressee's message delivers one copy per addressee
+    to each copied address -- a note to twenty people landing in a manager's
+    inbox twenty times.
+    """
+    seen: list[EmailMessage] = []
+    monkeypatch.setattr(
+        email_service, "_deliver", lambda message, org: seen.append(message) or SendOutcome(True, "sent", "console", None, "no-reply@test")
+    )
+
+    headers = _admin(client)
+    response = client.post(
+        "/api/saas/mail/send",
+        json={
+            "to": ["one@example.com", "two@example.com"],
+            "cc": ["lead@example.com"],
+            "bcc": ["audit@example.com"],
+            "subject": "Scheduled maintenance",
+            "body": "We will be briefly unavailable.",
+            "attachments": [
+                {
+                    "filename": "notice.txt",
+                    "content_type": "text/plain",
+                    "content": base64.b64encode(b"hello").decode(),
+                }
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+
+    assert [m.cc for m in seen] == [("lead@example.com",), ()]
+    assert [m.bcc for m in seen] == [("audit@example.com",), ()]
+    # The files, though, belong to the message and go to every addressee.
+    assert all(m.attachments[0].content == b"hello" for m in seen)
+    assert seen[0].attachments[0].filename == "notice.txt"
+
+
+def test_an_attachment_filename_is_a_label_not_a_path(client: TestClient) -> None:
+    headers = _admin(client)
+    response = client.post(
+        "/api/saas/mail/send",
+        json={
+            "to": ["one@example.com"],
+            "subject": "Hi",
+            "body": "Hello",
+            "attachments": [
+                {
+                    "filename": "../../etc/passwd",
+                    "content": base64.b64encode(b"x").decode(),
+                }
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    assert MailAttachment(filename="../../etc/passwd", content="eA==").filename == "passwd"
+
+
+def test_an_oversized_attachment_is_refused(client: TestClient) -> None:
+    headers = _admin(client)
+    response = client.post(
+        "/api/saas/mail/send",
+        json={
+            "to": ["one@example.com"],
+            "subject": "Hi",
+            "body": "Hello",
+            "attachments": [
+                {
+                    "filename": "scan.pdf",
+                    "content": base64.b64encode(b"x" * (5 * 1024 * 1024 + 1)).decode(),
+                }
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422

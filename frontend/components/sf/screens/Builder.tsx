@@ -1473,7 +1473,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
             <span style={{ fontSize:'.75rem', lineHeight:1.6, color:'#64748b' }}>Pick a PDF and we will create the draft for it, then open it here to place fields and assign recipients.</span>
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'8px' }}>
               <UploadDocument label="Upload a file" />
-              <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, ghostBtn, { justifyContent:'center' })}>Go to documents</button>
+              <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, ghostBtn, { justifyContent:'center' })}><Icon name="documents" size={13} />Go to documents</button>
             </div>
           </div>
         </div>
@@ -1536,7 +1536,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
             onClick={saveToCatalog}
             disabled={savingCatalog}
             style={{ ...btn(A, '#fff', A), marginLeft:'auto', opacity: savingCatalog ? 0.6 : 1 }}
-          >{savingCatalog ? 'Saving…' : 'Save to catalog'}</button>
+          ><Icon name="save" size={13} />{savingCatalog ? 'Saving…' : 'Save to catalog'}</button>
         </div>
       ) : null}
       <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'#fff', borderBottom:'1px solid #e3e7ee' }}>
@@ -1568,15 +1568,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
         </div>
         <div style={{ display:'flex', gap:'8px', flex:'0 0 auto' }}>
           {previewHref ? (
-            <Link href={previewHref} style={{ ...ghostBtn, textDecoration:'none' }}>Preview</Link>
+            <Link href={previewHref} style={{ ...ghostBtn, textDecoration:'none' }}><Icon name="eye" size={13} />Preview</Link>
           ) : null}
           {isTemplate ? null : (
             <button type="button" onClick={saveAsTemplate} disabled={savingTemplate} style={{ ...ghostBtn, opacity: savingTemplate ? 0.6 : 1 }}>
-              {savingTemplate ? 'Saving…' : 'Save as template'}
+              <Icon name="documents" size={13} />{savingTemplate ? 'Saving…' : 'Save as template'}
             </button>
           )}
-          <button type="button" onClick={saveClose} style={ghostBtn}>Save and close</button>
-          <button type="button" onClick={wizardNext} style={primaryBtn}>{wizardCta}</button>
+          <button type="button" onClick={saveClose} style={ghostBtn}><Icon name="save" size={13} />Save and close</button>
+          <button type="button" onClick={wizardNext} style={primaryBtn}><Icon name="arrowRight" size={13} />{wizardCta}</button>
         </div>
       </div>
 
@@ -1689,7 +1689,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     style={{ width:'100%' }}
                   />
                 </label>
-                <button type="button" onClick={togglePen} style={ghostBtn}>Put the pen down</button>
+                <button type="button" onClick={togglePen} style={ghostBtn}><Icon name="pencil" size={13} />Put the pen down</button>
               </div>
             ) : null}
           </div>
@@ -1706,7 +1706,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 aria-expanded={addOpen} aria-controls="sf-add-page"
                 style={Object.assign({}, ghostBtn, { width:'100%', justifyContent:'center' },
                   !hasFile || pageBusy ? { opacity:.55, cursor:'not-allowed' } : null)}>
-                + Add page
+                <Icon name="plus" size={13} />Add page
               </button>
               {addOpen ? (
                 <div id="sf-add-page" style={{ marginTop:'8px', display:'flex', flexDirection:'column', gap:'8px',
@@ -1719,7 +1719,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   </label>
                   <button type="button" onClick={() => { void addPages({ blankCount: 1 }); }} disabled={pageBusy}
                     style={Object.assign({}, ghostBtn, { justifyContent:'center' }, pageBusy ? { opacity:.55, cursor:'progress' } : null)}>
-                    Blank page
+                    <Icon name="file" size={13} />Blank page
                   </button>
                   <label style={lbl}>Image fit
                     <select value={addFit} onChange={e => setAddFit(e.target.value as ImageFit)} style={inputStyle}>
@@ -1731,7 +1731,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   </label>
                   <button type="button" onClick={() => addFileRef.current?.click()} disabled={pageBusy}
                     style={Object.assign({}, ghostBtn, { justifyContent:'center' }, pageBusy ? { opacity:.55, cursor:'progress' } : null)}>
-                    {pageBusy ? 'Adding…' : 'Upload file or image…'}
+                    <Icon name="upload" size={13} />{pageBusy ? 'Adding…' : 'Upload file or image…'}
                   </button>
                   <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
                     PDFs, images and documents such as .docx are converted to pages.
@@ -1912,10 +1912,10 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                         <button type="button" onClick={fieldToolbar.onEdit} title="Edit field"
                           aria-label="Edit field" style={toolbarBtn}><Icon name="pencil" size={12} /></button>
                         <button type="button" onClick={fieldToolbar.onDuplicate} title="Duplicate field"
-                          aria-label="Duplicate field" style={toolbarBtn}>⧉</button>
+                          aria-label="Duplicate field" style={toolbarBtn}><Icon name="duplicate" size={12} /></button>
                         {fieldToolbar.canCopyAll ? (
                           <button type="button" onClick={fieldToolbar.onCopyAll} title="Copy to every page"
-                            aria-label="Copy to every page" style={toolbarBtn}>⧉⁺</button>
+                            aria-label="Copy to every page" style={toolbarBtn}><Icon name="duplicateAll" size={12} /></button>
                         ) : null}
                         <button type="button" onClick={fieldToolbar.onDelete} title="Delete field"
                           aria-label="Delete field" style={toolbarDanger}><Icon name="trash" size={12} /></button>
@@ -2036,7 +2036,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                       })}
                     </div>
                     <button type="button" onClick={addRadioOption} style={Object.assign({}, btn('#fff', '#334155', '#e3e7ee'),
-                      { width:'100%', justifyContent:'center' } as CSSProperties)}>+ Add option</button>
+                      { width:'100%', justifyContent:'center' } as CSSProperties)}><Icon name="plus" size={13} />Add option</button>
                     <label style={lbl}>Pre-selected option
                       <select value={radioPreselected} onChange={e => setRadioPreselected(e.target.value)} style={input}>
                         <option value="">Nothing selected</option>
@@ -2230,7 +2230,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                       ))}
                     </div>
                     <button type="button" onClick={addChoice} style={Object.assign({}, btn('#fff', '#334155', '#e3e7ee'),
-                      { width:'100%', justifyContent:'center' } as CSSProperties)}>+ Add option</button>
+                      { width:'100%', justifyContent:'center' } as CSSProperties)}><Icon name="plus" size={13} />Add option</button>
                     <div style={{ fontSize:'.71875rem', lineHeight:1.5, color: oneChoices.length ? '#047857' : '#b45309' }}>
                       {oneChoices.length
                         ? oneChoices.length + (oneChoices.length === 1 ? ' choice' : ' choices') + ' — the recipient picks one'

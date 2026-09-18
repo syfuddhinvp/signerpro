@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { useSF } from '@/lib/sf/state';
 import { DOCS_PAGES, DOC_NAV } from '@/lib/sf/data';
 import { btn, jsonBoxStyle, railHead, BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 export default function Guides() {
   const { s, set, accent } = useSF();
@@ -47,9 +48,9 @@ export default function Guides() {
         </div>
         <div style={{ marginTop:'auto', borderTop:'1px solid #eef1f6', paddingTop:'12px', display:'flex', flexDirection:'column', gap:'7px' }}>
           <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, lineHeight:1.5 }}>Prefer to be shown? The tour walks the same steps in your own workspace.</span>
-          <button type="button" onClick={() => set({ tourStep: 0 } as any)} style={ghostBtn}>Start product tour</button>
+          <button type="button" onClick={() => set({ tourStep: 0 } as any)} style={ghostBtn}><Icon name="play" size={13} />Start product tour</button>
           <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, lineHeight:1.5 }}>Developers: run any call without leaving the app — against your live workspace, not a test tenant.</span>
-          <button type="button" onClick={() => set({ screen: 'sandbox' } as any)} style={ghostBtn}>Open API console</button>
+          <button type="button" onClick={() => set({ screen: 'sandbox' } as any)} style={ghostBtn}><Icon name="developer" size={13} />Open API console</button>
         </div>
       </div>
 
@@ -80,10 +81,10 @@ export default function Guides() {
           ))}
           <nav aria-label="Guide pages" style={{ display:'flex', gap:'10px', borderTop:'1px solid #e3e7ee', paddingTop:'18px' }}>
             {docPrev ? (
-              <button type="button" onClick={() => set({ docsPage: docPrev[0] } as any)} style={ghostBtn}>&larr; {docPrev[1]}</button>
+              <button type="button" onClick={() => set({ docsPage: docPrev[0] } as any)} style={ghostBtn}><Icon name="arrowLeft" size={13} />{docPrev[1]}</button>
             ) : null}
             {docNext ? (
-              <button type="button" onClick={() => set({ docsPage: docNext[0] } as any)} style={{ ...ghostBtn, marginLeft:'auto' }}>{docNext[1]} &rarr;</button>
+              <button type="button" onClick={() => set({ docsPage: docNext[0] } as any)} style={{ ...ghostBtn, marginLeft:'auto' }}>{docNext[1]}<Icon name="arrowRight" size={13} /></button>
             ) : null}
           </nav>
         </div>

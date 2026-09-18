@@ -18,7 +18,11 @@ import type { Metadata } from 'next';
 import TenantHome from '@/components/sf/screens/TenantHome';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 import { serverCaller } from '@/lib/api/client';
-import { billing as billingApi, organizations as organizationsApi } from '@/lib/api/resources';
+import {
+  billing as billingApi,
+  organizations as organizationsApi,
+  templates as templatesApi,
+} from '@/lib/api/resources';
 import {
   EMPTY_ORG_OVERVIEW,
   toOverviewAttention,
@@ -27,19 +31,24 @@ import {
   toOverviewStats,
   toOverviewTeam,
   toSeriesLabels,
+  toTemplateCards,
 } from '@/lib/sf/adapters';
 
 export const metadata: Metadata = { title: 'Overview · SignerPro' };
 
 const OVERVIEW_RANGE = '90d';
 
+/** The "Start from a template" strip is one row of cards, most-used first. */
+const TEMPLATE_CARD_COUNT = 4;
+
 export default async function Page() {
   const api = serverCaller('/overview');
 
-  const [overviewResult, orgResult, subscriptionResult] = await Promise.all([
+  const [overviewResult, orgResult, subscriptionResult, templatesResult] = await Promise.all([
     organizationsApi.overview(api, { range: OVERVIEW_RANGE }),
     organizationsApi.me(api),
     billingApi.subscription(api),
+    templatesApi.list(api, { sort: 'uses', limit: TEMPLATE_CARD_COUNT }),
   ]);
 
   const overview = overviewResult.ok ? overviewResult.data : EMPTY_ORG_OVERVIEW;
@@ -65,6 +74,7 @@ export default async function Page() {
       attention={toOverviewAttention(overview.attention ?? [])}
       spend={toOverviewSpend(overview.spend_lines ?? [])}
       team={toOverviewTeam(overview.team ?? [])}
+      templates={templatesResult.ok ? toTemplateCards(templatesResult.data.items) : []}
         nextInvoiceMeta={subscriptionNote(subscription)}
       />
     </>

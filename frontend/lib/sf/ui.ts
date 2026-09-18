@@ -58,10 +58,12 @@ export const railHead: CSSProperties = { fontSize:'.6875rem', letterSpacing:'.08
 
 export const authInput: CSSProperties = { height:'38px', border:'1px solid #dfe4ec', borderRadius:'10px', padding:'0 12px', fontSize:'.8125rem', background:'#fbfcfd', outline:'none', width:'100%', color:'#0f172a' };
 export function authPrimary(A: string): CSSProperties {
-  return { height:'40px', width:'100%', borderRadius:'10px', border:'1px solid ' + A, background: A, color:'#fff', fontSize:'.84375rem', fontWeight:600, cursor:'pointer' };
+  return { height:'40px', width:'100%', borderRadius:'10px', border:'1px solid ' + A, background: A, color:'#fff', fontSize:'.84375rem', fontWeight:600, cursor:'pointer',
+    display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'7px' };
 }
 export function linkBtn(A: string): CSSProperties {
-  return { background:'none', border:'none', padding:0, cursor:'pointer', fontSize:'.75rem', color: A, fontWeight:500 };
+  return { background:'none', border:'none', padding:0, cursor:'pointer', fontSize:'.75rem', color: A, fontWeight:500,
+    display:'inline-flex', alignItems:'center', gap:'5px' };
 }
 
 export const jsonBoxStyle: CSSProperties = { margin:0, padding:'12px 13px', borderRadius:'11px', background:'#0f172a', color:'#a5b4fc',

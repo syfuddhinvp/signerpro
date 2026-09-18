@@ -247,8 +247,8 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
             ) : null}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '14px 18px', borderTop: '1px solid #eef1f6' }}>
-              <button type="button" onClick={cancel} style={ghost}>{cancelLabel}</button>
-              <button type="submit" disabled={submitDisabled} style={ctaStyle}>{cta}</button>
+              <button type="button" onClick={cancel} style={ghost}><Icon name="close" size={13} />{cancelLabel}</button>
+              <button type="submit" disabled={submitDisabled} style={ctaStyle}><Icon name="check" size={13} />{cta}</button>
             </div>
           </form>
         </div>

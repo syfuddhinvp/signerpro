@@ -45,6 +45,17 @@ os.environ["STRIPE_CONNECT_WEBHOOK_SECRET"] = ""
 # unconfigured path deletes it with `monkeypatch.delenv`.
 os.environ["STRIPE_PUBLISHABLE_KEY"] = "pk_test_placeholder"
 
+# Cloud-storage connectors: blanked for the same reason the Stripe keys above
+# are. `Settings` reads `.env`, so a developer with real Drive/Dropbox
+# credentials on disk would otherwise see their deployment reported as
+# `configured` -- and the tests that assert an *unconfigured* provider (409 on
+# authorize, a disabled connect button) would fail on their machine only.
+# Tests that need a configured provider set these explicitly.
+os.environ["GOOGLE_DRIVE_CLIENT_ID"] = ""
+os.environ["GOOGLE_DRIVE_CLIENT_SECRET"] = ""
+os.environ["DROPBOX_APP_KEY"] = ""
+os.environ["DROPBOX_APP_SECRET"] = ""
+
 from app import models  # noqa: E402,F401
 from app.core.database import Base, get_db
 from app.core.storage import storage

@@ -19,7 +19,11 @@ import Catalog from './Catalog';
 vi.mock('next/navigation', async () => (await import('@/test/navigation')).navigationMock());
 
 const apiCall = vi.fn();
-vi.mock('@/lib/api/browser', () => ({ apiCall: (...args: unknown[]) => apiCall(...args) }));
+const apiDownload = vi.fn();
+vi.mock('@/lib/api/browser', () => ({
+  apiCall: (...args: unknown[]) => apiCall(...args),
+  apiDownload: (...args: unknown[]) => apiDownload(...args),
+}));
 
 const ok = <T,>(data: T) => ({ ok: true as const, data });
 const fail = (message = 'boom') => ({ ok: false as const, error: { kind: 'server', status: 500, message } });
@@ -240,5 +244,44 @@ describe('the platform form catalog', () => {
     mount([], 'gateway down');
     expect(screen.getByRole('alert')).toBeTruthy();
     expect(screen.queryByText('No forms in the catalog yet')).toBeNull();
+  });
+});
+
+describe('viewing the PDF behind an entry', () => {
+  it('offers View only once a file is attached, and opens it in a tab', async () => {
+    const created: string[] = [];
+    const origCreate = URL.createObjectURL;
+    const origRevoke = URL.revokeObjectURL;
+    const origOpen = window.open;
+    URL.createObjectURL = vi.fn(() => { created.push('blob:catalog'); return 'blob:catalog'; }) as never;
+    URL.revokeObjectURL = vi.fn() as never;
+    const open = vi.fn(() => ({}) as Window);
+    window.open = open as never;
+    apiDownload.mockResolvedValue(ok({ blob: new Blob(['%PDF']), filename: 'irs-w9.pdf' }));
+
+    try {
+      mount([entry({ has_file: false })]);
+      expect(screen.queryByRole('button', { name: 'View' })).toBeNull();
+
+      cleanup();
+      mount([entry({ has_file: true })]);
+      fireEvent.click(screen.getByRole('button', { name: 'View' }));
+
+      await waitFor(() => expect(open).toHaveBeenCalled());
+      expect(apiDownload.mock.calls[0][0]).toBe('/api/platform/catalog-templates/c1/pdf');
+      expect(open.mock.calls[0]).toEqual(['blob:catalog', '_blank']);
+      expect(created).toHaveLength(1);
+    } finally {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+      window.open = origOpen;
+    }
+  });
+
+  it('says so when the entry has no PDF on the server', async () => {
+    apiDownload.mockResolvedValue({ ok: false as const, status: 404, error: { kind: 'client', status: 404, message: 'Nothing to download' } });
+    mount([entry({ has_file: true })]);
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    await waitFor(() => expect(toast()).toContain('has no PDF yet'));
   });
 });

@@ -71,9 +71,26 @@ export const account = {
   cloudTargets: (c: Caller) => get<T.CloudTargetItem[]>(c, '/api/integrations/cloud-targets'),
   updateCloudTargets: (c: Caller, targets: T.CloudTargetItem[]) =>
     put<T.CloudTargetItem[]>(c, '/api/integrations/cloud-targets', { targets }),
-  connectIntegration: (c: Caller, provider: string, body?: Record<string, unknown>) =>
-    post<T.IntegrationResponse>(c, `/api/integrations/${provider}/connect`, body ?? {}),
+  /**
+   * Starts a real OAuth grant. The caller sends the browser to
+   * `authorization_url`; the provider returns it to
+   * `/account/integrations/callback` with `code` and `state`. 409 means the
+   * deployment holds no client credentials for that provider.
+   */
+  authorizeIntegration: (c: Caller, provider: string) =>
+    post<T.IntegrationAuthorizeResponse>(c, `/api/integrations/${provider}/authorize`, {}),
+  /** Finishes the grant. 400 covers a bad or expired state and a failed
+   *  token exchange alike — both mean "start again". */
+  completeIntegrationOauth: (c: Caller, provider: string, body: { code: string; state: string }) =>
+    post<T.IntegrationResponse>(c, `/api/integrations/${provider}/callback`, body),
+  /** Revokes the remote token, then forgets it here. Exports stop with it. */
   disconnectIntegration: (c: Caller, provider: string) => del<void>(c, `/api/integrations/${provider}`),
+  /** Recent export attempts across the organization, newest first. */
+  cloudExports: (c: Caller, params?: { limit?: number }) =>
+    get<T.CloudExportItem[]>(c, '/api/integrations/exports', params),
+  /** Re-queues one failed export. 409 if it had already succeeded. */
+  retryCloudExport: (c: Caller, id: string) =>
+    post<T.CloudExportItem>(c, `/api/integrations/exports/${id}/retry`, {}),
 };
 
 export const auth = {
@@ -362,6 +379,9 @@ export const platformCatalog = {
   /** `published=false` pulls an entry back out of every tenant's catalog. */
   publish: (c: Caller, id: string, published: boolean) =>
     post<T.CatalogTemplateResponse>(c, `/api/platform/catalog-templates/${id}/publish`, undefined, { published }),
+  /** `GET /api/platform/catalog-templates/{id}/pdf` streams the entry's PDF,
+   *  drafts included — link to it or download it, don't JSON-fetch it. */
+  pdfPath: (id: string) => `/api/platform/catalog-templates/${id}/pdf`,
   /** Upsert the built-in blueprints. Idempotent; preserves curator edits. */
   seed: (c: Caller) => post<T.CatalogListResponse>(c, '/api/platform/catalog-templates/seed'),
   /**
@@ -422,9 +442,31 @@ export const billing = {
   /** Confirm a session with the provider. A redirect back is not a receipt. */
   confirmCheckout: (c: Caller, sessionId: string) =>
     get<T.CheckoutStatusResponse>(c, `/api/billing/checkout/${encodeURIComponent(sessionId)}`),
-  changePlan: (c: Caller, plan_code: string) => post<T.SubscriptionResponse>(c, '/api/billing/change-plan', { plan_code }),
-  previewChangePlan: (c: Caller, params: { plan_code: string }) =>
+  /**
+   * Move onto a plan, or schedule the move.
+   *
+   * An upgrade is charged now. A downgrade is scheduled for the end of the
+   * period already paid for unless `effective` says otherwise. Pass the
+   * preview's `amount_due_cents` as `quoted_amount_cents` so the tenant
+   * cannot be charged a figure they were not shown.
+   */
+  changePlan: (
+    c: Caller,
+    plan_code: string,
+    body: {
+      effective?: T.PlanChangeEffective;
+      quoted_amount_cents?: number;
+      payment_method_id?: string;
+    } = {},
+  ) => post<T.SubscriptionResponse>(c, '/api/billing/change-plan', { plan_code, ...body }),
+  /** Call off a scheduled downgrade. Idempotent. */
+  cancelPendingPlanChange: (c: Caller) =>
+    del<T.SubscriptionResponse>(c, '/api/billing/change-plan/pending'),
+  previewChangePlan: (c: Caller, params: { plan_code: string; effective?: T.PlanChangeEffective }) =>
     get<T.PlanChangePreview>(c, '/api/billing/change-plan/preview', params),
+  /** Account balance and the ledger behind it. Read-only by design. */
+  wallet: (c: Caller, params?: { limit?: number; offset?: number }) =>
+    get<T.Wallet>(c, '/api/billing/wallet', params),
   cancel: (c: Caller, at_period_end = true) => post<T.SubscriptionResponse>(c, '/api/billing/cancel', { at_period_end }),
   resume: (c: Caller) => post<T.SubscriptionResponse>(c, '/api/billing/resume'),
   changeSeats: (c: Caller, delta: number) => post<T.SeatChangeResponse>(c, '/api/billing/seats', { delta }),
@@ -530,6 +572,8 @@ export const tenants = {
   list: (c: Caller, params?: { q?: string; status?: string; plan?: string; limit?: number; offset?: number }) =>
     get<T.TenantPage>(c, '/api/saas/tenants', params),
   get: (c: Caller, orgId: string) => get<T.TenantDetail>(c, `/api/saas/tenants/${orgId}`),
+  /** The whole tenant record — members, envelopes, keys, webhooks and money. */
+  profile: (c: Caller, orgId: string) => get<T.TenantProfile>(c, `/api/saas/tenants/${orgId}/profile`),
   create: (c: Caller, body: Record<string, unknown>) => post<T.TenantDetail>(c, '/api/saas/tenants', body),
   suspend: (c: Caller, orgId: string, reason: string) =>
     post<T.TenantDetail>(c, `/api/saas/tenants/${orgId}/suspend`, { reason }),
@@ -569,6 +613,8 @@ export const flags = {
   updateSecurityPosture: (c: Caller, body: Record<string, boolean>) =>
     patch<T.SecurityPostureRow[]>(c, '/api/saas/security-posture', body),
   compliance: (c: Caller) => get<T.ComplianceResponse>(c, '/api/saas/compliance'),
+  updateCertification: (c: Caller, id: string, body: T.CertificationUpdate) =>
+    patch<T.CertificationRow>(c, `/api/saas/compliance/certifications/${id}`, body),
 };
 
 export const revenue = {
@@ -684,6 +730,31 @@ export const payments = {
     get<T.SignerPaymentResponse[]>(c, `/api/documents/${documentId}/payments`),
   refund: (c: Caller, paymentId: string, amount_cents?: number) =>
     post<T.SignerPaymentResponse>(c, `/api/payments/${paymentId}/refund`, { amount_cents: amount_cents ?? null }),
+
+  /** Every signer payment this org has taken, across all envelopes (org-admin
+   *  only). Before this existed, refunding was reachable only from a single
+   *  envelope's audit page, so money collected across many envelopes had
+   *  nowhere it could be reviewed, reconciled or returned from. */
+  ledger: (
+    c: Caller,
+    query?: { status?: T.SignerPaymentStatus; document_id?: string; limit?: number; offset?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (query?.status) params.set('status', query.status);
+    if (query?.document_id) params.set('document_id', query.document_id);
+    if (query?.limit != null) params.set('limit', String(query.limit));
+    if (query?.offset != null) params.set('offset', String(query.offset));
+    const suffix = params.toString();
+    return get<T.PaymentLedgerPage>(c, `/api/payments/ledger${suffix ? `?${suffix}` : ''}`);
+  },
+  /** This payment's receipt, or `null` — see `SignerPaymentResponse.receipt`. */
+  paymentReceipt: (c: Caller, paymentId: string) =>
+    get<T.PaymentReceiptResponse | null>(c, `/api/payments/${paymentId}/receipt`),
+  receipt: (c: Caller, receiptId: string) =>
+    get<T.PaymentReceiptResponse>(c, `/api/payments/receipts/${receiptId}`),
+  /** The receipt PDF's url. Rendered on demand from the row, so a refund is
+   *  reflected the next time anyone downloads it. */
+  receiptPdfPath: (receiptId: string) => `/api/payments/receipts/${receiptId}/pdf`,
 
   /* The signer-facing endpoints — scoped by the signing token, not a session. */
   signerIntent: (c: Caller, token: string, fieldId: string, amount_cents?: number) =>

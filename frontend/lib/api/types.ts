@@ -158,15 +158,53 @@ export type FieldFavoritesResponse = {
   types: string[];
 };
 
+/**
+ * A cloud storage connector as this deployment has it. Four of these fields
+ * exist so the card can be honest rather than binary: `configured` says the
+ * deployment holds OAuth credentials for the provider at all, `account_email`
+ * names the remote account the stored tokens belong to, and `needs_reauth`
+ * with `last_error` is the state where tokens exist but no longer work — the
+ * one a "Connected" badge on its own would misreport.
+ */
 export type IntegrationResponse = {
   provider: string;
   label: string;
   detail: string | null;
   connected: boolean;
   connected_at: IsoDateTime | null;
+  /** The deployment has a client id and secret for this provider. */
+  configured: boolean;
+  /** The remote account the tokens belong to, once connected. */
+  account_email: string | null;
+  /** Tokens exist but the refresh failed or they were revoked remotely. */
+  needs_reauth: boolean;
+  last_error: string | null;
 };
 
 export type CloudTargetItem = { provider: string; path: string | null; enabled: boolean };
+
+export type CloudExportStatus = 'pending' | 'succeeded' | 'failed';
+
+/** One attempt to push a completed envelope into a connected provider. */
+export type CloudExportItem = {
+  id: UUID;
+  provider: string;
+  document_id: UUID;
+  document_title: string | null;
+  status: CloudExportStatus;
+  attempts: number;
+  remote_path: string | null;
+  remote_file_id: string | null;
+  last_error: string | null;
+  created_at: IsoDateTime;
+  completed_at: IsoDateTime | null;
+};
+
+/** Where to send the browser to start an OAuth grant, and the state to echo. */
+export type IntegrationAuthorizeResponse = {
+  authorization_url: string;
+  state: string;
+};
 
 export type AccountAuditEntry = {
   id: UUID;
@@ -847,6 +885,15 @@ export type SubscriptionResponse = {
   cycle: string;
   next_invoice_total_cents: number;
   next_invoice_at: IsoDateTime | null;
+  /**
+   * True when the provider already holds a subscription. A plan change must
+   * then modify it; opening a checkout would start a *second* one (BIL-13).
+   */
+  has_provider_subscription: boolean;
+  /** A downgrade that has been asked for but has not landed yet (BIL-12). */
+  pending_plan_code: string | null;
+  pending_plan_name: string | null;
+  pending_plan_effective_at: IsoDateTime | null;
 };
 
 export type UsageLimit = {
@@ -987,7 +1034,23 @@ export type SeatChangeResponse = {
   seats_activated: number;
   proration_cents: number;
   effective_at: IsoDateTime;
+  /** Balance credited by releasing seats mid-period. Never a refund. */
+  wallet_credit_cents: number;
 };
+
+/** One blocker (change refused) or warning (change confirmable). */
+export type PlanChangeIssue = {
+  code: string;
+  key: string;
+  message: string;
+  current: number | null;
+  limit: number | null;
+  /** What the tenant must do, stated in numbers where there is one. */
+  remedy: string | null;
+};
+
+export type PlanChangeDirection = 'upgrade' | 'downgrade' | 'lateral' | 'interval_switch';
+export type PlanChangeEffective = 'immediately' | 'period_end';
 
 export type PlanChangePreview = {
   current_plan_code: string;
@@ -1004,6 +1067,53 @@ export type PlanChangePreview = {
   next_invoice_total_cents: number;
   next_invoice_at: IsoDateTime | null;
   is_downgrade: boolean;
+  currency: string;
+  direction: PlanChangeDirection;
+  effective_mode: PlanChangeEffective;
+  /** True when the change lands at the period end rather than now. */
+  scheduled: boolean;
+  /** Owed today, before balance is applied. */
+  amount_due_cents: number;
+  wallet_balance_cents: number;
+  wallet_applied_cents: number;
+  /** What the card is actually charged, after balance. */
+  charge_cents: number;
+  /** Balance this change adds. Always 0 when scheduled. */
+  wallet_credit_cents: number;
+  blockers: PlanChangeIssue[];
+  warnings: PlanChangeIssue[];
+  allowed: boolean;
+};
+
+/* ── account balance (BIL-12) ───────────────────────────────────────────── */
+
+export type WalletEntry = {
+  id: UUID;
+  /** Signed: positive is credit, negative is balance spent. */
+  amount_cents: number;
+  balance_after_cents: number;
+  currency: string;
+  kind:
+    | 'downgrade_proration'
+    | 'interval_switch_remainder'
+    | 'seat_reduction'
+    | 'overpayment'
+    | 'platform_grant'
+    | 'invoice_payment'
+    | 'reversal';
+  description: string;
+  reason: string | null;
+  invoice_id: UUID | null;
+  created_at: IsoDateTime;
+};
+
+export type Wallet = {
+  balance_cents: number;
+  currency: string;
+  /** Always false: balance is spent here and never paid out. */
+  withdrawable: boolean;
+  total: number;
+  entries: WalletEntry[];
 };
 
 /* ── revenue (schemas/operations.py) ────────────────────────────────────── */
@@ -1063,7 +1173,12 @@ export type BalanceResponse = {
   payout_destination: string;
   disputes_cents: number;
   dispute_count: number;
-  dispute_rate_pct: number;
+  /** null when the provider exposes no trustworthy denominator. */
+  dispute_rate_pct: number | null;
+  /** `provider` (read from the provider's balance API) or `ledger` (derived locally). */
+  source: 'provider' | 'ledger';
+  /** Currencies held that the single-currency figures above exclude. */
+  other_currencies: string[];
 };
 
 export type ChurnRow = {
@@ -1159,6 +1274,148 @@ export type TenantDetail = TenantRow & {
   admins: DirectoryUser[];
 };
 
+/* `GET /api/saas/tenants/{id}/profile` — the tenant record page. One request
+   carrying who is in a tenant, what it has sent, what it is billed, what it
+   collects from signers and which credentials can act on it. Every list is
+   capped server-side (25 rows, users 200) and ordered newest-first. */
+
+export type TenantDocumentRow = {
+  id: string;
+  title: string;
+  status: string;
+  is_template: boolean;
+  sender_email: string | null;
+  created_at: IsoDateTime;
+  sent_at: IsoDateTime | null;
+  completed_at: IsoDateTime | null;
+};
+
+export type TenantApiKeyRow = {
+  id: string;
+  label: string;
+  mode: string;
+  /** The masked value — the secret's hash never leaves the server. */
+  masked: string;
+  scopes: string[];
+  created_by_email: string | null;
+  last_used_at: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+};
+
+export type TenantInvoiceRow = {
+  id: string;
+  number: string;
+  status: string;
+  currency: string;
+  total_cents: number;
+  amount_paid_cents: number;
+  issued_at: IsoDateTime;
+  due_at: IsoDateTime | null;
+  paid_at: IsoDateTime | null;
+};
+
+export type TenantChargeRow = {
+  id: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  method_label: string | null;
+  description: string | null;
+  decline_code: string | null;
+  occurred_at: IsoDateTime;
+};
+
+export type TenantSignerPaymentRow = {
+  id: string;
+  document_id: string;
+  document_title: string | null;
+  amount_cents: number;
+  refunded_amount_cents: number;
+  currency: string;
+  status: string;
+  paid_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+};
+
+/** Per currency — the API never sums across them, and neither may the UI. */
+export type TenantSignerPaymentTotals = {
+  currency: string;
+  collected_cents: number;
+  refunded_cents: number;
+  count: number;
+};
+
+export type TenantWebhookRow = {
+  id: string;
+  url: string;
+  is_active: boolean;
+  event_types: string[] | null;
+  description: string | null;
+  created_at: IsoDateTime;
+};
+
+export type TenantCounts = {
+  users: number;
+  active_users: number;
+  documents: number;
+  templates: number;
+  contacts: number;
+  folders: number;
+  teams: number;
+  api_keys: number;
+  active_api_keys: number;
+  webhooks: number;
+  invoices: number;
+  signer_payments: number;
+};
+
+export type TenantSubscriptionInfo = {
+  plan_code: string | null;
+  plan_name: string | null;
+  status: string | null;
+  price_cents: number | null;
+  current_period_start: IsoDateTime | null;
+  current_period_end: IsoDateTime | null;
+  trial_ends_at: IsoDateTime | null;
+  canceled_at: IsoDateTime | null;
+  cancel_at_period_end: boolean;
+  provider: string | null;
+};
+
+/** The tenant's own Stripe connection — how signers pay *them*. */
+export type TenantPaymentAccountInfo = {
+  provider: string;
+  charges_enabled: boolean;
+  payouts_enabled: boolean;
+  details_submitted: boolean;
+  livemode: boolean;
+  default_currency: string | null;
+  disabled_reason: string | null;
+  onboarded_at: IsoDateTime | null;
+};
+
+export type TenantProfile = {
+  tenant: TenantDetail;
+  counts: TenantCounts;
+  documents_by_status: Record<string, number>;
+  users: DirectoryUser[];
+  recent_documents: TenantDocumentRow[];
+  api_keys: TenantApiKeyRow[];
+  invoices: TenantInvoiceRow[];
+  charges: TenantChargeRow[];
+  signer_payments: TenantSignerPaymentRow[];
+  signer_payment_totals: TenantSignerPaymentTotals[];
+  webhooks: TenantWebhookRow[];
+  subscription: TenantSubscriptionInfo | null;
+  payment_account: TenantPaymentAccountInfo | null;
+  audit: PlatformAuditRow[];
+  invoiced_cents: number;
+  invoice_paid_cents: number;
+  invoice_outstanding_cents: number;
+  invoice_currency: string;
+};
+
 export type DirectoryPage = { items: DirectoryUser[]; total: number };
 
 export type PermissionRow = { label: string; allowed: boolean[] };
@@ -1224,8 +1481,35 @@ export type SecurityPostureRow = {
   enforced: boolean;
 };
 
+/** One operator-maintained compliance record. */
+export type CertificationRow = {
+  id: UUID;
+  name: string;
+  /** What the operator recorded: not_assessed | in_process | certified. */
+  status: string;
+  /** What may be shown: `status`, or `expired` once `expires_on` has passed. */
+  effective_status: string;
+  expired: boolean;
+  auditor: string | null;
+  assessed_on: string | null;
+  expires_on: string | null;
+  evidence_url: string | null;
+  notes: string | null;
+  updated_at: IsoDateTime | null;
+};
+
+/** PATCH body; omitted fields are left as they are. */
+export type CertificationUpdate = Partial<{
+  status: string;
+  auditor: string | null;
+  assessed_on: string | null;
+  expires_on: string | null;
+  evidence_url: string | null;
+  notes: string | null;
+}>;
+
 export type ComplianceResponse = {
-  certifications: { name: string; status: string }[];
+  certifications: CertificationRow[];
   last_key_rotation_at: IsoDateTime | null;
   rotation_interval_days: number;
   /** False while no key-rotation job exists. */
@@ -1317,12 +1601,24 @@ export type MailParams = {
   offset?: number;
 };
 
+/** A file the composer attached, base64 without the `data:` prefix. */
+export type MailAttachment = {
+  filename: string;
+  content_type: string;
+  content: string;
+};
+
 export type MailSendRequest = {
   to: string[];
   subject: string;
   body: string;
   send_html?: boolean;
   organization_id?: string | null;
+  /** Visible to every recipient; copied on the first addressee's message only. */
+  cc?: string[];
+  /** Delivered but never named in the headers. */
+  bcc?: string[];
+  attachments?: MailAttachment[];
 };
 
 /** One outbox row per addressee, plus the tally the compose form reports. */
@@ -1898,6 +2194,88 @@ export type SignerPaymentResponse = {
   refunded_amount_cents: number;
   description: string | null;
   created_at: IsoDateTime;
+  /** The tenant's own receipt for this payment (PAY-2), when one exists.
+   *  `null` for an unsettled or failed payment — there was no money to
+   *  receipt — and for a payment settled before receipts existed that has not
+   *  been backfilled yet. */
+  receipt?: PaymentReceiptResponse | null;
+};
+
+/** `models/enums.py:PaymentReceiptStatus`. A partial refund is its own state
+ *  rather than being folded into `refunded`: "we returned some of this" and
+ *  "we returned all of this" are materially different answers. */
+export type PaymentReceiptStatus = 'issued' | 'partially_refunded' | 'refunded';
+
+/** `schemas/payment.py:PaymentReceiptResponse` — the tenant's own financial
+ *  record of one settled signer payment.
+ *
+ *  Exists because a settled payment's only human-readable evidence used to be
+ *  `receipt_url`, a page hosted on the tenant's *connected Stripe account*
+ *  that this app does not host and loses when they disconnect. */
+export type PaymentReceiptResponse = {
+  id: UUID;
+  organization_id: UUID;
+  signer_payment_id: UUID;
+  document_id: UUID | null;
+  document_ref: string | null;
+  recipient_id: UUID | null;
+  number: string;
+  status: PaymentReceiptStatus;
+  currency: string;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  refunded_amount_cents: number;
+  /** What the tenant actually kept, after refunds. */
+  net_cents: number;
+  payer_name: string | null;
+  payer_email: string | null;
+  document_title: string | null;
+  issuer_name: string | null;
+  description: string | null;
+  line_items: Array<{ description?: string; quantity?: number; unit_cents?: number; amount_cents?: number }> | null;
+  provider: string | null;
+  provider_account_id: string | null;
+  provider_payment_intent_id: string | null;
+  provider_charge_id: string | null;
+  provider_receipt_url: string | null;
+  issued_at: IsoDateTime;
+  paid_at: IsoDateTime | null;
+  refunded_at: IsoDateTime | null;
+  checksum: string | null;
+  /** The chained `AuditLog` entry this receipt documents. */
+  audit_log_id: UUID | null;
+  /** Recomputed server-side on every read: does the row still match the
+   *  checksum it was sealed with. `false` also covers a receipt issued before
+   *  sealing existed — "unverifiable" must never render as "verified". */
+  verified: boolean;
+};
+
+/** `schemas/payment.py:PaymentLedgerEntry` — one row of the tenant-wide
+ *  ledger, flattened so it reads without opening each envelope. */
+export type PaymentLedgerEntry = {
+  payment: SignerPaymentResponse;
+  receipt: PaymentReceiptResponse | null;
+  document_id: UUID;
+  document_title: string | null;
+  document_status: string | null;
+  payer_name: string | null;
+  payer_email: string | null;
+};
+
+/** `schemas/payment.py:PaymentLedgerPage`. Totals cover the whole filtered
+ *  set, not the page, and are kept per currency — a tenant taking USD and EUR
+ *  has two cash positions and one summed number would be a fiction. */
+export type PaymentLedgerPage = {
+  entries: PaymentLedgerEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+  collected_cents_by_currency: Record<string, number>;
+  refunded_cents_by_currency: Record<string, number>;
+  succeeded_count: number;
+  refunded_count: number;
+  failed_count: number;
 };
 
 /** `schemas/payment.py:PaymentIntentResponse` — what the signing client needs

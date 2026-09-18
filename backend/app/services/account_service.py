@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.storage import StoragePathError, storage
 from app.models.audit_log import AuditLog
 from app.models.document import Document
-from app.models.integration import CloudTarget, Integration
+from app.models.integration import CloudTarget
 from app.models.notification import NotificationPreference
 from app.models.recipient import Recipient
 from app.models.saved_signature import SavedSignature
@@ -27,13 +27,14 @@ from app.schemas.account import (
     CloudTargetsUpdate,
     FieldFavoritesResponse,
     FieldFavoritesUpdate,
-    IntegrationConnectRequest,
     IntegrationResponse,
     NotificationPreferenceResponse,
     NotificationPreferencesUpdate,
     SavedSignatureCreate,
     SavedSignatureResponse,
 )
+from app.services.cloud_integration_service import cloud_integration_service
+from app.services.cloud_providers import PROVIDER_NAMES
 
 # The catalogue is product copy, not tenant data: rows are created lazily the
 # first time a preference is toggled, and defaults come from here.
@@ -48,12 +49,9 @@ NOTIFICATION_EVENTS: tuple[tuple[str, str, bool], ...] = (
     ("weekly_summary", "Weekly activity summary", False),
 )
 
-INTEGRATION_CATALOGUE: tuple[tuple[str, str, str], ...] = (
-    ("google_drive", "Google Drive", "Archive completed PDFs"),
-    ("dropbox", "Dropbox", "Archive completed PDFs"),
-)
-
-CLOUD_TARGET_PROVIDERS: tuple[str, ...] = ("google_drive", "dropbox")
+#: The connector catalogue *is* the provider registry: a connector is offered
+#: because an adapter exists for it, not because a tuple here lists its name.
+CLOUD_TARGET_PROVIDERS: tuple[str, ...] = PROVIDER_NAMES
 
 _SIGNATURE_TYPE_LABELS = {"drawn": "Drawn", "typed": "Typed", "uploaded": "Uploaded"}
 
@@ -369,80 +367,10 @@ class AccountService:
     # --- integrations (PREF-3) -------------------------------------------
 
     def list_integrations(self, db: Session, *, user: User) -> list[IntegrationResponse]:
-        rows = {
-            row.provider: row
-            for row in db.scalars(
-                select(Integration).where(Integration.organization_id == user.organization_id)
-            ).all()
-        }
-        catalogue = [
-            IntegrationResponse(
-                provider=provider,
-                label=rows[provider].label if provider in rows else label,
-                detail=rows[provider].detail if provider in rows else detail,
-                connected=rows[provider].connected if provider in rows else False,
-                connected_at=rows[provider].connected_at if provider in rows else None,
-            )
-            for provider, label, detail in INTEGRATION_CATALOGUE
-        ]
-        # Providers outside the catalogue (retired connectors still sitting in
-        # an older organization's rows) are not offered and not reported.
-        return catalogue
-
-    def connect_integration(
-        self, db: Session, *, user: User, provider: str, payload: IntegrationConnectRequest
-    ) -> IntegrationResponse:
-        catalogue = {p: (label, detail) for p, label, detail in INTEGRATION_CATALOGUE}
-        if provider not in catalogue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Unknown integration provider"
-            )
-        row = db.scalar(
-            select(Integration).where(
-                Integration.organization_id == user.organization_id, Integration.provider == provider
-            )
-        )
-        default_label, default_detail = catalogue[provider]
-        if row is None:
-            row = Integration(
-                organization_id=user.organization_id,
-                provider=provider,
-                label=payload.label or default_label,
-            )
-            db.add(row)
-        row.label = payload.label or row.label or default_label
-        row.detail = payload.detail or row.detail or default_detail
-        row.connected = True
-        row.connected_at = _now()
-        if payload.credentials is not None:
-            # Stored through EncryptedString; never echoed back in a response.
-            import json
-
-            row.credentials = json.dumps(payload.credentials)
-        if payload.config is not None:
-            row.config = payload.config
-        db.commit()
-        db.refresh(row)
-        return IntegrationResponse(
-            provider=row.provider,
-            label=row.label,
-            detail=row.detail,
-            connected=row.connected,
-            connected_at=row.connected_at,
-        )
+        return cloud_integration_service.list_integrations(db, user=user)
 
     def disconnect_integration(self, db: Session, *, user: User, provider: str) -> None:
-        row = db.scalar(
-            select(Integration).where(
-                Integration.organization_id == user.organization_id, Integration.provider == provider
-            )
-        )
-        if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found")
-        row.connected = False
-        row.connected_at = None
-        row.credentials = None
-        db.commit()
+        cloud_integration_service.disconnect(db, user=user, provider=provider)
 
     # --- cloud targets (PREF-4) ------------------------------------------
 
@@ -463,6 +391,32 @@ class AccountService:
             for provider in providers
         ]
 
+    def _validate_cloud_target(self, db: Session, *, user: User, target: CloudTargetItem) -> None:
+        """An enabled destination has to be one an export could actually reach.
+
+        Saving ``enabled`` against a blank path or a provider nobody has
+        connected used to be accepted and then silently exported nothing --
+        the misconfiguration only surfaced as a missing file weeks later.
+        """
+        if target.provider not in CLOUD_TARGET_PROVIDERS:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Unknown integration provider"
+            )
+        if not target.enabled:
+            return
+        if not (target.path or "").strip():
+            raise HTTPException(
+                status_code=422,  # HTTP_422 has two spellings across Starlette versions
+                detail="A destination folder is required to enable this cloud target",
+            )
+        if not cloud_integration_service.is_connected(
+            db, organization_id=user.organization_id, provider=target.provider
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Connect {target.provider} before enabling it as an export destination",
+            )
+
     def update_cloud_targets(
         self, db: Session, *, user: User, payload: CloudTargetsUpdate
     ) -> list[CloudTargetItem]:
@@ -472,13 +426,17 @@ class AccountService:
                 select(CloudTarget).where(CloudTarget.organization_id == user.organization_id)
             ).all()
         }
+        # Validate the whole batch before touching a row: a request that is
+        # rejected must leave the tenant's destinations exactly as they were.
+        for target in payload.targets:
+            self._validate_cloud_target(db, user=user, target=target)
         for target in payload.targets:
             row = rows.get(target.provider)
             if row is None:
                 row = CloudTarget(organization_id=user.organization_id, provider=target.provider)
                 db.add(row)
                 rows[target.provider] = row
-            row.path = target.path
+            row.path = (target.path or "").strip() or None
             row.enabled = target.enabled
         db.commit()
         return self.list_cloud_targets(db, user=user)

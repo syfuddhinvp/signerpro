@@ -327,7 +327,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                     onPointerLeave={onPointerUp}
                     style={{ width: '100%', height: '200px', touchAction: 'none', background: '#fbfcfd', border: '1px dashed #8492a6', borderRadius: '12px', cursor: 'crosshair' }}
                   />
-                  <button type="button" onClick={clearCanvas} style={ghostBtn}>Clear</button>
+                  <button type="button" onClick={clearCanvas} style={ghostBtn}><Icon name="trash" size={13} />Clear</button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
@@ -357,8 +357,8 @@ export default function SignSurface(props: SignSurfaceProps) {
                 By selecting Adopt and sign, I agree this signature and initials are the electronic representation of my signature for all purposes.
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={() => setModal(null)} style={ghostBtn}>Cancel</button>
-                <button type="button" onClick={adopt} disabled={pending} style={primaryBtn}>Adopt and sign</button>
+                <button type="button" onClick={() => setModal(null)} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
+                <button type="button" onClick={adopt} disabled={pending} style={primaryBtn}><Icon name="sign" size={13} />Adopt and sign</button>
               </div>
             </div>
           </div>
@@ -380,7 +380,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                 You have already consented to transact business electronically for this envelope. Your electronic signature has the same legal effect as a handwritten one, and every action you take is recorded in a tamper-evident audit trail with its own SHA-256 checksum. You may request a paper copy from the sender at any time, and you may withdraw consent for future envelopes by contacting them directly.
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={() => setModal(null)} style={ghostBtn}>Close</button>
+                <button type="button" onClick={() => setModal(null)} style={ghostBtn}><Icon name="close" size={13} />Close</button>
               </div>
             </div>
           </div>
@@ -410,8 +410,8 @@ export default function SignSurface(props: SignSurfaceProps) {
                 style={textareaStyle}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={() => setModal(null)} style={ghostBtn}>Close</button>
-                <button type="button" onClick={confirmDecline} disabled={pending} style={dangerBtn}>Decline to sign</button>
+                <button type="button" onClick={() => setModal(null)} style={ghostBtn}><Icon name="close" size={13} />Close</button>
+                <button type="button" onClick={confirmDecline} disabled={pending} style={dangerBtn}><Icon name="cancel" size={13} />Decline to sign</button>
               </div>
             </div>
           </div>
@@ -452,8 +452,8 @@ export default function SignSurface(props: SignSurfaceProps) {
                 style={textareaStyle}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={() => setModal(null)} style={ghostBtn}>Close</button>
-                <button type="button" onClick={confirmReassign} disabled={pending} style={primaryBtn}>Reassign</button>
+                <button type="button" onClick={() => setModal(null)} style={ghostBtn}><Icon name="close" size={13} />Close</button>
+                <button type="button" onClick={confirmReassign} disabled={pending} style={primaryBtn}><Icon name="addUser" size={13} />Reassign</button>
               </div>
             </div>
           </div>

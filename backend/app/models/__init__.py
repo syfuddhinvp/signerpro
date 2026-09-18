@@ -15,7 +15,7 @@ from app.models.field import Field
 from app.models.field_attachment import FieldAttachment
 from app.models.folder import Folder
 from app.models.impersonation import ImpersonationSession
-from app.models.integration import CloudTarget, Integration
+from app.models.integration import CloudExport, CloudTarget, Integration
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mfa_challenge import MfaChallenge
@@ -25,6 +25,7 @@ from app.models.passkey import Passkey
 from app.models.password_reset import PasswordResetToken
 from app.models.payment_account import PaymentAccount
 from app.models.payment_method import PaymentMethod
+from app.models.payment_receipt import PaymentReceipt
 from app.models.payment_request import PaymentRequest
 from app.models.plan import Plan
 from app.models.platform_audit import PlatformAuditEntry
@@ -44,6 +45,7 @@ from app.models.team import Team, TeamMember
 from app.models.usage_event import UsageEvent
 from app.models.user import User
 from app.models.user_session import UserSession
+from app.models.wallet import WalletAccount, WalletEntry
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
 __all__ = [
@@ -54,6 +56,7 @@ __all__ = [
     "BrandingTheme",
     "CatalogTemplate",
     "Charge",
+    "CloudExport",
     "CloudTarget",
     "Contact",
     "ContactGroup",
@@ -82,6 +85,7 @@ __all__ = [
     "PasswordResetToken",
     "PaymentAccount",
     "PaymentMethod",
+    "PaymentReceipt",
     "PaymentRequest",
     "Plan",
     "PlatformAuditEntry",
@@ -105,6 +109,8 @@ __all__ = [
     "UsageEvent",
     "User",
     "UserSession",
+    "WalletAccount",
+    "WalletEntry",
     "WebhookDelivery",
     "WebhookEndpoint",
 ]

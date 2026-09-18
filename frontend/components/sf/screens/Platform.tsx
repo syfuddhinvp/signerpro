@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { ROLE_LABEL, FLAG_ENV_TONE } from '@/lib/sf/data';
@@ -15,6 +16,7 @@ import {
 } from '@/lib/api/resources';
 import type {
   AuditStreamRow,
+  CertificationView,
   DirectoryRow,
   FlagRow,
   PermissionMatrixView,
@@ -23,8 +25,6 @@ import type {
   SecurityRow,
   TenantTableRow,
 } from '@/lib/sf/adapters';
-import { formatCents, formatRelative, tenantStatusLabel } from '@/lib/sf/adapters';
-import type { TenantDetail } from '@/lib/api/types';
 import Icon, { type IconName } from '@/components/sf/Icon';
 
 const th: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:500, fontFamily:'var(--font-sans)' };
@@ -48,8 +48,6 @@ export type PlatformFilters = {
   role: string;
   mfa: string;
   flagEnvironment: string;
-  /** The tenant whose detail panel is open (`?tenant=`). */
-  tenantId: string;
 };
 
 /**
@@ -62,14 +60,13 @@ export type PlatformProps = {
   stats: PlatformStatTile[];
   tenants: TenantTableRow[];
   tenantTotal: number;
-  tenantDetail: TenantDetail | null;
   planCodes: { code: string; name: string }[];
   directory: DirectoryRow[];
   directoryTotal: number;
   matrix: PermissionMatrixView;
   flags: FlagRow[];
   security: SecurityRow[];
-  certifications: string[];
+  certifications: CertificationView[];
   complianceNote: string;
   audit: AuditStreamRow[];
   plans: PlatformPlanCard[];
@@ -91,7 +88,7 @@ const FLAG_ENV_OPTIONS: [string, string][] = [
 ];
 
 export default function Platform({
-  stats, tenants, tenantTotal, tenantDetail, planCodes, directory, directoryTotal, matrix, flags,
+  stats, tenants, tenantTotal, planCodes, directory, directoryTotal, matrix, flags,
   security, certifications, complianceNote, audit, plans, filters, seatsLabel, tenantCountLabel,
 }: PlatformProps) {
   const { flash, accent, initials } = useSF();
@@ -188,7 +185,7 @@ export default function Platform({
   const tenantRows = tenants.map((t, i) => ({
     id: t.id, name: t.name, slug: t.slug, owner: t.owner, plan: t.plan, region: t.region,
     volume: t.volume, status: t.status, initials: initials(t.name),
-    rowStyle: { borderTop: i ? '1px solid #eef1f6' : 'none', opacity: t.suspended ? .62 : 1 } as CSSProperties,
+    rowStyle: { borderTop: i ? '1px solid #eef1f6' : 'none', opacity: t.suspended ? .62 : 1, cursor:'pointer' } as CSSProperties,
     avatar: { width:'30px', height:'30px', borderRadius:'9px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 30px' } as CSSProperties,
     planPill: pill(t.planTone),
     statusPill: pill(t.statusTone),
@@ -197,7 +194,10 @@ export default function Platform({
       const pct = t.seats ? Math.min(100, Math.round(t.used / t.seats * 100)) : 0;
       return { width: pct + '%', height:'100%', borderRadius:'99px', background: pct > 92 ? '#f59e0b' : '#10b981' } as CSSProperties;
     })(),
-    onOpen: () => pushQuery({ tenant: filters.tenantId === t.id ? '' : t.id }),
+    /* The row is the record page. A fold under the table could only ever hold
+       a summary of what that page shows in full. */
+    href: '/platform/tenants/' + t.id,
+    onOpen: () => router.push('/platform/tenants/' + t.id),
     onImpersonate: () => { setReason(''); setScope('read'); setDialog({ kind: 'impersonate', tenant: t }); },
     suspendLabel: t.suspended ? 'Reinstate' : 'Suspend',
     suspendStyle: t.suspended ? btn('#fff', '#047857', '#a7f3d0') : btn('#fff', '#b91c1c', '#fecaca'),
@@ -207,37 +207,6 @@ export default function Platform({
       setDialog({ kind: 'suspend', tenant: t });
     },
   }));
-
-  /* ── tenant detail (?tenant=…) ───────────────────────────────────────── */
-  const detailFields: { k: string; v: string }[] = tenantDetail ? [
-    { k:'Slug', v: tenantDetail.slug || '—' },
-    { k:'Owner', v: tenantDetail.owner_email || '—' },
-    { k:'Plan', v: tenantDetail.plan_name },
-    { k:'Status', v: tenantStatusLabel(tenantDetail.status) },
-    { k:'Seats', v: tenantDetail.seats_activated.toLocaleString() + ' / ' + tenantDetail.seats_licensed.toLocaleString() },
-    { k:'MRR', v: formatCents(tenantDetail.mrr_cents) },
-    { k:'Envelopes · 30d', v: tenantDetail.envelope_volume_30d.toLocaleString() },
-    { k:'Open tickets', v: String(tenantDetail.open_ticket_count) },
-    { k:'Incidents · 90d', v: String(tenantDetail.incidents_90d) },
-    { k:'Billing email', v: tenantDetail.billing_email || '—' },
-    { k:'Live mode', v: tenantDetail.live_mode_enabled ? 'enabled' : 'test only' },
-    { k:'Created', v: formatRelative(tenantDetail.created_at) },
-    ...(tenantDetail.suspension_reason ? [{ k:'Suspension reason', v: tenantDetail.suspension_reason }] : []),
-  ] : [];
-
-  const overrideFor = (key: string): boolean | null => {
-    const row = tenantDetail?.flag_overrides.find(o => o.key === key);
-    return row ? row.enabled : null;
-  };
-
-  const setOverride = (key: string, enabled: boolean | null) => {
-    if (!tenantDetail) return;
-    flash(key + ' override for ' + tenantDetail.name + ' → ' + (enabled === null ? 'cleared' : enabled ? 'on' : 'off'));
-    void tenantsApi.setFlagOverride(apiCall, tenantDetail.id, { key, enabled }).then(res => {
-      if (!res.ok) { flash('Could not set override · ' + res.error.message); return; }
-      router.refresh();
-    });
-  };
 
   /* ── stats / tabs ────────────────────────────────────────────────────── */
   const platformStats = stats.map(x => ({
@@ -277,6 +246,16 @@ export default function Platform({
 
   /* ── flags ───────────────────────────────────────────────────────────── */
   const [rollouts, setRollouts] = useState<Record<string, number>>({});
+
+  /* The compliance editor: which record is open, the draft, and the API's own
+     refusal (it rejects "certified" without evidence) shown where it happened
+     rather than as a toast that disappears before it can be acted on. */
+  const [certEdit, setCertEdit] = useState<string | null>(null);
+  const [certBusy, setCertBusy] = useState(false);
+  const [certError, setCertError] = useState('');
+  const [certForm, setCertForm] = useState({
+    status: 'not_assessed', auditor: '', assessedOn: '', expiresOn: '', evidenceUrl: '', notes: '',
+  });
   const rolloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const patchFlag = (key: string, body: { enabled?: boolean; rollout_pct?: number }) => {
@@ -339,8 +318,42 @@ export default function Platform({
   const auditRows = audit.map((a, i) => ({ key: a.key, label: a.label, meta: a.meta,
     dot: { width:'8px', height:'8px', borderRadius:'99px', marginTop:'5px', flex:'0 0 8px', background: i === 0 ? '#f59e0b' : '#334155' } as CSSProperties }));
 
-  const certs = certifications.map(label => ({ label,
-    style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.71875rem', color:'#475569', fontFamily:'var(--font-sans)' } as CSSProperties }));
+  /* A chip is the only thing anyone reads at a glance, so it has to carry the
+     status honestly: green is reserved for an attestation that is current, and
+     a lapsed one goes amber rather than quietly staying green. */
+  const certs = certifications.map(c => {
+    const tone = c.effectiveStatus === 'certified'
+      ? { border:'#a7f3d0', background:'#ecfdf5', color:'#065f46' }
+      : c.effectiveStatus === 'expired'
+        ? { border:'#fecaca', background:'#fef2f2', color:'#991b1b' }
+        : c.effectiveStatus === 'in_process'
+          ? { border:'#fed7aa', background:'#fff7ed', color:'#9a3412' }
+          : { border:'#e3e7ee', background:'#fbfcfd', color:'#475569' };
+    return { ...c,
+      style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + tone.border, background:tone.background, fontSize:'.71875rem', color:tone.color, fontFamily:'var(--font-sans)' } as CSSProperties };
+  });
+
+  const editingCert = certifications.find(c => c.id === certEdit) ?? null;
+
+  const saveCert = () => {
+    if (!editingCert || certBusy) return;
+    setCertBusy(true);
+    setCertError('');
+    void flagsApi.updateCertification(apiCall, editingCert.id, {
+      status: certForm.status,
+      auditor: certForm.auditor.trim() || null,
+      assessed_on: certForm.assessedOn || null,
+      expires_on: certForm.expiresOn || null,
+      evidence_url: certForm.evidenceUrl.trim() || null,
+      notes: certForm.notes.trim() || null,
+    }).then(res => {
+      setCertBusy(false);
+      if (!res.ok) { setCertError(res.error.message); return; }
+      setCertEdit(null);
+      flash(editingCert.name + ' → ' + res.data.effective_status.replace(/_/g, ' '));
+      router.refresh();
+    });
+  };
 
   const ptTenants = section === 'tenants';
   const ptUsers = section === 'users';
@@ -402,12 +415,14 @@ export default function Platform({
               </thead>
               <tbody>
                 {tenantRows.length ? tenantRows.map(t => (
-                  <tr key={t.id} style={t.rowStyle}>
+                  /* The whole row opens the record; the buttons in the last
+                     cell stop the click so an action is never a navigation. */
+                  <tr key={t.id} style={t.rowStyle} onClick={t.onOpen}>
                     <td style={td}>
                       <div style={{ display:'flex', alignItems:'center', gap:'11px' }}>
                         <span style={t.avatar}>{t.initials}</span>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
-                          <button type="button" onClick={t.onOpen} style={{ background:'none', border:'none', padding:0, cursor:'pointer', textAlign:'left', fontSize:'.84375rem', fontWeight:600, color:'#0f172a' }}>{t.name}</button>
+                          <Link href={t.href} style={{ textDecoration:'none', fontSize:'.84375rem', fontWeight:600, color:'#0f172a' }}>{t.name}</Link>
                           <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{t.slug} · owner {t.owner}</span>
                         </div>
                       </div>
@@ -422,10 +437,11 @@ export default function Platform({
                     <td style={td}><span style={{ fontFamily:'var(--font-sans)', fontSize:'.75rem' }}>{t.volume}</span></td>
                     <td style={td}><span style={{ color:'#64748b', fontFamily:'var(--font-sans)', fontSize:'.71875rem' }}>{t.region}</span></td>
                     <td style={td}><span style={t.statusPill}>{t.status}</span></td>
-                    <td style={tdRight}>
+                    <td style={tdRight} onClick={e => e.stopPropagation()}>
                       <div style={{ display:'inline-flex', gap:'6px' }}>
-                        <button type="button" onClick={t.onImpersonate} style={ghostBtn}>Impersonate</button>
-                        <button type="button" onClick={t.onSuspend} style={t.suspendStyle}>{t.suspendLabel}</button>
+                        <Link href={t.href} style={{ ...ghostBtn, textDecoration:'none' }}>Details</Link>
+                        <button type="button" onClick={t.onImpersonate} style={ghostBtn}><Icon name="eye" size={12} />Impersonate</button>
+                        <button type="button" onClick={t.onSuspend} style={t.suspendStyle}><Icon name="pause" size={12} />{t.suspendLabel}</button>
                       </div>
                     </td>
                   </tr>
@@ -436,51 +452,6 @@ export default function Platform({
             </table>
           </div>
 
-          {tenantDetail ? (
-            <div style={{ borderTop:'1px solid #eef1f6', padding:'16px', display:'grid', gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)', gap:'16px', alignItems:'start', background:'#fbfcfd' }}>
-              <div style={{ display:'flex', flexDirection:'column', gap:'9px' }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
-                  <div style={railHead}>{tenantDetail.name} · detail</div>
-                  <button type="button" onClick={() => pushQuery({ tenant: '' })} style={ghostBtn}>Close</button>
-                </div>
-                {detailFields.map(f => (
-                  <div key={f.k} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.78125rem', padding:'6px 0', borderTop:'1px solid #f2f4f8' }}>
-                    <span style={{ color:'#64748b' }}>{f.k}</span>
-                    <span style={{ fontWeight:500, textAlign:'right', wordBreak:'break-all' }}>{f.v}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:'9px' }}>
-                <div style={railHead}>Feature flag overrides</div>
-                {flags.length ? flags.map(f => {
-                  const value = overrideFor(f.key);
-                  return (
-                    <div key={f.key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', padding:'8px 10px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fff' }}>
-                      <span style={{ fontSize:'.75rem', fontFamily:'var(--font-sans)', minWidth:0, wordBreak:'break-all' }}>{f.key}</span>
-                      <select value={value === null ? 'inherit' : value ? 'on' : 'off'}
-                        onChange={e => setOverride(f.key, e.target.value === 'inherit' ? null : e.target.value === 'on')}
-                        aria-label={'Override ' + f.key} style={selectStyle}>
-                        <option value="inherit">Inherit ({f.on ? 'on' : 'off'})</option>
-                        <option value="on">Force on</option>
-                        <option value="off">Force off</option>
-                      </select>
-                    </div>
-                  );
-                }) : (<span style={emptyNote}>No feature flags defined.</span>)}
-                {tenantDetail.admins.length ? (
-                  <>
-                    <div style={railHead}>Administrators</div>
-                    {tenantDetail.admins.map(a => (
-                      <div key={a.id} style={{ display:'flex', justifyContent:'space-between', gap:'10px', fontSize:'.75rem', padding:'6px 0', borderTop:'1px solid #f2f4f8' }}>
-                        <span style={{ color:'#334155' }}>{a.name}</span>
-                        <span style={{ color:'#64748b', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{a.email}</span>
-                      </div>
-                    ))}
-                  </>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -603,7 +574,7 @@ export default function Platform({
             {/* Platform-wide metering has no endpoint (`GET /api/billing/usage`
                 is scoped to the caller's own tenant). The prototype's constants
                 are gone rather than presented as capacity figures. */}
-            <span style={emptyNote}>Platform-wide metered usage is not available — there is no cross-tenant usage endpoint. Per-tenant usage is on each tenant&rsquo;s detail panel.</span>
+            <span style={emptyNote}>Platform-wide metered usage is not available — there is no cross-tenant usage endpoint. Per-tenant usage is on each tenant&rsquo;s record page.</span>
           </div>
         </div>
       ) : null}
@@ -645,9 +616,51 @@ export default function Platform({
             </div>
             <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
               <div style={railHead}>Compliance certifications</div>
-              <div style={{ display:'flex', flexWrap:'wrap', gap:'7px' }}>
-                {certs.length ? certs.map(c => (<span key={c.label} style={c.style}>{c.label}</span>)) : (<span style={emptyNote}>No certifications recorded.</span>)}
-              </div>
+              {certs.length ? certs.map(c => (
+                <div key={c.id} style={{ display:'flex', flexDirection:'column', gap:'7px', padding:'10px 11px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fbfcfd' }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
+                    <span style={c.style}>{c.label}</span>
+                    <button type="button" style={ghostBtn} onClick={() => {
+                      setCertError('');
+                      setCertEdit(certEdit === c.id ? null : c.id);
+                      setCertForm({ status: c.status, auditor: c.auditor, assessedOn: c.assessedOn, expiresOn: c.expiresOn, evidenceUrl: c.evidenceUrl, notes: c.notes });
+                    }}>{certEdit === c.id ? 'Cancel' : 'Edit'}</button>
+                  </div>
+                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', lineHeight:1.5 }}>{c.evidence}</span>
+                  {c.evidenceUrl ? (
+                    <a href={c.evidenceUrl} target="_blank" rel="noreferrer noopener" style={{ fontSize:'.6875rem', color:A, wordBreak:'break-all' }}>{c.evidenceUrl}</a>
+                  ) : null}
+                  {certEdit === c.id ? (
+                    <div style={{ display:'flex', flexDirection:'column', gap:'7px', paddingTop:'3px' }}>
+                      <select value={certForm.status} aria-label={c.name + ' status'} style={selectStyle}
+                        onChange={e => setCertForm({ ...certForm, status: e.target.value })}>
+                        <option value="not_assessed">Not assessed</option>
+                        <option value="in_process">In process</option>
+                        <option value="certified">Certified</option>
+                      </select>
+                      <input value={certForm.auditor} placeholder="Auditor (firm that issued it)" aria-label={c.name + ' auditor'} style={inputStyle}
+                        onChange={e => setCertForm({ ...certForm, auditor: e.target.value })} />
+                      <div style={{ display:'flex', gap:'7px' }}>
+                        <input type="date" value={certForm.assessedOn} aria-label={c.name + ' assessed on'} style={{ ...inputStyle, flex:1 }}
+                          onChange={e => setCertForm({ ...certForm, assessedOn: e.target.value })} />
+                        <input type="date" value={certForm.expiresOn} aria-label={c.name + ' expires on'} style={{ ...inputStyle, flex:1 }}
+                          onChange={e => setCertForm({ ...certForm, expiresOn: e.target.value })} />
+                      </div>
+                      <input value={certForm.evidenceUrl} placeholder="https://… link to the report" aria-label={c.name + ' evidence URL'} style={inputStyle}
+                        onChange={e => setCertForm({ ...certForm, evidenceUrl: e.target.value })} />
+                      <input value={certForm.notes} placeholder="Notes (scope, exceptions)" aria-label={c.name + ' notes'} style={inputStyle}
+                        onChange={e => setCertForm({ ...certForm, notes: e.target.value })} />
+                      {certError ? (<span role="alert" style={{ fontSize:'.6875rem', color:'#b91c1c', lineHeight:1.5 }}>{certError}</span>) : null}
+                      <button type="button" disabled={certBusy} style={btn(A, '#fff', A)} onClick={saveCert}>
+                        {certBusy ? 'Saving…' : 'Save record'}
+                      </button>
+                      <span style={{ fontSize:'.65625rem', color:'#64748b', lineHeight:1.5 }}>
+                        Recording <strong>Certified</strong> requires the auditor, the assessment date and a link to the report.
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              )) : (<span style={emptyNote}>No certifications recorded.</span>)}
               <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{complianceNote}</span>
             </div>
           </div>
@@ -700,11 +713,11 @@ export default function Platform({
               </>
             ) : null}
             <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px' }}>
-              <button type="button" onClick={closeDialog} style={ghostBtn}>Cancel</button>
+              <button type="button" onClick={closeDialog} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
               <button type="button" disabled={busy}
                 onClick={dialog.kind === 'suspend' ? submitSuspend : submitImpersonation}
                 style={dialog.kind === 'suspend' ? btn('#b91c1c', '#fff', '#b91c1c') : btn(A, '#fff', A)}>
-                {busy ? 'Working…' : dialog.kind === 'suspend' ? 'Suspend tenant' : 'Start session'}
+                <Icon name={dialog.kind === 'suspend' ? 'pause' : 'eye'} size={13} />{busy ? 'Working…' : dialog.kind === 'suspend' ? 'Suspend tenant' : 'Start session'}
               </button>
             </div>
           </div>

@@ -18,6 +18,7 @@
 import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { TEXT_SUBTLE } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 const bannerStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
@@ -29,6 +30,7 @@ const retryStyle: CSSProperties = {
   height: '30px', padding: '0 12px', borderRadius: '9px', border: '1px solid #fca5a5',
   background: '#fff', color: '#7f1d1d', fontSize: '.75rem', fontWeight: 600,
   cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto',
+  display: 'inline-flex', alignItems: 'center', gap: '6px',
 };
 
 export type ApiUnavailableProps = {
@@ -50,7 +52,7 @@ export default function ApiUnavailable({ what, detail, onRetry }: ApiUnavailable
         {detail ? <span style={{ color: TEXT_SUBTLE }}> ({detail})</span> : null}
       </span>
       <button type="button" style={retryStyle} onClick={() => (onRetry ? onRetry() : router.refresh())}>
-        Retry
+        <Icon name="refresh" size={13} />Retry
       </button>
     </div>
   );

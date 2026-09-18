@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { btn, inputStyle, TEXT_MUTED } from '@/lib/sf/ui';
 import { searchContacts, type ContactSuggestion } from '@/lib/sf/recipientContacts';
+import Icon from '@/components/sf/Icon';
 
 /** Same shape the API enforces; caught here so a typo is not a round trip. */
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
@@ -130,7 +131,7 @@ export default function AddRecipient({ accent, onAdd, variant = 'rail', disabled
         title={disabled ? 'Open a document first' : undefined}
         onClick={() => { setOpen(true); setShowMatches(true); setTimeout(() => emailRef.current?.focus(), 0); }}
         style={openBtn}
-      >+ Add recipient</button>
+      ><Icon name="addUser" size={13} />Add recipient</button>
     );
   }
 
@@ -211,9 +212,9 @@ export default function AddRecipient({ accent, onAdd, variant = 'rail', disabled
         />
         <div style={{ display: 'flex', gap: '6px' }}>
           <button type="button" onClick={() => void submit()} disabled={busy} style={btn(accent, '#fff', accent)}>
-            {busy ? 'Adding…' : 'Add'}
+            <Icon name="check" size={13} />{busy ? 'Adding…' : 'Add'}
           </button>
-          <button type="button" onClick={() => { reset(); setOpen(false); }} style={btn('#fff', '#475569', '#e3e7ee')}>Cancel</button>
+          <button type="button" onClick={() => { reset(); setOpen(false); }} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
         </div>
       </div>
       {error ? (

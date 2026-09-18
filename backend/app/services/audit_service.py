@@ -36,6 +36,18 @@ EVENT_KINDS: dict[str, str] = {
     "recipient_reassigned": "info",
     "document_purged": "bad",
     "original_hash_mismatch": "bad",
+    # PAY-1/PAY-2. Money moving is the most consequential thing that happens
+    # to an envelope after a signature, so it belongs in the chained trail
+    # rather than only in the mutable `signer_payments` table. Before these
+    # existed the certificate of completion printed "Paid" against a figure
+    # no chained entry supported -- a financial claim that chain verification
+    # did not cover.
+    "payment_request_synced": "info",
+    "signer_payment_started": "info",
+    "signer_payment_succeeded": "good",
+    "signer_payment_failed": "bad",
+    "signer_payment_refunded": "bad",
+    "payment_receipt_issued": "good",
 }
 
 #: Genesis link of the per-document hash chain (SIGN-2).
@@ -55,6 +67,15 @@ IDENTITY_EVENTS: frozenset[str] = frozenset(
         "signature_added",
         "recipient_completed",
         "document_declined",
+        # A settlement is identity evidence, not just bookkeeping: a
+        # chargeback turns on being able to show who authorised the charge,
+        # from where, on what device. Stripe's own webhook cannot supply any
+        # of that (the request comes from Stripe's servers), so the signer's
+        # own poll of `/payments/{field_id}/refresh` is the only path that
+        # can -- and if settlement arrives by webhook first, this frozenset
+        # is what stamps ``attribution: not_captured`` into the hash-covered
+        # metadata rather than leaving the omission invisible.
+        "signer_payment_succeeded",
     }
 )
 

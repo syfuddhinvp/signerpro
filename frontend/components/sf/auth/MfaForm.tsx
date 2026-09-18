@@ -144,13 +144,13 @@ export default function MfaForm() {
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
 
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button type="submit" disabled={pending} style={authPrimary}>{pending ? 'Verifying…' : 'Verify & sign in'}</button>
+          <button type="submit" disabled={pending} style={authPrimary}><Icon name="shield" size={14} />{pending ? 'Verifying…' : 'Verify & sign in'}</button>
           <button
             type="button"
             onClick={() => { setError(''); setRecoveryCode(''); set({ mfaCode: '' }); setUseRecovery(v => !v); }}
             style={ghostBtn}
           >
-            {useRecovery ? 'Use authenticator' : 'Use recovery code'}
+            <Icon name={useRecovery ? 'shield' : 'key'} size={13} />{useRecovery ? 'Use authenticator' : 'Use recovery code'}
           </button>
         </div>
 

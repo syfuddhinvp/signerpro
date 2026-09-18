@@ -28,6 +28,9 @@ export type SignerProps = {
   pageCount?: number;
   /** The envelope's name, for the sidebar's contextual group. */
   title?: string;
+  /** True once the envelope is past draft/prepared. The preview stays
+   *  readable, but the header stops offering to author or re-send it. */
+  locked?: boolean;
   /** A completed / read-only session shows values but accepts no edits. */
   readOnly?: boolean;
   /**
@@ -151,7 +154,7 @@ function signableOf(fields: (SignerField | SFField)[], values: Record<string, un
 }
 
 export default function Signer({
-  fields, recipients, pageCount, title, readOnly = false, initialValues,
+  fields, recipients, pageCount, title, locked = false, readOnly = false, initialValues,
   onSaveValue, onOpenSignature, onDisclosure, onDecline, onReassign, onFinish, onDownload,
   pdfUrl, otherPlacements, annotations, onUploadAttachment, stampEndpoint, viewOnly = false,
   onPay, paymentConfigs, paymentStatuses,
@@ -159,7 +162,7 @@ export default function Signer({
   const { s, set, flash, accent, recip, meta, signable, isDone } = useSF();
   const { go } = useNav();
   const A = accent();
-  useDocumentTitle(title);
+  useDocumentTitle(title, false, locked);
 
   /* Object URLs for stamps picked in this session, so the seal appears the
      instant it is chosen rather than after a round trip. Revoked on unmount. */
@@ -986,7 +989,7 @@ export default function Signer({
             <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>You have been copied on this envelope</span>
             <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Nothing is required of you — there is no signature to apply and no field to complete.</span>
           </div>
-          <button type="button" onClick={() => { if (onDownload) onDownload(); else go('audit'); }} style={ghostBtn}>Download a copy</button>
+          <button type="button" onClick={() => { if (onDownload) onDownload(); else go('audit'); }} style={ghostBtn}><Icon name="download" size={13} />Download a copy</button>
         </div>
         <div data-sf-scroll="1" ref={attachScroll} style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '18px 14px' }}>
           {paper}
@@ -1008,17 +1011,17 @@ export default function Signer({
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
-          <button type="button" onClick={nextField} style={primaryBtn}>{nextFieldLabel}</button>
+          <button type="button" onClick={nextField} style={primaryBtn}><Icon name="arrowDown" size={13} />{nextFieldLabel}</button>
           {/* Named and located, so the button is a destination rather than a leap. */}
           <span aria-live="polite" style={{ fontSize: '.6875rem', color: '#64748b', maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {guideLabel ? 'Next: ' + guideLabel : 'Nothing left to complete'}
           </span>
         </div>
         <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
-          <button type="button" onClick={runOr(onDisclosure, 'disclosure')} style={ghostBtn}>Disclosure</button>
-          <button type="button" onClick={runOr(onDecline, 'decline')} style={ghostBtn}>Decline</button>
-          <button type="button" onClick={runOr(onReassign, 'reassign')} style={ghostBtn}>Reassign</button>
-          <button type="button" onClick={finish} style={successBtn}>Finish</button>
+          <button type="button" onClick={runOr(onDisclosure, 'disclosure')} style={ghostBtn}><Icon name="file" size={13} />Disclosure</button>
+          <button type="button" onClick={runOr(onDecline, 'decline')} style={ghostBtn}><Icon name="cancel" size={13} />Decline</button>
+          <button type="button" onClick={runOr(onReassign, 'reassign')} style={ghostBtn}><Icon name="addUser" size={13} />Reassign</button>
+          <button type="button" onClick={finish} style={successBtn}><Icon name="check" size={13} />Finish</button>
         </div>
       </div>
 
@@ -1053,7 +1056,7 @@ export default function Signer({
           {paper}
           <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '14px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
             <div style={{ fontSize: '.75rem', color: '#64748b', maxWidth: '520px', lineHeight: 1.5 }}>Adopting a signature is your electronic representation. Once applied, it is bound to this envelope with a SHA-256 hash and a tamper-evident audit trail.</div>
-            <button type="button" onClick={() => { if (onDownload) onDownload(); else go('audit'); }} style={ghostBtn}>Download unsigned PDF</button>
+            <button type="button" onClick={() => { if (onDownload) onDownload(); else go('audit'); }} style={ghostBtn}><Icon name="download" size={13} />Download unsigned PDF</button>
           </div>
         </div>
       </div>

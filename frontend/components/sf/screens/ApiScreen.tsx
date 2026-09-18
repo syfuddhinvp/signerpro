@@ -405,7 +405,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
           <span style={{ fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6, maxWidth:'620px' }}>Expose users, contacts and documents to your host application over REST, then launch the preparation surface in place with an embed session that carries document and contact metadata.</span>
         </div>
         <div style={{ display:'flex', gap:'8px', flex:'0 0 auto' }}>
-          <button type="button" onClick={launchEmbed} style={superBtn}>Launch embedded builder</button>
+          <button type="button" onClick={launchEmbed} style={superBtn}><Icon name="externalLink" size={13} />Launch embedded builder</button>
         </div>
       </div>
 
@@ -434,13 +434,13 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
             <div style={railHead}>Webhook endpoints</div>
-            <button type="button" onClick={addWebhook} style={primaryBtn}>Add endpoint</button>
+            <button type="button" onClick={addWebhook} style={primaryBtn}><Icon name="plus" size={13} />Add endpoint</button>
           </div>
           {webhookSecret ? (
             <div style={{ border:'1px solid #c7d2fe', background:'#eef2ff', borderRadius:'12px', padding:'11px', display:'flex', flexDirection:'column', gap:'5px' }}>
               <span style={{ fontSize:'.75rem', fontWeight:600 }}>{webhookSecret.rotated ? 'New signing secret for ' : 'Signing secret for '}{webhookSecret.url}</span>
               <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', wordBreak:'break-all', color:'#3730a3' }}>{webhookSecret.secret}</span>
-              <button type="button" onClick={() => setWebhookSecret(null)} style={ghostBtn}>Dismiss</button>
+              <button type="button" onClick={() => setWebhookSecret(null)} style={ghostBtn}><Icon name="close" size={13} />Dismiss</button>
             </div>
           ) : null}
           {webhookRows === null ? (
@@ -459,12 +459,12 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
               </div>
               <div style={{ display:'flex', gap:'6px', flexWrap:'wrap' }}>
                 <button type="button" onClick={w.onToggleOpen} aria-expanded={w.isOpen} style={w.isOpen ? primaryBtn : ghostBtn}>
-                  {w.isOpen ? 'Hide activity' : 'Activity'}
+                  <Icon name={w.isOpen ? 'caretUp' : 'caretDown'} size={13} />{w.isOpen ? 'Hide activity' : 'Activity'}
                 </button>
-                <button type="button" onClick={w.onTest} style={ghostBtn}>Send test</button>
-                <button type="button" onClick={w.onToggle} style={ghostBtn}>{w.pillLabel === 'Active' ? 'Disable' : 'Enable'}</button>
-                <button type="button" onClick={w.onRotate} style={ghostBtn}>Rotate secret</button>
-                <button type="button" onClick={w.onDelete} style={btn('#fff', '#b91c1c', '#fecaca')}>Delete</button>
+                <button type="button" onClick={w.onTest} style={ghostBtn}><Icon name="test" size={13} />Send test</button>
+                <button type="button" onClick={w.onToggle} style={ghostBtn}><Icon name={w.pillLabel === 'Active' ? 'pause' : 'play'} size={13} />{w.pillLabel === 'Active' ? 'Disable' : 'Enable'}</button>
+                <button type="button" onClick={w.onRotate} style={ghostBtn}><Icon name="refresh" size={13} />Rotate secret</button>
+                <button type="button" onClick={w.onDelete} style={btn('#fff', '#b91c1c', '#fecaca')}><Icon name="trash" size={13} />Delete</button>
               </div>
 
               {w.isOpen ? (
@@ -546,7 +546,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
                             {new Date(d.created_at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
                           </span>
                           {d.status === 'failed' || d.status === 'exhausted' ? (
-                            <button type="button" onClick={() => replayDelivery(d)} style={ghostBtn}>Replay</button>
+                            <button type="button" onClick={() => replayDelivery(d)} style={ghostBtn}><Icon name="refresh" size={13} />Replay</button>
                           ) : null}
                           {d.error ? (
                             <span style={{ flex:'1 0 100%', fontSize:'.6875rem', color:'#b91c1c', fontFamily:'var(--font-sans)', wordBreak:'break-word' }}>{d.error}</span>
@@ -605,7 +605,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
             <div style={{ display:'flex', alignItems:'center', gap:'9px', flexWrap:'wrap' }}>
               <span style={apiMethodStyle}>{ep.method}</span>
               <span style={{ fontSize:'.78125rem', fontFamily:'var(--font-sans)', color:'#0f172a', wordBreak:'break-all' }}>{ep.path}</span>
-              <button type="button" onClick={copyEndpoint} style={ghostBtn}>Copy</button>
+              <button type="button" onClick={copyEndpoint} style={ghostBtn}><Icon name="copy" size={13} />Copy</button>
             </div>
             <span style={{ fontSize:'.75rem', color:'#475569', lineHeight:1.6 }}>{ep.desc}</span>
             <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
@@ -642,7 +642,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
           <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
               <div style={railHead}>API keys</div>
-              <button type="button" onClick={createKey} style={ghostBtn}>Create key</button>
+              <button type="button" onClick={createKey} style={ghostBtn}><Icon name="key" size={13} />Create key</button>
             </div>
             {apiKeys.map(k => (
               <div key={k.id} style={k.rowStyle}>
@@ -655,8 +655,8 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
                   <span style={{ fontSize:'.65625rem', color:TEXT_MUTED }}>{k.meta}</span>
                 </div>
                 <div style={{ display:'flex', gap:'5px', flex:'0 0 auto' }}>
-                  <button type="button" onClick={k.onReveal} style={ghostBtn}>{k.revealLabel}</button>
-                  <button type="button" onClick={k.onRevoke} style={k.revokeStyle}>{k.revokeLabel}</button>
+                  <button type="button" onClick={k.onReveal} style={ghostBtn}><Icon name="eye" size={13} />{k.revealLabel}</button>
+                  <button type="button" onClick={k.onRevoke} style={k.revokeStyle}><Icon name="cancel" size={13} />{k.revokeLabel}</button>
                 </div>
               </div>
             ))}

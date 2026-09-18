@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import re
 from datetime import timedelta
-from html import escape
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.email import EmailMessage, email_service
+from app.core import email_layout as layout
+from app.core.email import EmailAttachment, EmailMessage, email_service
 from app.models.email_log import CATEGORIES, STATUSES, EmailLog
 from app.models.mixins import now_utc
 from app.models.organization import Organization
@@ -47,24 +47,7 @@ def _custom_html(body: str) -> str:
     block; everything is escaped, so the compose form is not a way to inject
     arbitrary markup into a recipient's mail client.
     """
-    blocks = [b.strip() for b in body.strip().split("\n\n") if b.strip()]
-    paragraphs = "".join(
-        '<p style="margin:0 0 14px;font-family:Helvetica,Arial,sans-serif;'
-        'font-size:14px;line-height:1.6;color:#334155;">'
-        + escape(b).replace("\n", "<br />")
-        + "</p>"
-        for b in blocks
-    )
-    return (
-        '<!doctype html><html><body style="margin:0;padding:0;background:#f5f6f8;">'
-        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        'style="background:#f5f6f8;padding:24px 12px;"><tr><td align="center">'
-        '<table role="presentation" width="560" cellpadding="0" cellspacing="0" '
-        'style="width:560px;max-width:100%;background:#ffffff;border-radius:14px;'
-        'border:1px solid #e3e7ee;"><tr><td style="padding:26px 24px;">'
-        f"{paragraphs}"
-        "</td></tr></table></td></tr></table></body></html>"
-    )
+    return layout.shell(layout.paragraphs(body))
 
 
 class MailService:
@@ -165,8 +148,22 @@ class MailService:
         html = _custom_html(payload.body) if payload.send_html else None
         started = now_utc()
 
+        attachments = tuple(
+            EmailAttachment(
+                filename=attachment.filename,
+                content_type=attachment.content_type,
+                content=attachment.decoded(),
+            )
+            for attachment in payload.attachments
+        )
+
         sent = failed = 0
-        for address in payload.to:
+        for index, address in enumerate(payload.to):
+            # One message per addressee, but the copies ride only the first of
+            # them: a Cc repeated on every message would deliver one copy per
+            # addressee to each copied address, which is how a note to twenty
+            # people lands in a manager's inbox twenty times.
+            copies = index == 0
             delivered = email_service.send(
                 EmailMessage(
                     to_email=str(address),
@@ -174,6 +171,9 @@ class MailService:
                     body=payload.body,
                     html=html,
                     category="custom",
+                    cc=tuple(str(a) for a in payload.cc) if copies else (),
+                    bcc=tuple(str(a) for a in payload.bcc) if copies else (),
+                    attachments=attachments,
                 ),
                 organization=organization,
                 sent_by_user_id=actor.id,

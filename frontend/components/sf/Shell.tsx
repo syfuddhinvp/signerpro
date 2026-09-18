@@ -85,6 +85,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
     documentId: nav.documentId,
     accountSection: accountSectionForPath(nav.pathname),
     documentSealed: s.docSealed,
+    documentLocked: s.docLocked,
     counts: {
       quick: data.quick as unknown as Record<string, number> | null,
       folders: data.folders as unknown as Record<string, number> | null,
@@ -220,11 +221,13 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   const primaryBtn: CSSProperties = btn(A, '#fff', A);
   const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
   const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', display:'grid', placeItems:'center', padding:0, lineHeight:1 };
-  const helpStyle: CSSProperties = { width:'32px', height:'32px', borderRadius:'9px', border:'1px solid #e3e7ee', background: s.helpOpen ? '#eef2ff' : '#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem' };
+  const helpStyle: CSSProperties = { width:'32px', height:'32px', borderRadius:'9px', border:'1px solid #e3e7ee', background: s.helpOpen ? '#eef2ff' : '#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', display:'inline-flex', alignItems:'center', justifyContent:'center' };
   const wsTenantStyle: CSSProperties = { flex:'1', height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: isPlat ? 500 : 600,
-    background: isPlat ? 'transparent' : '#fff', color: isPlat ? '#64748b' : '#0f172a', boxShadow: isPlat ? 'none' : '0 1px 2px rgba(15,23,42,.12)' };
+    background: isPlat ? 'transparent' : '#fff', color: isPlat ? '#64748b' : '#0f172a', boxShadow: isPlat ? 'none' : '0 1px 2px rgba(15,23,42,.12)',
+    display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'5px' };
   const wsPlatformStyle: CSSProperties = { flex:'1', height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: isPlat ? 600 : 500,
-    background: isPlat ? '#fff' : 'transparent', color: isPlat ? '#92400e' : '#64748b', boxShadow: isPlat ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
+    background: isPlat ? '#fff' : 'transparent', color: isPlat ? '#92400e' : '#64748b', boxShadow: isPlat ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
+    display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'5px' };
   // Identity line under the signed-in user: which tenant (or the whole
   // platform) the session is currently acting on.
   const accountScope = isPlat ? 'Super admin · all tenants' : (orgName || '—');
@@ -249,14 +252,19 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
     fontSize:'.6875rem', fontWeight:600, color:'#0f172a', pointerEvents:'none', zIndex:70 } : {};
 
   /* ── handlers ── */
-  const signOut = async () => { await endSession(); router.replace('/login'); };
+  /* A full page load, not `router.replace`: the App Router's client cache still
+     holds the RSC payloads rendered for the signed-in user — including the one
+     for `/login`, which middleware answered with a redirect back to /overview
+     while the session was live. A soft navigation replays that cached redirect
+     and lands the user back in the app, looking like the button did nothing. */
+  const signOut = async () => { await endSession(); window.location.assign('/login'); };
   const setTenantWs = () => { set({ menuDoc: null }); switchWorkspace('tenant'); };
   const setPlatformWs = () => { set({ menuDoc: null }); switchWorkspace('platform'); };
   const toggleHelp = () => set({ helpOpen: !s.helpOpen });
   const openSend = () => set({ modal: 'send' });
 
   /** Whether the header's envelope actions apply to where we are. */
-  const envelopeActions = !isPlat && !!nav.documentId && isDocumentScreen(screen) && !s.docSealed;
+  const envelopeActions = !isPlat && !!nav.documentId && isDocumentScreen(screen) && !s.docLocked;
   const embedReturn = () => { set({ embedSession: null }); go('api'); flash('Returned to ' + s.embedReturnUrl); };
   const embedEnd = () => set({ embedSession: null });
 
@@ -303,8 +311,8 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
         ) : (
           session.isPlatformAdmin ? (
             <div data-tour="workspace" style={{ display:'flex', gap:'3px', background:'#f1f3f7', padding:'3px', borderRadius:'9px' }}>
-              <button type="button" onClick={setTenantWs} style={wsTenantStyle}>Tenant</button>
-              <button type="button" onClick={setPlatformWs} style={wsPlatformStyle}>Platform</button>
+              <button type="button" onClick={setTenantWs} style={wsTenantStyle}><Icon name="home" size={12} />Tenant</button>
+              <button type="button" onClick={setPlatformWs} style={wsPlatformStyle}><Icon name="tenants" size={12} />Platform</button>
             </div>
           ) : null
         )}
@@ -388,17 +396,18 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
                 document route. The header used to render them everywhere —
                 Contacts, Reports, Billing, the whole platform workspace — where
                 "Send for signature" had no envelope to send and answered
-                "No document to send", and on a sealed one, where sending again
-                is not a thing that can happen. */}
+                "No document to send", and on an envelope that is already out
+                for signature or finished, where the API refuses edits and
+                sending again is not a thing that can happen. */}
             {envelopeActions ? (
               <>
                 <Link href={href('builder')} style={{ ...openBuilderBtn, textDecoration:'none' }}>Open builder</Link>
-                <button type="button" onClick={openSend} style={primaryBtn}>Send for signature</button>
+                <button type="button" onClick={openSend} style={primaryBtn}><Icon name="send" size={13} />Send for signature</button>
               </>
             ) : null}
             <NotificationBell initial={data.notifications ?? undefined} />
             <div style={{ position:'relative', display:'flex', gap:'6px', alignItems:'center' }}>
-              <button type="button" aria-label="Help" aria-expanded={s.helpOpen} onClick={toggleHelp} style={helpStyle}>?</button>
+              <button type="button" aria-label="Help" aria-expanded={s.helpOpen} onClick={toggleHelp} style={helpStyle}><Icon name="support" size={14} /></button>
               {s.helpOpen ? (
                 <div role="menu" style={{ position:'absolute', right:0, top:'40px', width:'212px', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'13px', boxShadow:'0 22px 50px -20px rgba(15,23,42,.4)', padding:'6px', zIndex:40, animation:'sfIn .12s ease' }}>
                   {helpItems.map((h, i) => (
@@ -419,7 +428,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
             </div>
             <div style={{ display:'flex', gap:'6px', marginLeft:'auto', flex:'0 0 auto', alignItems:'center' }}>
               <span style={embedContactsChip}>{embedContacts}</span>
-              <button type="button" onClick={embedReturn} style={ghostBtn}>Return to host app</button>
+              <button type="button" onClick={embedReturn} style={ghostBtn}><Icon name="arrowLeft" size={13} />Return to host app</button>
               <button type="button" onClick={embedEnd} aria-label="Dismiss session bar" style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
           </div>

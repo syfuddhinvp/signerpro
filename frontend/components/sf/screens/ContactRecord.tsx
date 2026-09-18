@@ -210,8 +210,8 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
             <span style={{ fontSize: '.75rem', color: '#64748b' }}>{ct.email}{ct.company === EMPTY ? '' : ' · ' + ct.company}</span>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button type="button" onClick={addAsRecipient} style={primaryBtn}>Add as recipient</button>
-            <button type="button" onClick={() => go('routing', { documentId: draftDocumentId })} style={ghostBtn}>Send envelope</button>
+            <button type="button" onClick={addAsRecipient} style={primaryBtn}><Icon name="addUser" size={13} />Add as recipient</button>
+            <button type="button" onClick={() => go('routing', { documentId: draftDocumentId })} style={ghostBtn}><Icon name="send" size={13} />Send envelope</button>
           </div>
         </div>
       </div>
@@ -272,8 +272,8 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
                   <textarea rows={3} style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: 'inherit' }} {...field('description')} />
                 </label>
                 <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button type="button" onClick={save} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Save changes'}</button>
-                  <button type="button" onClick={() => setEditing(false)} style={ghostBtn}>Cancel</button>
+                  <button type="button" onClick={save} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }}><Icon name="save" size={13} />{saving ? 'Saving…' : 'Save changes'}</button>
+                  <button type="button" onClick={() => setEditing(false)} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
                 </div>
               </div>
             ) : (

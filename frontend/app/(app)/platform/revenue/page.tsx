@@ -36,7 +36,8 @@ const EMPTY_SUMMARY: RevenueSummary = {
 const EMPTY_BALANCE: BalanceResponse = {
   currency: 'USD', available_cents: 0, pending_cents: 0, pending_settles_at: null,
   next_payout_cents: 0, next_payout_at: null, payout_destination: 'provider',
-  disputes_cents: 0, dispute_count: 0, dispute_rate_pct: 0,
+  disputes_cents: 0, dispute_count: 0, dispute_rate_pct: null,
+  source: 'ledger', other_currencies: [],
 };
 
 const EMPTY_CHURN: ChurnResponse = {

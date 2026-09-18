@@ -10,7 +10,7 @@ import { serverCaller } from '@/lib/api/client';
 import { brandingThemes as brandingApi, documents as documentsApi, recipients as recipientsApi } from '@/lib/api/resources';
 import { toBuilderRouting } from '@/lib/sf/adapters';
 import { documentPathFor } from '@/lib/sf/routes';
-import { isSealedStatus } from '@/lib/sf/sealed';
+import { isLockedStatus } from '@/lib/sf/sealed';
 import type { BrandingThemeResponse, RecipientResponse, RoutingResponse } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
@@ -31,10 +31,11 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   if (!documentResult.ok) notFound();
 
-  /* A completed (or voided / declined / expired) envelope is evidence, not a
-     draft: the API locks its fields and refuses further authoring, so the
-     screen redirects to the one place that still has something to say. */
-  if (isSealedStatus(documentResult.data.status)) redirect(documentPathFor('audit', documentId));
+  /* An envelope that is out for signature (or completed / voided / declined /
+     expired) is evidence, not a draft: the API refuses further authoring past
+     draft/prepared, so the screen redirects to the one place that still has
+     something to say. */
+  if (isLockedStatus(documentResult.data.status)) redirect(documentPathFor('audit', documentId));
 
 
   const recipients: RecipientResponse[] = recipientsResult.ok ? recipientsResult.data : [];

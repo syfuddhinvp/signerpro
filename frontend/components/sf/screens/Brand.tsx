@@ -411,7 +411,7 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                     </button>
                     {selected.logo_uploaded ? (
                       <button type="button" onClick={removeLogo} disabled={busy} style={btn('#fff', '#b91c1c', '#fecaca')}>
-                        Remove
+                        <Icon name="trash" size={13} />Remove
                       </button>
                     ) : null}
                   </div>
@@ -524,7 +524,7 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                   disabled={busy || !dirty}
                   style={{ ...btn(button, buttonText, button), opacity: busy || !dirty ? 0.55 : 1 }}
                 >
-                  {dirty ? 'Save changes' : 'Saved'}
+                  <Icon name={dirty ? 'save' : 'check'} size={13} />{dirty ? 'Save changes' : 'Saved'}
                 </button>
                 <button
                   type="button"
@@ -532,7 +532,7 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                   disabled={busy || selected.is_default}
                   style={{ ...btn('#fff', '#334155', '#e3e7ee'), opacity: selected.is_default ? 0.55 : 1 }}
                 >
-                  Make default
+                  <Icon name="star" size={13} />Make default
                 </button>
                 <button
                   type="button"
@@ -540,7 +540,7 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                   disabled={busy}
                   style={btn('#fff', '#b91c1c', '#fecaca')}
                 >
-                  Delete theme
+                  <Icon name="trash" size={13} />Delete theme
                 </button>
               </div>
             ) : (

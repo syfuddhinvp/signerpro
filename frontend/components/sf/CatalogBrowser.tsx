@@ -20,6 +20,7 @@ import type { CatalogCategory, CatalogTemplateResponse } from '@/lib/api/types';
 import { useSF } from '@/lib/sf/state';
 import { useModalBehaviour } from '@/components/sf/useModalBehaviour';
 import { btn, inputStyle, linkBtn, TEXT_MUTED } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 const CATEGORY_LABEL: Record<CatalogCategory, string> = {
   government: 'Government',
@@ -129,7 +130,7 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
               templates — you assign signers before anything is sent.
             </p>
           </div>
-          <button type="button" onClick={close} aria-label="Close the form catalog" style={linkBtn('#64748b')}>Close</button>
+          <button type="button" onClick={close} aria-label="Close the form catalog" style={linkBtn('#64748b')}><Icon name="close" size={12} />Close</button>
         </div>
 
         <div style={{ padding: '12px 18px', borderBottom: '1px solid #eef1f6', display: 'flex', gap: '9px', flexWrap: 'wrap' }}>
@@ -163,7 +164,7 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
             <div style={{ padding: '20px 12px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <span style={{ fontSize: '.8125rem', fontWeight: 600, color: '#0f172a' }}>The catalog could not be loaded</span>
               <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>{error}</span>
-              <div><button type="button" onClick={load} style={btn('#fff', '#475569', '#e3e7ee')}>Try again</button></div>
+              <div><button type="button" onClick={load} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="refresh" size={13} />Try again</button></div>
             </div>
           ) : null}
 
@@ -223,7 +224,7 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
                     onClick={() => add(entry)}
                     disabled={busy}
                     style={{ ...btn(A, '#fff', A), opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap' }}
-                  >{busy ? 'Adding…' : 'Add to my templates'}</button>
+                  ><Icon name="plus" size={13} />{busy ? 'Adding…' : 'Add to my templates'}</button>
                 )}
               </div>
             );

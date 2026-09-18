@@ -99,7 +99,7 @@ export default function ResetPasswordForm() {
           <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Repeat the password" autoComplete="new-password" required style={authInput} />
         </label>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
-        <button type="submit" disabled={pending} style={authPrimary}>{pending ? 'Updating…' : 'Set new password'}</button>
+        <button type="submit" disabled={pending} style={authPrimary}><Icon name="key" size={14} />{pending ? 'Updating…' : 'Set new password'}</button>
         <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkBtn, { textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' })}><Icon name="arrowLeft" size={12} />Back to sign in</Link>
       </form>
     </AuthLayout>

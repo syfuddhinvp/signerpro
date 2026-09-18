@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import PaymentSplitMode, SignerPaymentStatus
+from app.models.enums import PaymentReceiptStatus, PaymentSplitMode, SignerPaymentStatus
 
 #: Stripe declines any charge attempt below 50 cents (in a zero-decimal-free
 #: currency like USD); allocations and payments are validated against this so
@@ -114,6 +114,104 @@ class SignerPaymentResponse(BaseModel):
     refunded_amount_cents: int
     description: str | None = None
     created_at: datetime
+    #: The tenant's own receipt for this payment (PAY-2), when one exists.
+    #: A forward reference because `PaymentReceiptResponse` is declared below;
+    #: `model_rebuild` at the end of that block resolves it. Populated
+    #: explicitly by the routes -- there is no ORM relationship to hydrate it
+    #: from, and an accidental lazy load per payment row would N+1 the ledger.
+    receipt: "PaymentReceiptResponse | None" = None
+
+
+# --- PaymentReceipt (PAY-2) ---------------------------------------------------
+
+
+class PaymentReceiptResponse(BaseModel):
+    """The tenant's own financial record of one settled signer payment.
+
+    ``verified`` is computed, not stored: it is the answer to "does this row
+    still match the checksum it was sealed with", and a client must never be
+    able to render an edited receipt as an intact one.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    organization_id: str
+    signer_payment_id: str
+    document_id: str | None = None
+    document_ref: str | None = None
+    recipient_id: str | None = None
+    number: str
+    status: PaymentReceiptStatus
+    currency: str
+    subtotal_cents: int
+    tax_cents: int
+    total_cents: int
+    refunded_amount_cents: int
+    net_cents: int
+    payer_name: str | None = None
+    payer_email: str | None = None
+    document_title: str | None = None
+    issuer_name: str | None = None
+    description: str | None = None
+    line_items: list | None = None
+    provider: str | None = None
+    provider_account_id: str | None = None
+    provider_payment_intent_id: str | None = None
+    provider_charge_id: str | None = None
+    provider_receipt_url: str | None = None
+    issued_at: datetime
+    paid_at: datetime | None = None
+    refunded_at: datetime | None = None
+    checksum: str | None = None
+    audit_log_id: str | None = None
+    #: Set by the route from `payment_receipt_service.verify`.
+    verified: bool = False
+
+
+# Resolves `SignerPaymentResponse.receipt`, declared above this class.
+SignerPaymentResponse.model_rebuild()
+
+
+class PaymentLedgerEntry(BaseModel):
+    """One row of the tenant-wide payments ledger.
+
+    A flattened join rather than a `SignerPaymentResponse`: the ledger's whole
+    purpose is to be readable without opening each envelope, so the payer and
+    document names travel with the row. Refunding used to be reachable only
+    from a single envelope's audit page, which is why money collected across
+    many envelopes had no one place it could be reviewed or returned from.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    payment: SignerPaymentResponse
+    receipt: PaymentReceiptResponse | None = None
+    document_id: str
+    document_title: str | None = None
+    document_status: str | None = None
+    payer_name: str | None = None
+    payer_email: str | None = None
+
+
+class PaymentLedgerPage(BaseModel):
+    """A page of the ledger plus the totals a finance reviewer needs.
+
+    Totals are computed over the *whole* filtered set, not the page: a
+    "collected" figure that silently meant "collected on this page" is the
+    kind of number someone files a tax return against.
+    """
+
+    entries: list[PaymentLedgerEntry]
+    total: int
+    limit: int
+    offset: int
+    #: Net of refunds, per currency -- never summed across currencies.
+    collected_cents_by_currency: dict[str, int] = {}
+    refunded_cents_by_currency: dict[str, int] = {}
+    succeeded_count: int = 0
+    refunded_count: int = 0
+    failed_count: int = 0
 
 
 class PaymentIntentResponse(BaseModel):

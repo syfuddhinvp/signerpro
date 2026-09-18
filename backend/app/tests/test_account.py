@@ -6,6 +6,7 @@ from base64 import b64encode
 from fastapi.testclient import TestClient
 
 from app.tests.conftest import auth_headers
+from app.tests.test_cloud_integrations import connect_integration
 
 PNG = b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 64).decode()
 
@@ -191,39 +192,22 @@ def test_field_favorites_round_trip(client: TestClient) -> None:
     assert rejected.status_code == 400
 
 
-def test_integrations_connect_and_disconnect(client: TestClient) -> None:
+def test_integration_catalogue_starts_disconnected(client: TestClient) -> None:
+    """Nothing is connected until a real OAuth flow completes.
+
+    The catalogue used to be connectable by POSTing a boolean; the OAuth flow
+    that replaced it lives in test_cloud_integrations.py.
+    """
     headers = auth_headers(client)
     catalogue = client.get("/api/integrations", headers=headers)
     assert catalogue.status_code == 200
     assert all(row["connected"] is False for row in catalogue.json())
-
-    connected = client.post(
-        "/api/integrations/dropbox/connect",
-        json={"detail": "#deals", "credentials": {"access_token": "xoxb-secret"}},
-        headers=headers,
-    )
-    assert connected.status_code == 200, connected.text
-    assert connected.json()["connected"] is True
-    assert connected.json()["connected_at"]
-    # Credentials are never echoed back.
-    assert "credentials" not in connected.json()
-
-    row = next(item for item in client.get("/api/integrations", headers=headers).json() if item["provider"] == "dropbox")
-    assert row["connected"] is True and row["detail"] == "#deals"
-
-    from sqlalchemy import text
-
-    from app.core.database import get_db
-    from app.main import app as fastapi_app
-
-    db = next(fastapi_app.dependency_overrides[get_db]())
-    stored = db.execute(text("SELECT credentials FROM integrations")).scalar()
-    assert "xoxb-secret" not in (stored or "")
-
-    assert client.delete("/api/integrations/dropbox", headers=headers).status_code == 204
-    row = next(item for item in client.get("/api/integrations", headers=headers).json() if item["provider"] == "dropbox")
-    assert row["connected"] is False
-    assert client.delete("/api/integrations/dropbox", headers=headers).status_code == 204  # idempotent-ish: row exists
+    # Unconfigured deployment (no client id/secret in the test env): the UI
+    # needs to know the button would go nowhere.
+    assert all(row["configured"] is False for row in catalogue.json())
+    assert all(row["needs_reauth"] is False for row in catalogue.json())
+    # The fake connect endpoint is gone.
+    assert client.post("/api/integrations/dropbox/connect", json={}, headers=headers).status_code == 404
 
 
 def test_retired_integrations_are_not_offered(client: TestClient) -> None:
@@ -231,7 +215,7 @@ def test_retired_integrations_are_not_offered(client: TestClient) -> None:
     headers = auth_headers(client)
     providers = {row["provider"] for row in client.get("/api/integrations", headers=headers).json()}
     assert providers == {"google_drive", "dropbox"}
-    assert client.post("/api/integrations/slack/connect", json={}, headers=headers).status_code == 404
+    assert client.post("/api/integrations/slack/authorize", headers=headers).status_code == 404
 
 
 def test_cloud_targets_round_trip(client: TestClient) -> None:
@@ -239,6 +223,9 @@ def test_cloud_targets_round_trip(client: TestClient) -> None:
     initial = client.get("/api/integrations/cloud-targets", headers=headers)
     assert initial.status_code == 200
     assert {row["provider"] for row in initial.json()} == {"google_drive", "dropbox"}
+
+    # A destination can only be *enabled* once its provider is connected.
+    connect_integration(client, headers, "dropbox")
 
     updated = client.put(
         "/api/integrations/cloud-targets",

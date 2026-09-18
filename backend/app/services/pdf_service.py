@@ -31,8 +31,9 @@ from app.models.field import Field
 from app.models.field_attachment import FieldAttachment
 from app.models.recipient import Recipient
 from app.models.signature import Signature
+from app.models.payment_receipt import PaymentReceipt
 from app.models.signer_payment import SignerPayment
-from app.services import pades_service
+from app.services import pades_service, pdf_layout
 from app.services.audit_service import audit_service
 
 
@@ -144,6 +145,15 @@ class PdfService:
             event_type="document_completed",
             event_message="Document completed after all recipients signed.",
         )
+        # Cloud archive. Hooked here rather than in ``signing_service.complete``
+        # because sealing is the one thing every completion route shares --
+        # the signer flow and the sender's manual "generate final PDF" both
+        # land exactly here, and neither can complete a document without it.
+        # Imported locally: the export service reads documents and storage,
+        # so a module-level import would close an import cycle.
+        from app.services.cloud_export_service import cloud_export_service
+
+        cloud_export_service.enqueue_for_document(db, document=document)
         return document
 
     # ---- seal integrity --------------------------------------------------
@@ -659,272 +669,279 @@ class PdfService:
         return output.getvalue()
 
     def _build_audit_certificate(self, db: Session, document: Document) -> bytes:
+        """The certificate of completion, in the product's house style.
+
+        Laid out with ``pdf_layout.Sheet`` -- the same margins, palette, type
+        scale and page furniture as the receipts and invoices -- rather than
+        the navy banner and second palette it carried before. Nothing it
+        *states* changed; a certificate is evidence, and wording that shifts
+        with a redesign is wording nobody can rely on.
+
+        The rows are drawn with the canvas directly rather than ``Sheet.row``
+        because a signer card and a timeline row are records, not label/value
+        pairs: each needs its own columns, its own wrapping and a status of its
+        own.
+        """
         from app.models.user import User
-        from textwrap import wrap
 
         sender = db.get(User, document.sender_id)
         sender_email = sender.email if sender else f"ID: {document.sender_id}"
 
-        packet = BytesIO()
-        pdf = canvas.Canvas(packet, pagesize=LETTER)
-        width, height = LETTER
-        cursor = height - 40
+        sheet = pdf_layout.Sheet(
+            footer=f"Audit certificate · {document.title}"
+        )
+        pdf = sheet.canvas
+        width = sheet.width
 
-        # Draw beautiful Header Banner
-        pdf.setFillColorRGB(0.08, 0.12, 0.28) # Professional Dark Navy
-        pdf.rect(0, height - 60, width, 60, fill=1, stroke=0)
-        
-        pdf.setFillColorRGB(1, 1, 1)
-        pdf.setFont("Helvetica-Bold", 18)
-        pdf.drawString(40, height - 38, "Document History & Audit Certificate")
-        
-        pdf.setFont("Helvetica-Oblique", 9)
-        pdf.setFillColorRGB(0.85, 0.88, 1.0)
-        pdf.drawString(40, height - 48, "SignFlow CRM E-Signature Compliance Audit Log")
-        
-        pdf.setFont("Helvetica-Bold", 8)
-        pdf.drawRightString(width - 40, height - 38, f"STATUS: {document.status.value.upper()}")
-        pdf.setFont("Helvetica", 8)
-        pdf.drawRightString(width - 40, height - 48, "All timestamps expressed in UTC")
+        sheet.header(
+            eyebrow="SignerPro compliance record",
+            title="Document History & Audit Certificate",
+            reference=f"STATUS: {document.status.value.upper()}",
+            issuer="SignFlow CRM E-Signature Compliance Audit Log",
+            issued="All timestamps expressed in UTC",
+        )
 
         # A verified badge that reports the chain, not a decoration: it says
         # "verified" only when `audit_service` re-derives the same head from the
         # stored entries, and says the opposite when it does not.
         verification = audit_service.verify_for_document(db, document)
         chain_ok = bool(verification["valid"])
-        badge_label = "AUDIT CHAIN VERIFIED" if chain_ok else "AUDIT CHAIN BROKEN"
-        badge_width = pdf.stringWidth(badge_label, "Helvetica-Bold", 7) + 24
-        badge_x = width - 40 - badge_width
-        badge_y = height - 78
-        if chain_ok:
-            pdf.setFillColorRGB(0.02, 0.6, 0.41)
-        else:
-            pdf.setFillColorRGB(0.86, 0.15, 0.15)
-        pdf.roundRect(badge_x, badge_y, badge_width, 15, 7.5, fill=1, stroke=0)
-        pdf.setFillColorRGB(1, 1, 1)
-        pdf.setFont("Helvetica-Bold", 7)
-        pdf.drawString(badge_x + 17, badge_y + 4.6, badge_label)
-        # The tick, drawn rather than typed so no font has to carry the glyph.
-        pdf.setStrokeColorRGB(1, 1, 1)
-        pdf.setLineWidth(1.1)
-        tick_x, tick_y = badge_x + 9, badge_y + 7.5
-        if chain_ok:
-            pdf.line(tick_x - 2.6, tick_y, tick_x - 0.9, tick_y - 2.2)
-            pdf.line(tick_x - 0.9, tick_y - 2.2, tick_x + 2.8, tick_y + 2.6)
-        else:
-            pdf.line(tick_x - 2.4, tick_y - 2.4, tick_x + 2.4, tick_y + 2.4)
-            pdf.line(tick_x - 2.4, tick_y + 2.4, tick_x + 2.4, tick_y - 2.4)
+        sheet.badge(
+            "AUDIT CHAIN VERIFIED" if chain_ok else "AUDIT CHAIN BROKEN",
+            pdf_layout.POSITIVE if chain_ok else pdf_layout.NEGATIVE,
+        )
 
-        cursor = height - 85
+        def card(height: float) -> float:
+            """A bordered row card at the cursor. Returns its top edge."""
 
-        def check_page_break(needed_height: float):
-            nonlocal cursor
-            if cursor - needed_height < 45:
-                pdf.showPage()
-                # Thin professional header for subsequent pages
-                pdf.setFillColorRGB(0.08, 0.12, 0.28)
-                pdf.rect(0, height - 35, width, 35, fill=1, stroke=0)
-                pdf.setFillColorRGB(1, 1, 1)
-                pdf.setFont("Helvetica-Bold", 10)
-                pdf.drawString(40, height - 22, f"Audit Log (continued) - {document.title}")
-                pdf.setFont("Helvetica", 8)
-                pdf.drawRightString(width - 40, height - 22, "SignFlow CRM Compliance Audit Log")
-                cursor = height - 55
-
-        # Document Details section
-        pdf.setFillColorRGB(0.08, 0.12, 0.28)
-        pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawString(40, cursor, "Document Details")
-        
-        # Outline Box for details
-        box_top = cursor - 8
-        box_bottom = box_top - 82
-        pdf.setStrokeColorRGB(0.85, 0.85, 0.88)
-        pdf.setLineWidth(1)
-        pdf.setFillColorRGB(0.97, 0.98, 0.99)
-        pdf.rect(40, box_bottom, width - 80, box_top - box_bottom, fill=1, stroke=1)
-        
-        details = [
-            ("Document Name:", document.title),
-            ("Document ID:", document.id),
-            ("Date Created:", document.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if document.created_at else "N/A"),
-            ("Original SHA-256 Hash:", document.original_sha256 or "N/A"),
-            ("Document Sender:", sender_email)
-        ]
-        
-        pdf.setFillColorRGB(0.15, 0.15, 0.15)
-        text_y = box_top - 14
-        for key, val in details:
-            pdf.setFont("Helvetica-Bold", 8)
-            pdf.drawString(52, text_y, key)
-            pdf.setFont("Helvetica", 8)
-            pdf.drawString(170, text_y, str(val))
-            text_y -= 13
-            
-        cursor = box_bottom - 20
-
-        # Recipients section
-        pdf.setFillColorRGB(0.08, 0.12, 0.28)
-        pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawString(40, cursor, "Signers & Recipients")
-        cursor -= 10
-        
-        for recipient in sorted(document.recipients, key=lambda item: (item.signing_order, item.email)):
-            check_page_break(38)
-            
-            # Recipient box border & fill
-            pdf.setStrokeColorRGB(0.88, 0.88, 0.9)
+            top = sheet.y
+            pdf.setStrokeColorRGB(*pdf_layout.RULE)
             pdf.setLineWidth(0.75)
-            pdf.setFillColorRGB(0.99, 0.99, 1.0)
-            pdf.rect(40, cursor - 28, width - 80, 28, fill=1, stroke=1)
-            
-            # Recipient info text
-            pdf.setFillColorRGB(0.1, 0.1, 0.1)
-            pdf.setFont("Helvetica-Bold", 8)
-            pdf.drawString(48, cursor - 10, f"{recipient.name} ({recipient.email})")
-            
-            pdf.setFont("Helvetica", 7.5)
-            pdf.setFillColorRGB(0.4, 0.4, 0.4)
-            pdf.drawString(48, cursor - 21, f"Role: {recipient.role_name or 'Signer'}  |  Order: {recipient.signing_order}")
-            
-            # Status Badge on the right side of the card
-            status_text = recipient.status.value.upper()
-            status_color = (0.1, 0.55, 0.1) if status_text == "COMPLETED" else (0.85, 0.45, 0.0)
-            pdf.setFillColorRGB(*status_color)
-            pdf.setFont("Helvetica-Bold", 8)
-            pdf.drawRightString(width - 48, cursor - 10, status_text)
-            
-            # Timestamps right-aligned
-            pdf.setFont("Helvetica", 7)
-            pdf.setFillColorRGB(0.45, 0.45, 0.45)
-            viewed_str = recipient.viewed_at.strftime('%Y-%m-%d %H:%M:%S UTC') if recipient.viewed_at else "Not Viewed"
-            completed_str = recipient.completed_at.strftime('%Y-%m-%d %H:%M:%S UTC') if recipient.completed_at else "Not Completed"
-            pdf.drawRightString(width - 48, cursor - 21, f"Viewed: {viewed_str}  |  Signed: {completed_str}")
-            
-            cursor -= 33
+            pdf.setFillColorRGB(*pdf_layout.PANEL)
+            pdf.roundRect(sheet.left, top - height, sheet.content_width, height, 5, fill=1, stroke=1)
+            return top
 
-        cursor -= 10
+        sheet.section("Document details")
+        sheet.rows(
+            [
+                ("Document name", document.title),
+                ("Document ID", document.id),
+                (
+                    "Date created",
+                    document.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+                    if document.created_at
+                    else "N/A",
+                ),
+                ("Original SHA-256 hash", document.original_sha256 or "N/A"),
+                ("Document sender", sender_email),
+            ],
+            label_width=170,
+        )
+
+        sheet.section("Signers & Recipients")
+        for recipient in sorted(document.recipients, key=lambda item: (item.signing_order, item.email)):
+            sheet.space(0, keep=36)
+            top = card(30)
+            sheet.y = top - 12
+            sheet.text(
+                f"{recipient.name} ({recipient.email})",
+                x=sheet.left + 10,
+                size=8.5,
+                bold=True,
+                color=pdf_layout.INK,
+                max_width=sheet.content_width - 140,
+            )
+            status_text = recipient.status.value.upper()
+            sheet.text(
+                status_text,
+                x=sheet.right - 10,
+                size=8,
+                bold=True,
+                color=pdf_layout.POSITIVE if status_text == "COMPLETED" else pdf_layout.WARNING,
+                align="right",
+            )
+            sheet.y = top - 23
+            sheet.text(
+                f"Role: {recipient.role_name or 'Signer'}  |  Order: {recipient.signing_order}",
+                x=sheet.left + 10,
+                size=7.5,
+                color=pdf_layout.MUTED,
+                max_width=sheet.content_width - 300,
+            )
+            viewed = recipient.viewed_at.strftime("%Y-%m-%d %H:%M:%S UTC") if recipient.viewed_at else "Not Viewed"
+            signed = (
+                recipient.completed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+                if recipient.completed_at
+                else "Not Completed"
+            )
+            sheet.text(
+                f"Viewed: {viewed}  |  Signed: {signed}",
+                x=sheet.right - 10,
+                size=7,
+                color=pdf_layout.MUTED,
+                align="right",
+            )
+            sheet.y = top - 30
+            sheet.space(8, keep=40)
 
         # Payments section -- ONLY when the envelope actually carries at
         # least one payment attempt. An envelope with no payment fields has
         # no `SignerPayment` rows at all, so this block is skipped entirely
-        # and the certificate is byte-identical to one built before PAY-1
-        # existed.
+        # and the certificate says nothing about money.
         payments = self._latest_payments(db, document.id)
         if payments:
             recipients_by_id = {recipient.id: recipient for recipient in document.recipients}
-            check_page_break(40)
-            pdf.setFillColorRGB(0.08, 0.12, 0.28)
-            pdf.setFont("Helvetica-Bold", 11)
-            pdf.drawString(40, cursor, "Payments")
-            cursor -= 10
+            # The certificate used to cite only Stripe's PaymentIntent id, so
+            # the executed document's sole payment evidence was an identifier
+            # meaningful to a third party's dashboard. Citing this tenant's
+            # own receipt number makes the claim traceable inside this
+            # application -- to a numbered, checksummed record and, through
+            # it, to a chained audit entry.
+            receipts_by_payment = {
+                receipt.signer_payment_id: receipt
+                for receipt in db.scalars(
+                    select(PaymentReceipt).where(
+                        PaymentReceipt.signer_payment_id.in_([p.id for p in payments.values()])
+                    )
+                ).all()
+            }
+            sheet.section("Payments")
 
             collected_cents = 0
             currency = "USD"
             for payment in sorted(payments.values(), key=lambda item: item.created_at):
-                check_page_break(28)
+                sheet.space(0, keep=34)
                 payer = recipients_by_id.get(payment.recipient_id)
                 payer_label = f"{payer.name} ({payer.email})" if payer else payment.recipient_id
                 amount_label = f"{payment.amount_cents / 100:,.2f} {payment.currency.upper()}"
                 currency = payment.currency.upper()
 
-                pdf.setStrokeColorRGB(0.88, 0.88, 0.9)
-                pdf.setLineWidth(0.75)
-                pdf.setFillColorRGB(0.99, 0.99, 1.0)
-                pdf.rect(40, cursor - 25, width - 80, 25, fill=1, stroke=1)
-
-                pdf.setFillColorRGB(0.1, 0.1, 0.1)
-                pdf.setFont("Helvetica-Bold", 8)
-                pdf.drawString(48, cursor - 10, payer_label[:60])
-
-                pdf.setFont("Helvetica", 7.5)
-                pdf.setFillColorRGB(0.4, 0.4, 0.4)
-                reference = payment.provider_payment_intent_id or "n/a"
-                pdf.drawString(48, cursor - 20, f"Amount: {amount_label}  |  Ref: {reference}")
-
-                status_text = payment.status.value.upper()
-                status_color = (
-                    (0.1, 0.55, 0.1)
-                    if payment.status == SignerPaymentStatus.succeeded
-                    else (0.7, 0.35, 0.05)
-                    if payment.status == SignerPaymentStatus.refunded
-                    else (0.6, 0.15, 0.15)
+                top = card(28)
+                sheet.y = top - 11
+                sheet.text(
+                    payer_label,
+                    x=sheet.left + 10,
+                    size=8.5,
+                    bold=True,
+                    color=pdf_layout.INK,
+                    max_width=sheet.content_width - 140,
                 )
-                pdf.setFillColorRGB(*status_color)
-                pdf.setFont("Helvetica-Bold", 8)
-                pdf.drawRightString(width - 48, cursor - 10, status_text)
-
+                status_text = payment.status.value.upper()
+                sheet.text(
+                    status_text,
+                    x=sheet.right - 10,
+                    size=8,
+                    bold=True,
+                    color=(
+                        pdf_layout.POSITIVE
+                        if payment.status == SignerPaymentStatus.succeeded
+                        else pdf_layout.WARNING
+                        if payment.status == SignerPaymentStatus.refunded
+                        else pdf_layout.NEGATIVE
+                    ),
+                    align="right",
+                )
+                sheet.y = top - 21
+                reference = payment.provider_payment_intent_id or "n/a"
+                receipt = receipts_by_payment.get(payment.id)
+                receipt_label = f"  |  Receipt: {receipt.number}" if receipt else ""
+                sheet.text(
+                    f"Amount: {amount_label}  |  Ref: {reference}{receipt_label}",
+                    x=sheet.left + 10,
+                    size=7.5,
+                    color=pdf_layout.MUTED,
+                    max_width=sheet.content_width - 20,
+                )
                 if payment.status in (SignerPaymentStatus.succeeded, SignerPaymentStatus.refunded):
                     collected_cents += payment.amount_cents - payment.refunded_amount_cents
 
-                cursor -= 30
+                sheet.y = top - 28
+                sheet.space(8, keep=40)
 
-            check_page_break(16)
-            pdf.setFillColorRGB(0.08, 0.12, 0.28)
-            pdf.setFont("Helvetica-Bold", 9)
-            pdf.drawString(40, cursor, f"Total collected: {collected_cents / 100:,.2f} {currency}")
-            cursor -= 16
+            sheet.space(6, keep=34)
+            sheet.text(
+                f"Total collected: {collected_cents / 100:,.2f} {currency}",
+                size=9,
+                bold=True,
+                color=pdf_layout.INK,
+            )
+            sheet.space(13)
+            # Says plainly who holds the money. A signer reading this months
+            # later needs to know who to approach about a refund, and the
+            # answer is the sender, not this platform.
+            sheet.text(
+                "Payments were received directly by the sender's own payment account; "
+                "the sender is the merchant of record.",
+                size=7.5,
+                color=pdf_layout.MUTED,
+            )
+            sheet.space(16)
 
-        # Timeline Header
-        check_page_break(40)
-        pdf.setFillColorRGB(0.08, 0.12, 0.28)
-        pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawString(40, cursor, "Audit Log Timeline")
-        cursor -= 10
+        sheet.section("Audit Log Timeline")
 
-        def draw_table_header():
-            nonlocal cursor
-            check_page_break(25)
-            pdf.setFillColorRGB(0.93, 0.94, 0.96)
-            pdf.rect(40, cursor - 15, width - 80, 18, fill=1, stroke=0)
-            
-            pdf.setFillColorRGB(0.1, 0.15, 0.3)
-            pdf.setFont("Helvetica-Bold", 8)
-            pdf.drawString(45, cursor - 8, "Event Detail Log")
-            pdf.drawString(200, cursor - 8, "Triggered By")
-            pdf.drawString(350, cursor - 8, "Timestamp (UTC)")
-            pdf.drawString(470, cursor - 8, "IP Address")
-            cursor -= 20
+        #: Where each timeline column starts, as an offset from the left margin.
+        #: One definition for the header and the rows, so a column heading can
+        #: never drift away from the values under it.
+        columns = (0.0, 180.0, 330.0, 450.0)
+
+        def draw_table_header() -> None:
+            sheet.space(0, keep=30)
+            pdf.setFillColorRGB(0.929, 0.937, 0.953)
+            pdf.rect(sheet.left, sheet.y - 13, sheet.content_width, 18, fill=1, stroke=0)
+            for offset, label in zip(
+                columns, ("Event Detail Log", "Triggered By", "Timestamp (UTC)", "IP Address")
+            ):
+                sheet.text(label, x=sheet.left + offset + 5, size=8, bold=True, color=pdf_layout.INK)
+            sheet.space(22)
 
         draw_table_header()
-        
-        row_index = 0
-        for event in sorted(document.audit_logs, key=lambda item: item.created_at):
+
+        for index, event in enumerate(sorted(document.audit_logs, key=lambda item: item.created_at)):
             recipient = next((r for r in document.recipients if r.id == event.recipient_id), None)
             actor = recipient.email if recipient else (sender_email if event.user_id else "System/CRM")
-            
-            # Format and wrap long messages cleanly
-            clean_message = event.event_message.replace("\n", " ").strip()
-            event_lines = wrap(clean_message, width=38) or [""]
-            row_height = max(len(event_lines) * 11 + 6, 20)
-            
-            check_page_break(row_height)
-            
-            if row_index % 2 == 1:
-                pdf.setFillColorRGB(0.97, 0.98, 0.99)
-                pdf.rect(40, cursor - row_height + 4, width - 80, row_height, fill=1, stroke=0)
-                
-            pdf.setFillColorRGB(0.15, 0.15, 0.15)
-            pdf.setFont("Helvetica", 8)
-            
-            line_y = cursor - 6
-            for eline in event_lines:
-                pdf.drawString(45, line_y, eline)
-                line_y -= 11
-                
-            pdf.drawString(200, cursor - 6, actor[:32])
-            pdf.drawString(350, cursor - 6, event.created_at.strftime('%Y-%m-%d %H:%M:%S UTC'))
-            pdf.drawString(470, cursor - 6, event.ip_address or "-")
-            
-            pdf.setStrokeColorRGB(0.9, 0.9, 0.9)
-            pdf.setLineWidth(0.5)
-            pdf.line(40, cursor - row_height + 4, width - 40, cursor - row_height + 4)
-            
-            cursor -= row_height
-            row_index += 1
 
-        pdf.save()
-        return packet.getvalue()
+            clean_message = event.event_message.replace("\n", " ").strip()
+            event_lines = wrap(clean_message, width=42) or [""]
+            row_height = max(len(event_lines) * 11 + 6, 20)
+
+            # The break is taken before anything is drawn, so a wrapped event
+            # never straddles two pages -- and the header is redrawn, because a
+            # page of timestamps with no column headings is unreadable.
+            if sheet.y - row_height < sheet.margin + pdf_layout.FOOTER_HEIGHT:
+                sheet.page_break()
+                draw_table_header()
+
+            top = sheet.y
+            if index % 2 == 1:
+                pdf.setFillColorRGB(*pdf_layout.PANEL)
+                pdf.rect(sheet.left, top - row_height + 4, sheet.content_width, row_height, fill=1, stroke=0)
+
+            sheet.y = top - 6
+            for line in event_lines:
+                sheet.text(line, x=sheet.left + 5, size=8, color=pdf_layout.BODY, max_width=columns[1] - 10)
+                sheet.y -= 11
+
+            sheet.y = top - 6
+            sheet.text(actor, x=sheet.left + columns[1] + 5, size=8, color=pdf_layout.BODY, max_width=columns[2] - columns[1] - 10)
+            sheet.text(
+                event.created_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                x=sheet.left + columns[2] + 5,
+                size=8,
+                color=pdf_layout.BODY,
+                max_width=columns[3] - columns[2] - 10,
+            )
+            sheet.text(
+                event.ip_address or "-",
+                x=sheet.left + columns[3] + 5,
+                size=8,
+                color=pdf_layout.BODY,
+            )
+
+            sheet.y = top - row_height + 4
+            sheet.rule(width=0.5)
+            sheet.y = top - row_height
+
+        return sheet.save()
 
     def save_drawn_signature(self, *, document_id: str, recipient_id: str, field_id: str, data_url_or_base64: str) -> str:
         payload = data_url_or_base64.split(",", 1)[1] if "," in data_url_or_base64 else data_url_or_base64

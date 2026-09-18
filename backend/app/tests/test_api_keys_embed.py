@@ -274,7 +274,14 @@ def test_a_key_stops_working_when_the_org_downgrades_below_api_access(client: Te
     _key_id, secret = create_key(client, headers, ["documents:read"])
     assert client.get("/api/v1/documents", headers={"X-API-Key": secret}).status_code == 200
 
-    downgraded = client.post("/api/billing/change-plan", json={"plan_code": "team"}, headers=headers)
+    # Taken immediately rather than scheduled, so the re-check is what this
+    # test observes. A scheduled downgrade would (correctly) leave the key
+    # working until the period the org has paid for actually ends.
+    downgraded = client.post(
+        "/api/billing/change-plan",
+        json={"plan_code": "team", "effective": "immediately"},
+        headers=headers,
+    )
     assert downgraded.status_code == 200, downgraded.text
 
     refused = client.get("/api/v1/documents", headers={"X-API-Key": secret})

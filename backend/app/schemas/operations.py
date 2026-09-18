@@ -255,6 +255,14 @@ class DunningRow(BaseModel):
 
 # REV-3
 class BalanceResponse(BaseModel):
+    """Provider balance tiles.
+
+    ``source`` says which book the figures came from: ``provider`` (read from
+    the payment provider's balance API -- the truth) or ``ledger`` (derived
+    from local charge rows, for a provider that holds no money). The two are
+    not interchangeable and the UI labels them differently.
+    """
+
     currency: str = "USD"
     available_cents: int
     pending_cents: int
@@ -264,7 +272,12 @@ class BalanceResponse(BaseModel):
     payout_destination: str
     disputes_cents: int
     dispute_count: int
-    dispute_rate_pct: float
+    #: ``None`` when no trustworthy denominator exists; render it as unknown
+    #: rather than as zero, which would read as "no disputes".
+    dispute_rate_pct: float | None = None
+    source: str = "ledger"
+    #: Currencies held that the single-currency figures above exclude.
+    other_currencies: list[str] = Field(default_factory=list)
 
 
 # REV-4

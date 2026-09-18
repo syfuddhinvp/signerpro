@@ -41,7 +41,7 @@ from app.schemas.operations import (
     RevenueSummary,
 )
 from app.services import platform_service
-from app.services.billing_service import MAX_DUNNING_STEP, billing_service
+from app.services.billing_service import MAX_DUNNING_STEP, StripeApiError, billing_service
 
 # The router owns the whole /api/saas billing surface, so the new tiles do not
 # each need a router registration in app/main.py.
@@ -340,10 +340,51 @@ def platform_balance(
 ) -> BalanceResponse:
     """Provider balance and next payout (REV-3).
 
-    Derived from the charge ledger: money collected more than
-    ``SETTLEMENT_DAYS`` ago is available, anything newer is in transit. When a
-    real provider is wired in behind ``PaymentProvider`` these figures should
-    come from its balance API instead.
+    Asks the payment provider first. Its balance API is the only thing that
+    knows what is actually in the account -- the local charge ledger cannot
+    see provider fees, refunds, reserves or payouts already made, and it knows
+    nothing about money that moved before this system did.
+
+    A provider that holds no money of ours (``NullPaymentProvider``) returns
+    ``None`` from ``fetch_balance``, and the figures are then derived from the
+    charge ledger as before, flagged ``source="ledger"`` so the two are never
+    mistaken for each other.
+    """
+    provider = billing_service.provider
+    try:
+        reported = provider.fetch_balance()
+    except StripeApiError as exc:
+        # Deliberately not falling back to the ledger: a ledger-derived $0.00
+        # presented as the Stripe balance is exactly the failure this endpoint
+        # exists to stop. The caller renders "balance unavailable" instead.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{provider.name} balance is unavailable: {exc}",
+        ) from exc
+    if reported is not None:
+        return BalanceResponse(
+            currency=reported.currency,
+            available_cents=reported.available_cents,
+            pending_cents=reported.pending_cents,
+            pending_settles_at=reported.pending_settles_at,
+            next_payout_cents=reported.next_payout_cents,
+            next_payout_at=reported.next_payout_at,
+            payout_destination=provider.name,
+            disputes_cents=reported.disputes_cents,
+            dispute_count=reported.dispute_count,
+            dispute_rate_pct=reported.dispute_rate_pct,
+            source="provider",
+            other_currencies=reported.other_currencies,
+        )
+    return _ledger_balance(db, destination=provider.name)
+
+
+def _ledger_balance(db: Session, *, destination: str) -> BalanceResponse:
+    """Balance inferred from the charge ledger, for a provider with no balance.
+
+    Money collected more than ``SETTLEMENT_DAYS`` ago counts as available and
+    anything newer as in transit. This is a model of how a provider behaves,
+    not a reading of one.
     """
     now = _now()
     settled_before = now - timedelta(days=SETTLEMENT_DAYS)
@@ -367,10 +408,11 @@ def platform_balance(
         pending_settles_at=next_payout_at if pending else None,
         next_payout_cents=available,
         next_payout_at=next_payout_at if available else None,
-        payout_destination=billing_service.provider.name,
+        payout_destination=destination,
         disputes_cents=sum(c.amount_cents for c in disputed),
         dispute_count=len(disputed),
-        dispute_rate_pct=round(len(disputed) * 100 / settled_count, 2) if settled_count else 0.0,
+        dispute_rate_pct=round(len(disputed) * 100 / settled_count, 2) if settled_count else None,
+        source="ledger",
     )
 
 

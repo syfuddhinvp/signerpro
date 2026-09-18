@@ -4,9 +4,12 @@
  * Every filter is a URL search param, so a filtered view is shareable and the
  * filtering happens in the API rather than over a fully-loaded table:
  *   `?q=&status=&plan=`      → GET /api/saas/tenants
- *   `?tenant=<id>`           → GET /api/saas/tenants/{id}
  *   `?duser=&drole=&dmfa=`   → GET /api/saas/directory
  *   `?flagEnv=`              → GET /api/saas/flags
+ *
+ * A tenant's own record is its own route, `/platform/tenants/<id>`, rather
+ * than a fold under this table: everything the platform knows about one
+ * tenant is more than a rail can hold, and a URL is shareable.
  *
  * The remaining tabs come from `/api/saas/roles`, `/api/saas/security-posture`,
  * `/api/saas/compliance`, `/api/saas/audit`, `/api/billing/plans` and
@@ -25,7 +28,7 @@ import {
   tenants as tenantsApi,
 } from '@/lib/api/resources';
 import {
-  toCertificationLabels,
+  toCertificationViews,
   toComplianceNote,
   toDirectoryRows,
   toFlagRows,
@@ -84,14 +87,13 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
     role: orAll(one(query.drole)),
     mfa: orAll(one(query.dmfa)),
     flagEnvironment: orAll(one(query.flagEnv)),
-    tenantId: one(query.tenant),
   };
 
   const api = serverCaller('/platform/tenants');
 
   const [
     overviewResult, tenantsResult, directoryResult, matrixResult, flagsResult,
-    postureResult, complianceResult, auditResult, plansResult, revenueResult, detailResult,
+    postureResult, complianceResult, auditResult, plansResult, revenueResult,
   ] = await Promise.all([
     tenantsApi.overview(api),
     tenantsApi.list(api, {
@@ -113,7 +115,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
     logsApi.platformAudit(api, { limit: 5 }),
     billingApi.plans(api),
     revenueApi.summary(api),
-    filters.tenantId ? tenantsApi.get(api, filters.tenantId) : Promise.resolve(null),
   ]);
 
   const overview = overviewResult.ok ? overviewResult.data : EMPTY_OVERVIEW;
@@ -126,7 +127,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
   const audit = auditResult.ok ? auditResult.data.items : [];
   const plans = plansResult.ok ? plansResult.data : [];
   const summary = revenueResult.ok ? revenueResult.data : null;
-  const detail = detailResult && detailResult.ok ? detailResult.data : null;
 
   return (
     <>
@@ -139,14 +139,13 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
         stats={toPlatformStats(overview)}
         tenants={toTenantTableRows(tenantPage.items)}
         tenantTotal={tenantPage.total}
-        tenantDetail={detail}
         planCodes={plans.map(p => ({ code: p.code, name: p.name }))}
         directory={toDirectoryRows(directoryPage.items)}
         directoryTotal={directoryPage.total}
         matrix={toPermissionMatrix(matrix)}
         flags={toFlagRows(flagList)}
         security={toSecurityRows(posture)}
-        certifications={toCertificationLabels(compliance)}
+        certifications={toCertificationViews(compliance)}
         complianceNote={toComplianceNote(compliance)}
         audit={toPlatformAuditStream(audit)}
         plans={toPlatformPlanCards(plans, summary)}

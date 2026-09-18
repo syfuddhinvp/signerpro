@@ -84,7 +84,13 @@ def send_mail(
         organization_id=payload.organization_id,
         detail=f'Sent "{payload.subject}" to {len(payload.to)} recipient(s)',
         ip_address=request_ip(request),
-        metadata={"to": [str(address) for address in payload.to], "failed": result.failed},
+        metadata={
+            "to": [str(address) for address in payload.to],
+            "cc": [str(address) for address in payload.cc],
+            "bcc": [str(address) for address in payload.bcc],
+            "attachments": [attachment.filename for attachment in payload.attachments],
+            "failed": result.failed,
+        },
     )
     db.commit()
     return result

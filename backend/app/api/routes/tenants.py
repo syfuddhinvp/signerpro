@@ -12,13 +12,23 @@ from secrets import token_urlsafe
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.api.deps import request_ip, require_platform_admin
 from app.core.database import get_db
 from app.core.security import hash_password
+from app.models.api_key import ApiKey
+from app.models.charge import Charge
+from app.models.contact import Contact
 from app.models.document import Document
-from app.models.enums import UserRole
+from app.models.enums import SignerPaymentStatus, UserRole, WalletEntryKind
+from app.models.folder import Folder
+from app.models.invoice import Invoice, InvoiceStatus
+from app.models.payment_account import PaymentAccount
+from app.models.platform_audit import PlatformAuditEntry
+from app.models.signer_payment import SignerPayment
+from app.models.team import Team
+from app.models.webhook import WebhookEndpoint
 from app.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from app.models.mixins import now_utc
 from app.models.organization import Organization
@@ -37,18 +47,32 @@ from app.schemas.platform import (
     PermissionMatrix,
     PermissionRow,
     PlatformHealthRow,
+    PlatformAuditRow,
     PlatformOverview,
     PlatformSeatCounts,
     PlatformTenantCounts,
+    TenantApiKeyRow,
+    TenantChargeRow,
+    TenantCounts,
     TenantCreate,
     TenantDetail,
+    TenantDocumentRow,
     TenantFlagOverride,
     TenantFlagOverrideUpdate,
+    TenantInvoiceRow,
     TenantPage,
+    TenantPaymentAccountInfo,
+    TenantProfile,
     TenantRow,
+    TenantSignerPaymentRow,
+    TenantSignerPaymentTotals,
+    TenantSubscriptionInfo,
     TenantSuspend,
+    TenantWebhookRow,
 )
+from app.schemas.billing import WalletCreditRequest, WalletEntryResponse, WalletResponse
 from app.services import platform_service
+from app.services.wallet_service import wallet_service
 
 router = APIRouter(prefix="/api/saas", tags=["tenants"])
 
@@ -252,6 +276,334 @@ def get_tenant(
     return _detail(db, _get_org(db, org_id))
 
 
+#: How many rows of each list the profile carries. The page is a record of a
+#: tenant, not an export of it: every list below links on to the screen that
+#: owns the full history, so a cap here costs nothing and an uncapped list on a
+#: tenant with 200k envelopes would cost everything.
+PROFILE_LIMIT = 25
+USER_LIMIT = 200
+
+
+def _profile(db: Session, org: Organization) -> TenantProfile:
+    """Everything the platform knows about one tenant, in one response."""
+    detail = _detail(db, org)
+
+    users = list(
+        db.scalars(
+            select(User)
+            .where(User.organization_id == org.id)
+            .order_by(User.created_at.desc())
+            .limit(USER_LIMIT)
+        )
+    )
+    active_users = db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(User.organization_id == org.id, User.status == "active")
+    ) or 0
+
+    # Documents: the status histogram is computed in the database, so it counts
+    # every envelope rather than only the page of recent ones shown below.
+    status_rows = db.execute(
+        select(Document.status, func.count())
+        .where(Document.organization_id == org.id, Document.deleted_at.is_(None))
+        .group_by(Document.status)
+    ).all()
+    documents_by_status = {str(status): count for status, count in status_rows}
+    templates = db.scalar(
+        select(func.count())
+        .select_from(Document)
+        .where(
+            Document.organization_id == org.id,
+            Document.deleted_at.is_(None),
+            Document.is_template.is_(True),
+        )
+    ) or 0
+
+    sender = aliased(User)
+    recent_documents = db.execute(
+        select(Document, sender.email)
+        .join(sender, sender.id == Document.sender_id, isouter=True)
+        .where(Document.organization_id == org.id, Document.deleted_at.is_(None))
+        .order_by(Document.created_at.desc())
+        .limit(PROFILE_LIMIT)
+    ).all()
+
+    creator = aliased(User)
+    api_keys = db.execute(
+        select(ApiKey, creator.email)
+        .join(creator, creator.id == ApiKey.created_by_user_id, isouter=True)
+        .where(ApiKey.organization_id == org.id)
+        .order_by(ApiKey.created_at.desc())
+        .limit(PROFILE_LIMIT)
+    ).all()
+    active_api_keys = db.scalar(
+        select(func.count())
+        .select_from(ApiKey)
+        .where(ApiKey.organization_id == org.id, ApiKey.revoked_at.is_(None))
+    ) or 0
+
+    invoices = list(
+        db.scalars(
+            select(Invoice)
+            .where(Invoice.organization_id == org.id)
+            .order_by(Invoice.issued_at.desc())
+            .limit(PROFILE_LIMIT)
+        )
+    )
+    # Totals span every invoice, not just the page above, and exclude the ones
+    # that were never owed: a voided or uncollectible invoice is not revenue.
+    billable = (
+        select(Invoice)
+        .where(
+            Invoice.organization_id == org.id,
+            Invoice.status.notin_([InvoiceStatus.void, InvoiceStatus.draft]),
+        )
+        .subquery()
+    )
+    invoiced_cents = db.scalar(select(func.coalesce(func.sum(billable.c.total_cents), 0))) or 0
+    invoice_paid_cents = (
+        db.scalar(select(func.coalesce(func.sum(billable.c.amount_paid_cents), 0))) or 0
+    )
+    invoice_count = db.scalar(
+        select(func.count()).select_from(Invoice).where(Invoice.organization_id == org.id)
+    ) or 0
+
+    charges = list(
+        db.scalars(
+            select(Charge)
+            .where(Charge.organization_id == org.id)
+            .order_by(Charge.occurred_at.desc())
+            .limit(PROFILE_LIMIT)
+        )
+    )
+
+    payments = db.execute(
+        select(SignerPayment, Document.title)
+        .join(Document, Document.id == SignerPayment.document_id, isouter=True)
+        .where(SignerPayment.organization_id == org.id)
+        .order_by(SignerPayment.created_at.desc())
+        .limit(PROFILE_LIMIT)
+    ).all()
+    payment_count = db.scalar(
+        select(func.count())
+        .select_from(SignerPayment)
+        .where(SignerPayment.organization_id == org.id)
+    ) or 0
+    # Grouped by currency and never added across them, for the same reason the
+    # tenant's own payments ledger refuses to: two currencies have no sum. A
+    # refund is subtracted from what was collected rather than shown beside it.
+    totals_rows = db.execute(
+        select(
+            SignerPayment.currency,
+            func.coalesce(func.sum(SignerPayment.amount_cents), 0),
+            func.coalesce(func.sum(SignerPayment.refunded_amount_cents), 0),
+            func.count(),
+        )
+        .where(
+            SignerPayment.organization_id == org.id,
+            SignerPayment.status.in_(
+                [SignerPaymentStatus.succeeded, SignerPaymentStatus.refunded]
+            ),
+        )
+        .group_by(SignerPayment.currency)
+    ).all()
+
+    webhooks = list(
+        db.scalars(
+            select(WebhookEndpoint)
+            .where(WebhookEndpoint.organization_id == org.id)
+            .order_by(WebhookEndpoint.created_at.desc())
+            .limit(PROFILE_LIMIT)
+        )
+    )
+
+    subscription, plan = platform_service.subscription_map(db, [org.id]).get(org.id, (None, None))
+    account = db.scalar(select(PaymentAccount).where(PaymentAccount.organization_id == org.id))
+
+    audit = list(
+        db.scalars(
+            select(PlatformAuditEntry)
+            .where(PlatformAuditEntry.organization_id == org.id)
+            .order_by(PlatformAuditEntry.created_at.desc())
+            .limit(PROFILE_LIMIT)
+        )
+    )
+
+    def _count(model) -> int:
+        return db.scalar(
+            select(func.count()).select_from(model).where(model.organization_id == org.id)
+        ) or 0
+
+    return TenantProfile(
+        tenant=detail,
+        counts=TenantCounts(
+            users=len(users) if len(users) < USER_LIMIT else detail.users_count,
+            active_users=active_users,
+            documents=sum(documents_by_status.values()),
+            templates=templates,
+            contacts=_count(Contact),
+            folders=_count(Folder),
+            teams=_count(Team),
+            api_keys=_count(ApiKey),
+            active_api_keys=active_api_keys,
+            webhooks=_count(WebhookEndpoint),
+            invoices=invoice_count,
+            signer_payments=payment_count,
+        ),
+        documents_by_status=documents_by_status,
+        users=[_directory_user(user, org) for user in users],
+        recent_documents=[
+            TenantDocumentRow(
+                id=doc.id,
+                title=doc.title,
+                status=str(doc.status),
+                is_template=doc.is_template,
+                sender_email=email,
+                created_at=doc.created_at,
+                sent_at=doc.sent_at,
+                completed_at=doc.completed_at,
+            )
+            for doc, email in recent_documents
+        ],
+        api_keys=[
+            TenantApiKeyRow(
+                id=key.id,
+                label=key.label,
+                mode=key.mode,
+                # The hash never leaves the database; the mask is all the
+                # console has ever been able to show, and all it needs.
+                masked=key.masked,
+                scopes=list(key.scopes or []),
+                created_by_email=email,
+                last_used_at=key.last_used_at,
+                revoked_at=key.revoked_at,
+                created_at=key.created_at,
+            )
+            for key, email in api_keys
+        ],
+        invoices=[
+            TenantInvoiceRow(
+                id=inv.id,
+                number=inv.number,
+                status=inv.status,
+                currency=inv.currency,
+                total_cents=inv.total_cents,
+                amount_paid_cents=inv.amount_paid_cents,
+                issued_at=inv.issued_at,
+                due_at=inv.due_at,
+                paid_at=inv.paid_at,
+            )
+            for inv in invoices
+        ],
+        charges=[
+            TenantChargeRow(
+                id=charge.id,
+                amount_cents=charge.amount_cents,
+                currency=charge.currency,
+                status=charge.status,
+                method_label=charge.method_label,
+                description=charge.description,
+                decline_code=charge.decline_code,
+                occurred_at=charge.occurred_at,
+            )
+            for charge in charges
+        ],
+        signer_payments=[
+            TenantSignerPaymentRow(
+                id=payment.id,
+                document_id=payment.document_id,
+                document_title=title,
+                amount_cents=payment.amount_cents,
+                refunded_amount_cents=payment.refunded_amount_cents,
+                currency=payment.currency,
+                status=str(payment.status),
+                paid_at=payment.paid_at,
+                created_at=payment.created_at,
+            )
+            for payment, title in payments
+        ],
+        signer_payment_totals=[
+            TenantSignerPaymentTotals(
+                currency=currency,
+                collected_cents=collected - refunded,
+                refunded_cents=refunded,
+                count=count,
+            )
+            for currency, collected, refunded, count in totals_rows
+        ],
+        webhooks=[
+            TenantWebhookRow(
+                id=hook.id,
+                url=hook.url,
+                is_active=hook.is_active,
+                event_types=list(hook.event_types) if hook.event_types else None,
+                description=hook.description,
+                created_at=hook.created_at,
+            )
+            for hook in webhooks
+        ],
+        subscription=(
+            TenantSubscriptionInfo(
+                plan_code=plan.code if plan else None,
+                plan_name=platform_service.plan_display_name(org, plan),
+                status=subscription.status,
+                price_cents=plan.price_cents if plan else None,
+                current_period_start=subscription.current_period_start,
+                current_period_end=subscription.current_period_end,
+                trial_ends_at=subscription.trial_ends_at,
+                canceled_at=subscription.canceled_at,
+                cancel_at_period_end=subscription.cancel_at_period_end,
+                provider=subscription.provider,
+            )
+            if subscription
+            else None
+        ),
+        payment_account=(
+            TenantPaymentAccountInfo(
+                provider=account.provider,
+                charges_enabled=account.charges_enabled,
+                payouts_enabled=account.payouts_enabled,
+                details_submitted=account.details_submitted,
+                livemode=account.livemode,
+                default_currency=account.default_currency,
+                disabled_reason=account.disabled_reason,
+                onboarded_at=account.onboarded_at,
+            )
+            if account
+            else None
+        ),
+        audit=[
+            PlatformAuditRow(
+                id=entry.id,
+                action=entry.action,
+                actor_email=entry.actor_email,
+                detail=entry.detail,
+                ip_address=entry.ip_address,
+                organization_id=entry.organization_id,
+                organization_name=org.name,
+                metadata=entry.entry_metadata,
+                occurred_at=entry.created_at,
+            )
+            for entry in audit
+        ],
+        invoiced_cents=invoiced_cents,
+        invoice_paid_cents=invoice_paid_cents,
+        invoice_outstanding_cents=max(invoiced_cents - invoice_paid_cents, 0),
+        invoice_currency=invoices[0].currency if invoices else "USD",
+    )
+
+
+@router.get("/tenants/{org_id}/profile", response_model=TenantProfile)
+def get_tenant_profile(
+    org_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> TenantProfile:
+    """The tenant record page: members, envelopes, credentials and money."""
+    return _profile(db, _get_org(db, org_id))
+
+
 @router.post("/tenants/{org_id}/suspend", response_model=TenantDetail)
 def suspend_tenant(
     org_id: str,
@@ -286,6 +638,52 @@ def suspend_tenant(
     db.commit()
     db.refresh(org)
     return _detail(db, org)
+
+
+@router.post("/tenants/{org_id}/wallet/credit", response_model=WalletResponse)
+def credit_tenant_wallet(
+    org_id: str,
+    payload: WalletCreditRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> WalletResponse:
+    """Grant account balance to a tenant (BIL-12).
+
+    The only way balance is created outside the billing engine, so it is
+    audited with a mandatory reason and attributed to the admin who issued it.
+    Balance is spendable on this application's invoices and nothing else --
+    this is not a refund mechanism and there is no path from here to a bank.
+    """
+    org = _get_org(db, org_id)
+    wallet_service.credit(
+        db,
+        organization_id=org.id,
+        amount_cents=payload.amount_cents,
+        kind=WalletEntryKind.platform_grant,
+        description=f"Credit issued by {admin.email}",
+        reason=payload.reason,
+        actor_user_id=admin.id,
+    )
+    ip = request_ip(request)
+    platform_service.record_platform_audit(
+        db,
+        action="tenant.wallet_credited",
+        actor=admin,
+        organization_id=org.id,
+        detail=f"{payload.amount_cents} cents: {payload.reason}",
+        ip_address=ip,
+    )
+    db.commit()
+    summary = wallet_service.summary(db, org.id)
+    entries, total = wallet_service.history(db, org.id, limit=50)
+    return WalletResponse(
+        balance_cents=summary["balance_cents"],
+        currency=summary["currency"],
+        withdrawable=summary["withdrawable"],
+        total=total,
+        entries=[WalletEntryResponse.model_validate(entry) for entry in entries],
+    )
 
 
 @router.post("/tenants/{org_id}/resume", response_model=TenantDetail)

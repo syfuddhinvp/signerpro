@@ -22,6 +22,7 @@ import { useDialogs } from '@/components/sf/DialogProvider';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 import { btn, cardStyle, pill, railHead, TEXT_MUTED, TONE_BAD, TONE_GOOD, TONE_WARN } from '@/lib/sf/ui';
 import type { PaymentAccountResponse } from '@/lib/api/types';
+import Icon from '@/components/sf/Icon';
 
 export type PaymentsProps = {
   /** `GET /api/payments/account`, fetched by the server component. `null`
@@ -197,7 +198,7 @@ export default function Payments({ account, loadError = null }: PaymentsProps) {
           </div>
           <div>
             <button type="button" onClick={connect} disabled={busy || !country || !entityType} style={primaryBtn}>
-              {busy ? 'Opening Stripe…' : 'Connect Stripe'}
+              <Icon name="link" size={13} />{busy ? 'Opening Stripe…' : 'Connect Stripe'}
             </button>
           </div>
         </div>
@@ -218,11 +219,11 @@ export default function Payments({ account, loadError = null }: PaymentsProps) {
                 */}
               {!account.charges_enabled ? (
                 <button type="button" onClick={connect} disabled={busy} style={primaryBtn}>
-                  {busy ? 'Opening Stripe…' : 'Finish onboarding'}
+                  <Icon name="arrowRight" size={13} />{busy ? 'Opening Stripe…' : 'Finish onboarding'}
                 </button>
               ) : null}
-              <button type="button" onClick={refresh} disabled={busy} style={ghostBtn}>Refresh status</button>
-              <button type="button" onClick={disconnect} disabled={busy} style={dangerBtn}>Disconnect</button>
+              <button type="button" onClick={refresh} disabled={busy} style={ghostBtn}><Icon name="refresh" size={13} />Refresh status</button>
+              <button type="button" onClick={disconnect} disabled={busy} style={dangerBtn}><Icon name="cancel" size={13} />Disconnect</button>
             </div>
           </div>
 

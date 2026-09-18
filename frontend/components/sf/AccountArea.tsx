@@ -16,24 +16,26 @@ import { useModalBehaviour } from '@/components/sf/useModalBehaviour';
 import SignatureComposer, { type ComposedSignature } from '@/components/sf/parts/SignatureComposer';
 import QrCode from '@/components/sf/parts/QrCode';
 import { credentialToJson, passkeysSupported, toCreationOptions } from '@/lib/sf/webauthn';
-import { useSession } from '@/components/sf/SessionProvider';
+import { useSession, signOut } from '@/components/sf/SessionProvider';
 import { useDialogs } from '@/components/sf/DialogProvider';
 import type { AccountSection } from '@/lib/sf/routes';
 import { ACCOUNT_TITLES, TYPES } from '@/lib/sf/data';
 import { apiFieldType, builderFieldType } from '@/lib/sf/adapters';
 import { fieldTypeEnabled } from '@/lib/sf/orgFieldTypes';
 import { apiCall, proxyPath } from '@/lib/api/browser';
+import type { ApiError } from '@/lib/api/result';
 import { account as accountApi, auth as authApi, invitations as invitationsApi, organizations as organizationsApi, teams as teamsApi } from '@/lib/api/resources';
 import type {
-  AccountAuditFeed, CloudTargetItem, CurrentUserResponse, IntegrationResponse,
+  AccountAuditFeed, CloudExportItem, CloudTargetItem, CurrentUserResponse, IntegrationResponse,
   MfaEnrollResponse, MfaStatusResponse, NotificationPreferenceResponse, PasskeyResponse,
   SsoConnectionResponse,
   OrganizationResponse, SavedSignatureResponse, SessionResponse,
   InvitationResponse, TeamResponse, UserResponse,
 } from '@/lib/api/types';
-import { btn, pill, inputStyle, lbl as lblStyle, railHead, TONE_GOOD, TONE_INDIGO, TONE_MUTED, BORDER_STRONG } from '@/lib/sf/ui';
+import { btn, pill, inputStyle, lbl as lblStyle, railHead, TONE_BAD, TONE_GOOD, TONE_INDIGO, TONE_MUTED, TONE_WARN, BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
+import { rememberOauthProvider } from '@/lib/sf/cloudOauth';
 import { typeFaceStack } from '@/lib/sf/fonts';
-import Icon from '@/components/sf/Icon';
+import Icon, { markFor } from '@/components/sf/Icon';
 
 const card: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'13px' };
 const emptyBox: CSSProperties = { border:'1px dashed #8492a6', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:'#64748b', lineHeight:1.6 };
@@ -94,6 +96,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   const linkBtn: CSSProperties = {
     background:'none', border:'none', padding:0, cursor:'pointer',
     fontSize:'.71875rem', fontWeight:600, color:A, textDecoration:'underline',
+    display:'inline-flex', alignItems:'center', gap:'4px',
     textUnderlineOffset:'2px', flex:'0 0 auto',
   };
   const mono: CSSProperties = { ...inputStyle, fontFamily:'var(--font-sans)', fontSize:'.71875rem' };
@@ -111,6 +114,14 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   const [notifPrefsData, setNotifPrefs] = useState<NotificationPreferenceResponse[] | null>(null);
   const [integrationsData, setIntegrations] = useState<IntegrationResponse[] | null>(null);
   const [cloudData, setCloud] = useState<CloudTargetItem[] | null>(null);
+  const [exportsData, setExports] = useState<CloudExportItem[] | null>(null);
+  /* The export folder, while it is being typed. Held apart from `cloudData`
+     so an unsaved edit is never mistaken for the saved destination — the one
+     confusion this panel used to be built on. */
+  const [pathDraft, setPathDraft] = useState<Record<string, string>>({});
+  /* The provider whose connector call is in flight, so its buttons can say so
+     and cannot be pressed twice. */
+  const [cloudBusy, setCloudBusy] = useState<string | null>(null);
   const [teamsData, setTeams] = useState<TeamResponse[] | null>(null);
   const [orgData, setOrg] = useState<OrganizationResponse | null>(null);
   /* The builder palette choice, held as a draft so the checkboxes respond at
@@ -177,6 +188,13 @@ export default function AccountArea({ section }: { section: AccountSection }) {
     void accountApi.cloudTargets(apiCall).then(res => {
       if (!res.ok) { markFailed('cloud'); setCloud([]); return; }
       setCloud(res.data);
+    });
+  }, [markFailed]);
+
+  const loadExports = useCallback(() => {
+    void accountApi.cloudExports(apiCall, { limit: 20 }).then(res => {
+      if (!res.ok) { markFailed('exports'); setExports([]); return; }
+      setExports(res.data);
     });
   }, [markFailed]);
 
@@ -248,9 +266,9 @@ export default function AccountArea({ section }: { section: AccountSection }) {
     if (section === 'notifications') loadNotifPrefs();
     /* One section, two feeds: whether a connector is connected, and where it
        exports to. */
-    if (section === 'integrations') { loadIntegrations(); loadCloud(); }
+    if (section === 'integrations') { loadIntegrations(); loadCloud(); loadExports(); }
     if (section === 'organization') loadOrganization();
-  }, [section, loadSessions, loadMfa, loadPasskeys, loadSso, loadNotifPrefs, loadIntegrations, loadCloud, loadOrganization, markFailed]);
+  }, [section, loadSessions, loadMfa, loadPasskeys, loadSso, loadNotifPrefs, loadIntegrations, loadCloud, loadExports, loadOrganization, markFailed]);
 
   /* The audit feed is filtered, sorted and paged on the server: the trail
      grows without bound, so narrowing a fetched window would silently search
@@ -459,8 +477,13 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   };
 
   const revokeSession = (row: SessionResponse) => {
-    void authApi.revokeSession(apiCall, row.id).then(res => {
+    void authApi.revokeSession(apiCall, row.id).then(async res => {
       if (!res.ok) { flash('Could not sign that session out · ' + res.error.message); return; }
+      /* Revoking *this* device kills the refresh token but not the cookie in
+         front of it, so the user would keep browsing on an access token that
+         can no longer be rotated. Drop the cookie and leave for the login
+         screen, as the sidebar's sign-out does. */
+      if (row.is_current) { await signOut(); window.location.assign('/login'); return; }
       flash(sessionLabel(row) + ' signed out');
       loadSessions();
     });
@@ -806,47 +829,214 @@ export default function AccountArea({ section }: { section: AccountSection }) {
      export destination are the same connector, so they are one card. */
   const cloudFor = (provider: string) => (cloudData ?? []).find(c => c.provider === provider);
 
-  const toggleCloud = (provider: string) => {
-    const next = (cloudData ?? []).map(x => (x.provider === provider ? { ...x, enabled: !x.enabled } : x));
+  /* The folder as it stands in the input: the unsaved edit if there is one,
+     otherwise whatever the server holds. */
+  const draftPathFor = (provider: string) =>
+    pathDraft[provider] ?? cloudFor(provider)?.path ?? '';
+
+  /* The two refusals this endpoint makes are both about something the sender
+     can fix, so they are said in those terms rather than relayed as a status
+     line. */
+  const cloudSaveMessage = (err: ApiError, label: string): string => {
+    if (err.kind === 'validation') return 'Give ' + label + ' an export folder before turning exports on';
+    if (err.kind === 'conflict') return 'Connect ' + label + ' before turning exports on';
+    return 'Could not save the ' + label + ' export destination \u00b7 ' + err.message;
+  };
+
+  /* One writer for the whole cloud-target list — the endpoint replaces the
+     set, so every change has to send the others back unaltered. */
+  const writeCloudTargets = (provider: string, patch: Partial<CloudTargetItem>, label: string, done: string) => {
+    const current = cloudData ?? [];
+    const known = current.some(c => c.provider === provider);
+    const next: CloudTargetItem[] = known
+      ? current.map(x => (x.provider === provider ? { ...x, ...patch } : x))
+      : [...current, { provider, path: null, enabled: false, ...patch }];
     setCloud(next);
+    setCloudBusy(provider);
     void accountApi.updateCloudTargets(apiCall, next).then(res => {
-      if (!res.ok) { flash('Could not save the export targets · ' + res.error.message); loadCloud(); return; }
+      setCloudBusy(null);
+      if (!res.ok) { flash(cloudSaveMessage(res.error, label)); loadCloud(); return; }
       setCloud(res.data);
+      /* The saved value is now the truth, so the draft steps aside rather
+         than holding a copy that can drift from it. */
+      setPathDraft(prev => { const copy = { ...prev }; delete copy[provider]; return copy; });
+      flash(done);
+    });
+  };
+
+  /* Sending the browser away to the provider. The state is remembered first:
+     the redirect back names neither the provider nor this tab. */
+  const startOauthGrant = (i: IntegrationResponse) => {
+    setCloudBusy(i.provider);
+    void accountApi.authorizeIntegration(apiCall, i.provider).then(res => {
+      if (!res.ok) {
+        setCloudBusy(null);
+        flash(res.error.kind === 'conflict'
+          ? i.label + ' is not configured on this deployment'
+          : 'Could not start the ' + i.label + ' connection \u00b7 ' + res.error.message);
+        return;
+      }
+      rememberOauthProvider(res.data.state, i.provider);
+      window.location.assign(res.data.authorization_url);
+    });
+  };
+
+  const disconnectProvider = async (i: IntegrationResponse) => {
+    const target = cloudFor(i.provider);
+    const ok = await askConfirm({
+      title: 'Disconnect ' + i.label + '?',
+      message: (target?.enabled
+        ? 'Completed documents stop being exported to ' + (target.path || 'this account') + ' immediately. '
+        : 'Completed documents will not be exported to ' + i.label + ' until it is connected again. ')
+        + 'Nothing already exported is removed, and no document here is deleted.',
+      cta: 'Disconnect', danger: true,
+    });
+    if (!ok) return;
+    setCloudBusy(i.provider);
+    void accountApi.disconnectIntegration(apiCall, i.provider).then(res => {
+      setCloudBusy(null);
+      if (!res.ok) { flash('Could not disconnect ' + i.label + ' \u00b7 ' + res.error.message); return; }
+      flash(i.label + ' disconnected \u00b7 exports to it have stopped');
+      loadIntegrations();
+      loadCloud();
+    });
+  };
+
+  const retryExport = (row: CloudExportItem) => {
+    void accountApi.retryCloudExport(apiCall, row.id).then(res => {
+      if (!res.ok) {
+        flash(res.error.kind === 'conflict'
+          ? 'That export has already succeeded'
+          : 'Could not retry that export \u00b7 ' + res.error.message);
+        loadExports();
+        return;
+      }
+      flash('Export queued again');
+      loadExports();
     });
   };
 
   const integrations = (integrationsData ?? []).map(i => {
     const target = cloudFor(i.provider);
+    const busy = cloudBusy === i.provider;
+    /* "Connected" is three states, not one, and the card owes the difference:
+       a deployment with no credentials cannot connect at all, and tokens that
+       have stopped working are not a connection. */
+    const state: 'unconfigured' | 'reauth' | 'connected' | 'available' =
+      !i.configured ? 'unconfigured'
+        : i.needs_reauth ? 'reauth'
+          : i.connected ? 'connected' : 'available';
+
+    const draft = draftPathFor(i.provider);
+    const savedPath = target?.path ?? '';
+    const usable = state === 'connected';
+    /* The old panel could say "Exporting" beside "no export path set". It
+       cannot now: the toggle is only reachable when both halves are true. */
+    const canEnable = usable && draft.trim().length > 0 && draft.trim() === savedPath.trim();
+    const enableHint = !usable
+      ? 'Connect ' + i.label + ' before exporting to it'
+      : draft.trim().length === 0
+        ? 'Set an export folder first'
+        : draft.trim() !== savedPath.trim()
+          ? 'Save the export folder first'
+          : '';
+
     return {
-    key: i.provider,
-    label: i.label,
-    meta: i.connected ? joinMeta(['connected ' + stamp(i.connected_at), i.detail]) : (i.detail || 'not connected'),
-    ctaLabel: i.connected ? 'Disconnect' : 'Connect',
-    onClick: () => {
-      const call = i.connected
-        ? accountApi.disconnectIntegration(apiCall, i.provider)
-        : accountApi.connectIntegration(apiCall, i.provider);
-      void call.then(res => {
-        if (!res.ok) { flash('Could not update ' + i.label + ' · ' + res.error.message); return; }
-        flash(i.label + (i.connected ? ' disconnected' : ' connected'));
-        loadIntegrations();
-      });
-    },
-    ctaStyle: i.connected ? btn('#fff', '#b91c1c', '#fecaca') : btn(A, '#fff', A),
-    pill: pill(i.connected ? TONE_GOOD : TONE_MUTED),
-    pillLabel: i.connected ? 'Connected' : 'Available',
-    /* Export is only meaningful once the connector is connected — offering a
-       folder for an account we cannot write to would be a dead control. */
-    export: i.connected && target ? {
-      path: target.path || 'no export path set',
-      enabled: target.enabled,
-      pill: pill(target.enabled ? TONE_GOOD : TONE_MUTED),
-      pillLabel: target.enabled ? 'Exporting' : 'Off',
-      ctaLabel: target.enabled ? 'Turn off' : 'Turn on',
-      onToggle: () => toggleCloud(i.provider),
-    } : null,
-  };
+      key: i.provider,
+      label: i.label,
+      state,
+      busy,
+      meta: state === 'connected'
+        ? joinMeta([i.account_email, 'connected ' + stamp(i.connected_at), i.detail])
+        : state === 'reauth'
+          ? joinMeta([i.account_email, 'connected ' + stamp(i.connected_at)])
+          : state === 'unconfigured'
+            ? 'Not available on this deployment'
+            : (i.detail || 'not connected'),
+      /* Only ever the server's own words, and only where they explain a state
+         the sender is being asked to act on. */
+      problem: state === 'reauth'
+        ? (i.last_error || 'The stored authorization no longer works.')
+        : state === 'unconfigured'
+          /* NB: `detail` is the connector's feature blurb ("Archive completed
+             PDFs"), not an explanation of why it cannot be connected. Using it
+             here put a cheerful description where the reason belongs. */
+          ? 'This deployment has no ' + i.label + ' credentials, so there is nothing to connect to. An administrator has to add them first.'
+          : null,
+      pill: pill(state === 'connected' ? TONE_GOOD : state === 'reauth' ? TONE_WARN : TONE_MUTED),
+      pillLabel: state === 'connected' ? 'Connected'
+        : state === 'reauth' ? 'Needs re-authentication'
+          : state === 'unconfigured' ? 'Not configured' : 'Available',
+      ctaLabel: state === 'connected' ? 'Disconnect' : state === 'reauth' ? 'Reconnect' : 'Connect',
+      ctaStyle: state === 'connected'
+        ? btn('#fff', '#b91c1c', '#fecaca')
+        /* A connector that cannot be connected does not get the primary
+           colour: a faded accent button still reads as the call to action. */
+        : state === 'unconfigured' ? btn('#f1f5f9', TEXT_MUTED, '#e2e8f0') : btn(A, '#fff', A),
+      ctaDisabled: state === 'unconfigured' || busy,
+      onClick: () => {
+        if (state === 'connected') { void disconnectProvider(i); return; }
+        startOauthGrant(i);
+      },
+      /* A connector that has lost its tokens still has a destination worth
+         keeping, so the second action stays available beside Reconnect. */
+      onDisconnect: state === 'reauth' ? () => { void disconnectProvider(i); } : null,
+      export: state === 'unconfigured' ? null : {
+        path: draft,
+        savedPath,
+        dirty: draft.trim() !== savedPath.trim(),
+        onPathChange: (value: string) =>
+          setPathDraft(prev => ({ ...prev, [i.provider]: value })),
+        onSavePath: () => {
+          const value = draft.trim();
+          writeCloudTargets(
+            i.provider,
+            /* Clearing the folder has to turn the export off with it: an
+               enabled target with nowhere to write is the contradiction. */
+            value ? { path: value } : { path: null, enabled: false },
+            i.label,
+            value ? 'Export folder saved' : 'Export folder cleared \u00b7 exports are off',
+          );
+        },
+        enabled: Boolean(target?.enabled),
+        canEnable,
+        enableHint,
+        pill: pill(target?.enabled ? TONE_GOOD : TONE_MUTED),
+        pillLabel: target?.enabled ? 'Exporting' : 'Off',
+        ctaLabel: target?.enabled ? 'Turn off' : 'Turn on',
+        onToggle: () => {
+          const next = !target?.enabled;
+          if (next && !canEnable) { flash(enableHint); return; }
+          writeCloudTargets(
+            i.provider,
+            { enabled: next },
+            i.label,
+            next ? 'Completed documents will be exported to ' + i.label : 'Exports to ' + i.label + ' are off',
+          );
+        },
+      },
+    };
   });
+
+  /* The export log. Read most often after something did not arrive, so a
+     failure carries its reason and the action that answers it. */
+  const providerLabel = (provider: string) =>
+    (integrationsData ?? []).find(i => i.provider === provider)?.label ?? provider;
+
+  const exportRows = (exportsData ?? []).map(row => ({
+    id: row.id,
+    title: row.document_title || 'Untitled document',
+    meta: joinMeta([
+      providerLabel(row.provider),
+      stamp(row.completed_at ?? row.created_at),
+      row.remote_path,
+      row.attempts > 1 ? row.attempts + ' attempts' : null,
+    ]),
+    error: row.status === 'failed' ? (row.last_error || 'No reason was recorded.') : null,
+    pill: pill(row.status === 'succeeded' ? TONE_GOOD : row.status === 'failed' ? TONE_BAD : TONE_MUTED),
+    pillLabel: row.status === 'succeeded' ? 'Exported' : row.status === 'failed' ? 'Failed' : 'Queued',
+    onRetry: row.status === 'failed' ? () => retryExport(row) : null,
+  }));
 
   /* ── builder field palette (ORG-6) ──────────────────────────────────────
      The palette offers every field type the product implements, and most
@@ -1018,11 +1208,11 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         electronic representation of my signature for all purposes.
                       </span>
                       <div style={{ marginLeft:'auto', display:'flex', gap:'8px' }}>
-                        <button type="button" onClick={closeSigModal} style={ghostBtn}>Cancel</button>
+                        <button type="button" onClick={closeSigModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
                         <button
                           type="button" onClick={adoptSignature} disabled={savingSignature}
                           style={{ ...primaryBtn, opacity: savingSignature ? .5 : 1, cursor: savingSignature ? 'default' : 'pointer' }}>
-                          {savingSignature ? 'Saving…' : 'Adopt signature'}
+                          <Icon name="sign" size={13} />{savingSignature ? 'Saving…' : 'Adopt signature'}
                         </button>
                       </div>
                     </div>
@@ -1061,10 +1251,10 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       <span style={{ fontSize:'.75rem', color:'#64748b' }}>{joinMeta([userRole, me?.organization_name])}</span>
                       <span style={{ display:'flex', alignItems:'center', gap:'8px', marginTop:'2px' }}>
                         <button type="button" onClick={() => photoInput.current?.click()} disabled={savingPhoto} style={{ ...autoGhostBtn, marginLeft:0 }}>
-                          {savingPhoto ? 'Saving…' : avatarSrc ? 'Change photo' : 'Add photo'}
+                          <Icon name="image" size={12} />{savingPhoto ? 'Saving…' : avatarSrc ? 'Change photo' : 'Add photo'}
                         </button>
                         {avatarSrc && !savingPhoto ? (
-                          <button type="button" onClick={removePhoto} style={{ ...autoGhostBtn, marginLeft:0 }}>Remove</button>
+                          <button type="button" onClick={removePhoto} style={{ ...autoGhostBtn, marginLeft:0 }}><Icon name="trash" size={12} />Remove</button>
                         ) : null}
                       </span>
                     </div>
@@ -1092,13 +1282,13 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       {failed.me ? 'Your profile could not be loaded.' : 'Your email address is managed under Email addresses.'}
                     </span>
                     {profileDirty ? (
-                      <button type="button" onClick={() => setProfileDraft(null)} style={autoGhostBtn}>Discard</button>
+                      <button type="button" onClick={() => setProfileDraft(null)} style={autoGhostBtn}><Icon name="undo" size={12} />Discard</button>
                     ) : null}
                     <button
                       type="button" onClick={saveProfile}
                       disabled={!profileDirty || savingProfile}
                       style={{ ...primaryBtn, marginLeft: profileDirty ? 0 : 'auto', opacity: profileDirty && !savingProfile ? 1 : .5, cursor: profileDirty && !savingProfile ? 'pointer' : 'default' }}>
-                      {savingProfile ? 'Saving…' : 'Save changes'}
+                      <Icon name="save" size={13} />{savingProfile ? 'Saving…' : 'Save changes'}
                     </button>
                   </div>
                 </div>
@@ -1116,7 +1306,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       </span>
                     </div>
                     <button type="button" onClick={openSignatureModal} style={{ ...primaryBtn, marginLeft:'auto', flex:'0 0 auto' }}>
-                      Add signature
+                      <Icon name="plus" size={13} />Add signature
                     </button>
                   </div>
 
@@ -1152,8 +1342,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           <div style={{ display:'flex', alignItems:'center', gap:'12px', marginLeft:'auto', flex:'0 0 auto' }}>
                             {row.is_default
                               ? <span style={pill(TONE_GOOD)}>Default</span>
-                              : <button type="button" onClick={() => makeDefaultSignature(row)} style={linkBtn}>Set as default</button>}
-                            <button type="button" onClick={() => removeSignature(row)} style={btn('#fff', '#b91c1c', '#fecaca')}>Remove</button>
+                              : <button type="button" onClick={() => makeDefaultSignature(row)} style={linkBtn}><Icon name="star" size={11} />Set as default</button>}
+                            <button type="button" onClick={() => removeSignature(row)} style={btn('#fff', '#b91c1c', '#fecaca')}><Icon name="trash" size={13} />Remove</button>
                           </div>
                         </div>
                       ))}
@@ -1172,7 +1362,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap:'12px', paddingBottom:'12px', borderBottom:'1px solid #f2f4f8' }}>
                     <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}><span style={{ fontSize:'.75rem', color:'#64748b' }}>Password</span><span style={{ fontSize:'.8125rem' }}>••••••••</span></div>
-                    <button type="button" onClick={changePassword} style={autoGhostBtn}>Change</button>
+                    <button type="button" onClick={changePassword} style={autoGhostBtn}><Icon name="key" size={12} />Change</button>
                   </div>
                   <div style={{ display:'flex', alignItems:'flex-start', gap:'12px' }}>
                     <div style={{ display:'flex', flexDirection:'column', gap:'3px', maxWidth:'460px' }}>
@@ -1226,7 +1416,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                                   onClick={() => void copyValue('secret', enrolment.secret)}
                                   style={{ ...ghostBtn, alignSelf:'flex-start' }}
                                 >
-                                  {copiedKey === 'secret' ? 'Copied' : 'Copy setup key'}
+                                  <Icon name={copiedKey === 'secret' ? 'check' : 'copy'} size={13} />{copiedKey === 'secret' ? 'Copied' : 'Copy setup key'}
                                 </button>
                               </div>
                             </div>
@@ -1253,14 +1443,14 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                                 onClick={() => void copyValue('codes', enrolment.recovery_codes.join('\n'))}
                                 style={ghostBtn}
                               >
-                                {copiedKey === 'codes' ? 'Copied' : 'Copy all codes'}
+                                <Icon name={copiedKey === 'codes' ? 'check' : 'copy'} size={13} />{copiedKey === 'codes' ? 'Copied' : 'Copy all codes'}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => downloadRecoveryCodes(enrolment.recovery_codes)}
                                 style={ghostBtn}
                               >
-                                Download as .txt
+                                <Icon name="download" size={13} />Download as .txt
                               </button>
                             </div>
                           </div>
@@ -1272,8 +1462,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           <div style={{ display:'flex', flexDirection:'column', gap:'9px', minWidth:0, flex:1 }}>
                             <span style={{ fontSize:'.78125rem', fontWeight:600 }}>Enter the six-digit code from the app</span>
                             <div style={{ display:'flex', gap:'7px', flexWrap:'wrap' }}>
-                              <button type="button" onClick={confirmEnrolment} style={primaryBtn}>Enter code</button>
-                              <button type="button" onClick={() => { setEnrolment(null); setCopiedKey(null); }} style={ghostBtn}>Cancel</button>
+                              <button type="button" onClick={confirmEnrolment} style={primaryBtn}><Icon name="shield" size={13} />Enter code</button>
+                              <button type="button" onClick={() => { setEnrolment(null); setCopiedKey(null); }} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
                             </div>
                           </div>
                         </div>
@@ -1292,7 +1482,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         </span>
                       </div>
                       <button type="button" onClick={addPasskey} style={{ ...autoGhostBtn, marginLeft:'auto' }}>
-                        Add passkey
+                        <Icon name="key" size={12} />Add passkey
                       </button>
                     </div>
                     {passkeys === null ? (
@@ -1315,7 +1505,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                             onClick={() => removePasskey(row)}
                             style={{ ...autoGhostBtn, marginLeft:'auto' }}
                           >
-                            Remove
+                            <Icon name="trash" size={12} />Remove
                           </button>
                         </div>
                       ))
@@ -1337,7 +1527,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         </span>
                       </div>
                       <button type="button" onClick={configureSso} style={{ ...autoGhostBtn, marginLeft:'auto' }}>
-                        {sso === null ? 'Connect' : 'Reconfigure'}
+                        <Icon name={sso === null ? 'link' : 'settings'} size={12} />{sso === null ? 'Connect' : 'Reconfigure'}
                       </button>
                     </div>
                     {sso ? (
@@ -1373,7 +1563,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{d.label}</span>
                         <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{d.meta}</span>
                       </div>
-                      <button type="button" onClick={d.onRemove} style={autoDangerBtn}>{d.isCurrent ? 'Sign out here' : 'Sign out'}</button>
+                      <button type="button" onClick={d.onRemove} style={autoDangerBtn}><Icon name="signOut" size={12} />{d.isCurrent ? 'Sign out here' : 'Sign out'}</button>
                     </div>
                   ))}
                 </div>
@@ -1433,7 +1623,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                 <div style={emptyBox}>{failed.integrations ? 'Integrations could not be loaded.' : 'No integrations are available on this deployment.'}</div>
               ) : (
                 <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
-                  {integrations.map(i => (
+                  {integrations.map(i => { const ex = i.export; return (
                     <div key={i.key} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px', display:'flex', flexDirection:'column', gap:'10px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'4px', minWidth:0 }}>
@@ -1443,22 +1633,125 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           </div>
                           <span style={{ fontSize:'.71875rem', color:'#64748b', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.meta}</span>
                         </div>
-                        <button type="button" onClick={i.onClick} style={{ ...i.ctaStyle, marginLeft:'auto', flex:'0 0 auto' }}>{i.ctaLabel}</button>
+                        {i.onDisconnect ? (
+                          <button type="button" onClick={i.onDisconnect} disabled={i.busy} style={{ ...ghostBtn, marginLeft:'auto', flex:'0 0 auto', opacity: i.busy ? .55 : 1 }}>
+                            <Icon name={markFor('Disconnect')} size={12} />Disconnect
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={i.onClick}
+                          disabled={i.ctaDisabled}
+                          /* A disabled control has to say why it is disabled,
+                             and the reason is already written beneath it. */
+                          aria-describedby={i.problem ? 'integration-note-' + i.key : undefined}
+                          style={{ ...i.ctaStyle, marginLeft: i.onDisconnect ? undefined : 'auto', flex:'0 0 auto', opacity: i.busy ? .5 : 1, cursor: i.ctaDisabled ? 'not-allowed' : 'pointer' }}
+                        >
+                          <Icon name={markFor(i.ctaLabel)} size={12} />{i.busy ? 'Working…' : i.ctaLabel}
+                        </button>
                       </div>
-                      {i.export ? (
-                        <div style={{ display:'flex', alignItems:'center', gap:'12px', paddingTop:'10px', borderTop:'1px solid #f2f4f8' }}>
-                          <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
-                            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-                              <span style={{ fontSize:'.71875rem', fontWeight:600, color:'#475569' }}>Export completed documents</span>
-                              <span style={i.export.pill}>{i.export.pillLabel}</span>
-                            </div>
-                            <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.export.path}</span>
+
+                      {i.problem ? (
+                        <div
+                          id={'integration-note-' + i.key}
+                          style={{
+                            fontSize:'.6875rem', lineHeight:1.6, borderRadius:'10px', padding:'8px 10px',
+                            background: i.state === 'reauth' ? '#fff7ed' : '#f5f6f8',
+                            color: i.state === 'reauth' ? '#9a3412' : '#64748b',
+                            border: '1px solid ' + (i.state === 'reauth' ? '#fed7aa' : '#e3e7ee'),
+                          }}
+                        >
+                          {i.problem}
+                        </div>
+                      ) : null}
+
+                      {ex ? (
+                        <div style={{ display:'flex', flexDirection:'column', gap:'8px', paddingTop:'10px', borderTop:'1px solid #f2f4f8' }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                            <span style={{ fontSize:'.71875rem', fontWeight:600, color:'#475569' }}>Export completed documents</span>
+                            <span style={ex.pill}>{ex.pillLabel}</span>
                           </div>
-                          <button type="button" onClick={i.export.onToggle} style={{ ...autoGhostBtn, marginLeft:'auto', flex:'0 0 auto' }}>{i.export.ctaLabel}</button>
+                          <div style={{ display:'flex', alignItems:'flex-end', gap:'8px', flexWrap:'wrap' }}>
+                            <label style={{ ...lblStyle, flex:'1 1 220px', minWidth:0 }} htmlFor={'export-path-' + i.key}>
+                              Export folder
+                              <input
+                                id={'export-path-' + i.key}
+                                style={mono}
+                                value={ex.path}
+                                placeholder="/SignerPro/Completed"
+                                onChange={e => ex.onPathChange(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter' && ex.dirty) { e.preventDefault(); ex.onSavePath(); } }}
+                                aria-describedby={'export-hint-' + i.key}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={ex.onSavePath}
+                              disabled={!ex.dirty || i.busy}
+                              style={{ ...ghostBtn, flex:'0 0 auto', opacity: (!ex.dirty || i.busy) ? .5 : 1, cursor: (!ex.dirty || i.busy) ? 'not-allowed' : 'pointer' }}
+                            >
+                              <Icon name={markFor('Save')} size={12} />Save folder
+                            </button>
+                            <button
+                              type="button"
+                              onClick={ex.onToggle}
+                              disabled={i.busy || (!ex.enabled && !ex.canEnable)}
+                              aria-describedby={'export-hint-' + i.key}
+                              style={{ ...ghostBtn, flex:'0 0 auto', opacity: (i.busy || (!ex.enabled && !ex.canEnable)) ? .5 : 1, cursor: (i.busy || (!ex.enabled && !ex.canEnable)) ? 'not-allowed' : 'pointer' }}
+                            >
+                              <Icon name={markFor(ex.ctaLabel)} size={12} />{ex.ctaLabel}
+                            </button>
+                          </div>
+                          <span id={'export-hint-' + i.key} style={{ fontSize:'.6875rem', color:'#64748b', lineHeight:1.6 }}>
+                            {ex.enabled
+                              ? 'Every completed envelope is written to ' + (ex.savedPath || 'the folder above') + '.'
+                              : (ex.enableHint || 'Exports are off. Turn them on to write every completed envelope to this folder.')}
+                          </span>
                         </div>
                       ) : null}
                     </div>
-                  ))}
+                  ); })}
+
+                  {/* What actually left the building. A connector that claims
+                      to be exporting and an envelope that never arrived are
+                      the same complaint, and only this list tells them
+                      apart. */}
+                  <div style={{ ...card, gap:'11px' }}>
+                    <span style={railHead}>Recent exports</span>
+                    {exportsData === null ? (
+                      <div style={emptyBox}>Loading exports…</div>
+                    ) : exportRows.length === 0 ? (
+                      <div style={emptyBox}>
+                        {failed.exports
+                          ? 'The export history could not be loaded.'
+                          : 'Nothing has been exported yet. Completed documents appear here once a connector is exporting.'}
+                      </div>
+                    ) : (
+                      <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
+                        {exportRows.map(row => (
+                          <div key={row.id} style={{ display:'flex', flexDirection:'column', gap:'4px', padding:'9px 11px', border:'1px solid #eef1f6', borderRadius:'11px' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                              <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                                  <span style={{ fontSize:'.75rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{row.title}</span>
+                                  <span style={row.pill}>{row.pillLabel}</span>
+                                </div>
+                                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{row.meta}</span>
+                              </div>
+                              {row.onRetry ? (
+                                <button type="button" onClick={row.onRetry} style={linkBtn}>
+                                  <Icon name={markFor('Retry')} size={12} />Retry
+                                </button>
+                              ) : null}
+                            </div>
+                            {row.error ? (
+                              <span style={{ fontSize:'.6875rem', color:'#b91c1c', lineHeight:1.6 }}>{row.error}</span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )
             ) : null}
@@ -1502,7 +1795,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         onClick={savePalette}
                         disabled={paletteSaving}
                         style={{ ...primaryBtn, marginLeft:'auto', flex:'0 0 auto', opacity: paletteSaving ? .6 : 1 }}
-                      >{paletteSaving ? 'Saving…' : 'Save palette'}</button>
+                      ><Icon name="save" size={13} />{paletteSaving ? 'Saving…' : 'Save palette'}</button>
                     ) : null}
                   </div>
                   <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.6 }}>
@@ -1540,7 +1833,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       {/* An admin can tick every box back on without knowing
                           that "all of them" is stored differently from a list. */}
                       {isOrgAdmin && paletteDraft !== null ? (
-                        <button type="button" onClick={() => setPaletteDraft(null)} style={{ ...linkBtn, alignSelf:'flex-start' }}>Offer every field type</button>
+                        <button type="button" onClick={() => setPaletteDraft(null)} style={{ ...linkBtn, alignSelf:'flex-start' }}><Icon name="undo" size={11} />Offer every field type</button>
                       ) : null}
                       {!isOrgAdmin ? (
                         <span style={{ fontSize:'.6875rem', color:'#64748b' }}>Only an organization administrator can change which field types are offered.</span>
@@ -1554,7 +1847,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
                     <span style={railHead}>People{membersData?.length ? ' · ' + membersData.length : ''}</span>
                     {isOrgAdmin ? (
-                      <button type="button" onClick={inviteMember} style={{ ...primaryBtn, marginLeft:'auto', flex:'0 0 auto' }}>Invite member</button>
+                      <button type="button" onClick={inviteMember} style={{ ...primaryBtn, marginLeft:'auto', flex:'0 0 auto' }}><Icon name="addUser" size={13} />Invite member</button>
                     ) : null}
                   </div>
                   {membersData === null ? (
@@ -1578,7 +1871,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flex:'0 0 auto' }}>
                         <span style={pill(m.role === 'admin' ? TONE_GOOD : TONE_MUTED)}>{m.role}</span>
                         {isOrgAdmin && m.id !== me?.id ? (
-                          <button type="button" onClick={() => { void changeMemberRole(m); }} style={linkBtn} aria-label={'Change role for ' + m.name}>Change</button>
+                          <button type="button" onClick={() => { void changeMemberRole(m); }} style={linkBtn} aria-label={'Change role for ' + m.name}><Icon name="pencil" size={11} />Change</button>
                         ) : null}
                       </div>
                     </div>
@@ -1596,7 +1889,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flex:'0 0 auto' }}>
                             <span style={pill(TONE_MUTED)}>{i.role}</span>
                             {isOrgAdmin ? (
-                              <button type="button" onClick={() => { void revokeInvite(i); }} style={{ ...linkBtn, color:'#b91c1c' }}>Revoke</button>
+                              <button type="button" onClick={() => { void revokeInvite(i); }} style={{ ...linkBtn, color:'#b91c1c' }}><Icon name="cancel" size={11} />Revoke</button>
                             ) : null}
                           </div>
                         </div>
@@ -1611,7 +1904,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
                     <span style={railHead}>Teams{teams.length ? ' · ' + teams.length : ''}</span>
                     {isOrgAdmin ? (
-                      <button type="button" onClick={createTeam} style={{ ...primaryBtn, marginLeft:'auto', flex:'0 0 auto' }}>Create team</button>
+                      <button type="button" onClick={createTeam} style={{ ...primaryBtn, marginLeft:'auto', flex:'0 0 auto' }}><Icon name="plus" size={13} />Create team</button>
                     ) : null}
                   </div>
                   {teamsData === null ? (
@@ -1636,7 +1929,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           aria-expanded={t.open}
                           onClick={() => setOpenTeam(t.open ? null : t.key)}
                           style={autoGhostBtn}>
-                          {t.open ? 'Hide members' : 'Manage members'}
+                          <Icon name={t.open ? 'caretUp' : 'caretDown'} size={12} />{t.open ? 'Hide members' : 'Manage members'}
                         </button>
                       </div>
 
@@ -1655,17 +1948,17 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                               </div>
                               {isOrgAdmin ? (
                                 <>
-                                  <button type="button" onClick={() => { void changeTeamRole(t.team, m); }} style={autoGhostBtn}>Role</button>
-                                  <button type="button" onClick={() => { void removeTeamMember(t.team, m); }} style={{ ...btn('#fff', '#b91c1c', '#fecaca'), flex:'0 0 auto' }}>Remove</button>
+                                  <button type="button" onClick={() => { void changeTeamRole(t.team, m); }} style={autoGhostBtn}><Icon name="pencil" size={12} />Role</button>
+                                  <button type="button" onClick={() => { void removeTeamMember(t.team, m); }} style={{ ...btn('#fff', '#b91c1c', '#fecaca'), flex:'0 0 auto' }}><Icon name="trash" size={12} />Remove</button>
                                 </>
                               ) : null}
                             </div>
                           ))}
                           {isOrgAdmin ? (
                             <div style={{ display:'flex', gap:'8px', flexWrap:'wrap', paddingTop:'2px' }}>
-                              <button type="button" onClick={() => { void addTeamMember(t.team); }} style={ghostBtn}>Add member</button>
-                              <button type="button" onClick={() => { void renameTeam(t.team); }} style={ghostBtn}>Rename team</button>
-                              <button type="button" onClick={() => { void deleteTeam(t.team); }} style={btn('#fff', '#b91c1c', '#fecaca')}>Delete team</button>
+                              <button type="button" onClick={() => { void addTeamMember(t.team); }} style={ghostBtn}><Icon name="addUser" size={13} />Add member</button>
+                              <button type="button" onClick={() => { void renameTeam(t.team); }} style={ghostBtn}><Icon name="pencil" size={13} />Rename team</button>
+                              <button type="button" onClick={() => { void deleteTeam(t.team); }} style={btn('#fff', '#b91c1c', '#fecaca')}><Icon name="trash" size={13} />Delete team</button>
                             </div>
                           ) : (
                             <span style={{ fontSize:'.6875rem', color:'#64748b' }}>Only an organization administrator can change who is in a team.</span>
@@ -1721,7 +2014,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       <input type="date" value={auditTo} min={auditFrom || undefined} onChange={e => setAuditTo(e.target.value)} aria-label="Events to date" style={auditDate} />
                     </label>
                     {auditFiltered ? (
-                      <button type="button" onClick={clearAuditFilters} style={btn('#fff', '#475569', '#e3e7ee')}>Clear filters</button>
+                      <button type="button" onClick={clearAuditFilters} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Clear filters</button>
                     ) : null}
                   </div>
                   {audit.length === 0 ? (
@@ -1782,13 +2075,13 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         onClick={() => setAuditPage(p => Math.max(0, p - 1))}
                         disabled={auditPage === 0}
                         style={pagerBtn(auditPage === 0)}
-                      >Previous</button>
+                      ><Icon name="chevronLeft" size={12} />Previous</button>
                       <button
                         type="button"
                         onClick={() => setAuditPage(p => p + 1)}
                         disabled={auditPage + 1 >= auditPages}
                         style={pagerBtn(auditPage + 1 >= auditPages)}
-                      >Next</button>
+                      >Next<Icon name="chevronRight" size={12} /></button>
                     </div>
                   </div>
                 </div>

@@ -7,6 +7,7 @@ import { btn, pill, railHead, TEXT_MUTED } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
 import { organizations as organizationsApi, revenue as revenueApi } from '@/lib/api/resources';
 import type { BillingEventRow, PlatformStatTile } from '@/lib/sf/adapters';
+import Icon from '@/components/sf/Icon';
 
 /**
  * Server data, adapted in `app/(app)/platform/revenue/page.tsx`:
@@ -125,7 +126,7 @@ export default function Revenue({
             ))}
           </div>
           <div style={{ display:'flex', gap:'8px' }}>
-            <button type="button" onClick={toggleLiveMode} style={ghostBtn}>Toggle test mode</button>
+            <button type="button" onClick={toggleLiveMode} style={ghostBtn}><Icon name="test" size={13} />Toggle test mode</button>
           </div>
         </div>
 
@@ -159,7 +160,7 @@ export default function Revenue({
             <span style={{ fontSize:'.75rem', fontFamily:'var(--font-sans)', color:'#0f172a', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{w.type}</span>
             <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{w.ref}</span>
             <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{w.ts}</span>
-            <button type="button" onClick={w.onReplay} style={ghostBtn}>{w.label}</button>
+            <button type="button" onClick={w.onReplay} style={ghostBtn}><Icon name="refresh" size={13} />{w.label}</button>
           </div>
         )) : (
           <div style={{ padding:'22px 15px', fontSize:'.78125rem', color:'#64748b' }}>No provider events received yet.</div>

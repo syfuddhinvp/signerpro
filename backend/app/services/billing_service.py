@@ -26,10 +26,16 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.charge import Charge
+from app.models.enums import WalletEntryKind
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.organization import Organization
 from app.models.payment_method import PaymentMethod
-from app.models.plan import DEFAULT_PLANS, FREE_PLAN_CODE, Plan
+from app.models.plan import (
+    DEFAULT_PLANS,
+    ENTITLEMENT_MAX_USERS,
+    FREE_PLAN_CODE,
+    Plan,
+)
 from app.models.subscription import (
     ProcessedWebhookEvent,
     Subscription,
@@ -37,9 +43,32 @@ from app.models.subscription import (
 )
 from app.models.user import User
 from app.services.entitlement_service import entitlement_service
+from app.services.notification_service import notify_org_admins
+from app.services.plan_change_service import (
+    PlanChangeDirection,
+    PlanChangeEffective,
+    plan_change_assessor,
+)
+from app.services.wallet_service import wallet_service
 
 
 logger = get_logger("app.services.billing")
+
+
+
+def _coerce_effective(value: str | None) -> "PlanChangeEffective | None":
+    """Parse the caller's ``effective`` flag, or ``None`` to take the default.
+
+    An unrecognised value falls back to the default rather than raising: the
+    direction-based default is always the safe one, and a typo in a query
+    string should not be able to apply a downgrade a caller meant to schedule.
+    """
+    if not value:
+        return None
+    try:
+        return PlanChangeEffective(value)
+    except ValueError:
+        return None
 
 
 def _utcnow() -> datetime:
@@ -217,6 +246,38 @@ class ProviderChargeResult:
         return self.status == "succeeded"
 
 
+@dataclass
+class ProviderBalance:
+    """The money a provider is actually holding, as the provider reports it.
+
+    This is deliberately *not* derived from the local charge ledger. The two
+    disagree for reasons that are entirely normal -- provider fees, refunds,
+    reserves, payouts already made, charges that settled before this system
+    existed -- and when an operator asks "what is in the account", the ledger's
+    answer is a guess and the provider's is the fact.
+
+    ``dispute_rate_pct`` is ``None`` when the provider exposes disputes but no
+    trustworthy denominator to divide them by. A rate computed from a
+    provider numerator over a local-ledger denominator would be a number made
+    of two different books, so none is reported at all.
+
+    ``other_currencies`` names balances held in currencies *other* than
+    ``currency``, which the single-currency figures here necessarily omit. An
+    empty list means the figures are the whole balance.
+    """
+
+    currency: str = "USD"
+    available_cents: int = 0
+    pending_cents: int = 0
+    pending_settles_at: datetime | None = None
+    next_payout_cents: int = 0
+    next_payout_at: datetime | None = None
+    disputes_cents: int = 0
+    dispute_count: int = 0
+    dispute_rate_pct: float | None = None
+    other_currencies: list[str] = field(default_factory=list)
+
+
 class PaymentProvider(ABC):
     name: str = "abstract"
 
@@ -313,6 +374,15 @@ class PaymentProvider(ABC):
         self, *, invoice: "Invoice", payment_method: "PaymentMethod | None"
     ) -> ProviderChargeResult:
         raise NotImplementedError
+
+    def fetch_balance(self) -> ProviderBalance | None:
+        """What the provider is holding, or ``None`` if it holds nothing.
+
+        ``None`` is not an error: a provider that never takes custody of money
+        (the development one) has no balance to report, and the caller falls
+        back to deriving figures from the local charge ledger.
+        """
+        return None
 
 
 class NullPaymentProvider(PaymentProvider):
@@ -929,7 +999,10 @@ class StripePaymentProvider(PaymentProvider):
         items = ((current.get("items") or {}).get("data")) or []
         item_id = items[0].get("id") if items else None
         params: dict[str, Any] = {
-            "proration_behavior": "create_prorations",
+            # This application computes, invoices and collects proration
+            # itself (``preview_plan_change`` / ``change_plan``). Letting
+            # Stripe prorate as well billed the same difference twice.
+            "proration_behavior": "none",
             "items[0][price]": plan.external_price_id,
         }
         if item_id:
@@ -951,7 +1024,9 @@ class StripePaymentProvider(PaymentProvider):
             {
                 "items[0][id]": items[0].get("id"),
                 "items[0][quantity]": max(seats, 1),
-                "proration_behavior": "create_prorations",
+                # Same reason as ``change_plan``: ``change_seats`` already
+                # invoices the prorated difference locally.
+                "proration_behavior": "none",
             },
         )
         return None
@@ -1187,6 +1262,110 @@ class StripePaymentProvider(PaymentProvider):
                 break
             starting_after = str(rows[-1].get("id"))
         return invoices[:limit]
+
+    #: Dispute statuses that still represent money genuinely at risk. A
+    #: `won`/`lost` dispute is settled -- counting it as "open" overstates
+    #: exposure forever, since Stripe never deletes the row.
+    OPEN_DISPUTE_STATUSES = frozenset(
+        {"warning_needs_response", "warning_under_review", "needs_response", "under_review"}
+    )
+
+    def fetch_balance(self) -> ProviderBalance:
+        """Stripe's own balance, next payout and open disputes.
+
+        Four reads, because Stripe splits the answer four ways: `/v1/account`
+        for the settlement currency, `/v1/balance` for the funds, `/v1/payouts`
+        for what is scheduled to leave, `/v1/disputes` for what is contested.
+
+        Stripe reports balances *per currency*, and this endpoint's figures are
+        single-currency scalars. Rather than sum currencies into a meaningless
+        total, the account's own default currency is reported and any other
+        currency held is named in ``other_currencies`` so the omission is
+        visible instead of silent.
+        """
+        account = self._request("GET", "/v1/account")
+        currency = str(account.get("default_currency") or "usd").upper()
+        balance = self._request("GET", "/v1/balance")
+
+        def _sum(bucket: str) -> int:
+            return sum(
+                int(row.get("amount") or 0)
+                for row in (balance.get(bucket) or [])
+                if isinstance(row, dict) and str(row.get("currency") or "").upper() == currency
+            )
+
+        held = {
+            str(row.get("currency") or "").upper()
+            for bucket in ("available", "pending")
+            for row in (balance.get(bucket) or [])
+            if isinstance(row, dict) and int(row.get("amount") or 0) != 0
+        }
+
+        pending_cents = _sum("pending")
+        # `connect_reserved` is money Stripe is holding back, which is not
+        # available and not in transit -- it is simply not ours to pay out.
+        available_cents = _sum("available")
+
+        next_payout_cents, next_payout_at = self._next_payout(currency)
+
+        disputes = self._request("GET", "/v1/disputes", {"limit": 100})
+        open_disputes = [
+            row
+            for row in (disputes.get("data") or [])
+            if isinstance(row, dict) and str(row.get("status") or "") in self.OPEN_DISPUTE_STATUSES
+        ]
+
+        return ProviderBalance(
+            currency=currency,
+            available_cents=available_cents,
+            pending_cents=pending_cents,
+            # Stripe attaches no settlement date to the pending bucket itself;
+            # the next payout is the soonest that money can actually leave.
+            pending_settles_at=next_payout_at if pending_cents else None,
+            next_payout_cents=next_payout_cents,
+            next_payout_at=next_payout_at,
+            disputes_cents=sum(
+                int(row.get("amount") or 0)
+                for row in open_disputes
+                if str(row.get("currency") or "").upper() == currency
+            ),
+            dispute_count=len(open_disputes),
+            # Stripe offers no cheap count of settled charges for all time, and
+            # dividing by the local ledger would mix two books. See
+            # ``ProviderBalance.dispute_rate_pct``.
+            dispute_rate_pct=None,
+            other_currencies=sorted(held - {currency}),
+        )
+
+    def _next_payout(self, currency: str) -> tuple[int, datetime | None]:
+        """The soonest payout not yet paid out, in ``currency``.
+
+        Stripe splits "scheduled" across two statuses -- `pending` (created,
+        not yet sent) and `in_transit` (sent, not yet arrived) -- and querying
+        one of them misses payouts sitting in the other.
+        """
+        scheduled: list[tuple[datetime, int]] = []
+        for status_name in ("pending", "in_transit"):
+            # `/v1/payouts` has no `currency` filter -- passing one is a hard
+            # 400 ("Received unknown parameter"), not an ignored hint -- so the
+            # currency is matched on the rows that come back.
+            page = self._request("GET", "/v1/payouts", {"limit": 100, "status": status_name})
+            for row in page.get("data") or []:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("currency") or "").upper() != currency:
+                    continue
+                arrives_at = _stripe_timestamp(row.get("arrival_date"))
+                # A payout with no arrival date cannot be called the *next*
+                # one, so it is not a candidate for this figure.
+                if arrives_at is not None:
+                    scheduled.append((arrives_at, int(row.get("amount") or 0)))
+        if not scheduled:
+            return 0, None
+        arrives_at, amount_cents = min(scheduled, key=lambda item: item[0])
+        return amount_cents, arrives_at
+
+        return soonest_cents, soonest_at
 
     def verify_webhook(self, *, raw_body: bytes, signature: str | None) -> bool:
         """Stripe's ``Stripe-Signature: t=<ts>,v1=<hex>`` scheme, constant-time."""
@@ -1478,10 +1657,37 @@ class BillingService:
         ui_mode: str = "hosted",
         return_url: str | None = None,
     ) -> CheckoutSession:
+        """Open a checkout session for an organization's **first** purchase.
+
+        A Checkout Session in ``subscription`` mode *creates a new subscription
+        at the provider*; it does not modify an existing one. Using it for a
+        plan change therefore left the previous subscription live and billing,
+        with its id overwritten locally and so unreachable by anything that
+        could cancel it -- an organization on one plan here accumulated one
+        live provider subscription per plan change, all charging monthly. Six
+        days of switching produced four concurrent subscriptions on one
+        customer.
+
+        So an organization that already has a provider subscription cannot
+        reach this path: a plan change modifies the subscription it has, which
+        is ``change_plan``.
+        """
         plan = self.get_plan_by_code(db, plan_code)
         if not plan.is_active:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Plan is not available")
         subscription = self.get_or_create_subscription(db, organization_id)
+        if subscription.provider_subscription_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "subscription_exists",
+                    "plan_code": plan.code,
+                    "message": (
+                        "This organization already has a subscription. "
+                        "Change the plan instead of starting a new checkout."
+                    ),
+                },
+            )
         session = self.provider.create_checkout_session(
             organization_id=organization_id,
             plan=plan,
@@ -1615,9 +1821,14 @@ class BillingService:
         self, db: Session, *, subscription: Subscription, plan: Plan
     ) -> Subscription:
         """The local state transition only. Never call this without having
-        either collected payment or established that none is owed."""
+        either collected payment or established that none is owed.
+
+        Local state is committed *before* the provider is told. The other
+        order -- which this used to use -- leaves Stripe on the new plan and
+        this database on the old one whenever the commit fails, and there is
+        no way to tell afterwards which of the two is right.
+        """
         previous_plan = subscription.plan
-        self.provider.change_plan(subscription=subscription, plan=plan)
         now = _utcnow()
         period_end = _aware(subscription.current_period_end)
         keeps_period = (
@@ -1629,6 +1840,10 @@ class BillingService:
         subscription.plan_id = plan.id
         subscription.cancel_at_period_end = False
         subscription.canceled_at = None
+        # Any scheduled change is superseded by one that actually lands.
+        subscription.pending_plan_id = None
+        subscription.pending_plan_effective_at = None
+        subscription.pending_plan_requested_at = None
         if plan.trial_days and subscription.status != SubscriptionStatus.active:
             subscription.status = SubscriptionStatus.trialing
             subscription.trial_ends_at = now + timedelta(days=plan.trial_days)
@@ -1645,7 +1860,124 @@ class BillingService:
         self._sync_organization_billing(db, subscription=subscription, plan=plan)
         db.commit()
         db.refresh(subscription)
+
+        # Told last, and a failure here is logged rather than raised: the
+        # money has already moved and the tenant is already entitled. Undoing
+        # a paid change because a provider call timed out is the worse
+        # outcome, and the next webhook or renewal reconciles the remote side.
+        try:
+            self.provider.change_plan(subscription=subscription, plan=plan)
+        except Exception:  # noqa: BLE001 - provider drift must not undo a paid change
+            logger.exception(
+                "provider plan change failed after local commit",
+                extra={
+                    "organization_id": subscription.organization_id,
+                    "subscription_id": subscription.id,
+                    "plan_code": plan.code,
+                },
+            )
         return subscription
+
+    def schedule_plan_change(
+        self, db: Session, *, subscription: Subscription, plan: Plan, effective_at: datetime
+    ) -> Subscription:
+        """Record a change to apply at ``effective_at``; charge nothing now.
+
+        Nothing is said to the provider yet. The remote subscription is still
+        correct -- the tenant really is on the old plan until the period ends.
+        """
+        subscription.pending_plan_id = plan.id
+        subscription.pending_plan_effective_at = effective_at
+        subscription.pending_plan_requested_at = _utcnow()
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+        return subscription
+
+    def cancel_pending_plan_change(self, db: Session, *, organization_id: str) -> Subscription:
+        """Undo a scheduled change. Idempotent: no pending change is not an error."""
+        subscription = self.get_or_create_subscription(db, organization_id)
+        subscription.pending_plan_id = None
+        subscription.pending_plan_effective_at = None
+        subscription.pending_plan_requested_at = None
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+        return subscription
+
+    def apply_pending_plan_change(
+        self, db: Session, *, subscription: Subscription, now: datetime | None = None
+    ) -> bool:
+        """Land a due scheduled change. Returns whether anything moved.
+
+        Feasibility is re-checked *here*, not only when the change was
+        requested: an organization that hired twelve people during the period
+        would otherwise be silently dropped onto a plan that cannot hold them.
+        In that case the scheduled change is abandoned and the tenant keeps
+        the plan they are on, which costs them money but does not lock anyone
+        out of their own account.
+        """
+        now = now or _utcnow()
+        effective_at = _aware(subscription.pending_plan_effective_at)
+        if not subscription.pending_plan_id or effective_at is None or effective_at > now:
+            return False
+
+        target = db.get(Plan, subscription.pending_plan_id)
+        if target is None:
+            subscription.pending_plan_id = None
+            subscription.pending_plan_effective_at = None
+            db.add(subscription)
+            return False
+
+        current = subscription.plan or self.get_plan_by_code(db, FREE_PLAN_CODE)
+        assessment = plan_change_assessor.assess(
+            db,
+            organization_id=subscription.organization_id,
+            current=current,
+            target=target,
+            direction=PlanChangeDirection.downgrade,
+            effective_mode=PlanChangeEffective.immediately,
+            effective_at=now,
+        )
+        if assessment.blockers:
+            logger.warning(
+                "scheduled plan change abandoned; organization outgrew the target plan",
+                extra={
+                    "organization_id": subscription.organization_id,
+                    "plan_code": target.code,
+                    "blockers": [issue.code for issue in assessment.blockers],
+                },
+            )
+            notify_org_admins(
+                db,
+                organization_id=subscription.organization_id,
+                title="Scheduled plan change could not be applied",
+                detail=(
+                    f"The switch to {target.name} was cancelled because "
+                    f"{assessment.blockers[0].message} Your plan is unchanged."
+                ),
+            )
+            subscription.pending_plan_id = None
+            subscription.pending_plan_effective_at = None
+            subscription.pending_plan_requested_at = None
+            db.add(subscription)
+            return False
+
+        subscription.plan_id = target.id
+        subscription.pending_plan_id = None
+        subscription.pending_plan_effective_at = None
+        subscription.pending_plan_requested_at = None
+        db.add(subscription)
+        db.flush()
+        self._sync_organization_billing(db, subscription=subscription, plan=target)
+        try:
+            self.provider.change_plan(subscription=subscription, plan=target)
+        except Exception:  # noqa: BLE001 - see _apply_plan_change
+            logger.exception(
+                "provider plan change failed while applying a scheduled change",
+                extra={"organization_id": subscription.organization_id, "plan_code": target.code},
+            )
+        return True
 
     def change_plan(
         self,
@@ -1655,30 +1987,81 @@ class BillingService:
         plan_code: str,
         payment_method_id: str | None = None,
         require_payment: bool = True,
+        effective: str | None = None,
+        quoted_amount_cents: int | None = None,
+        force: bool = False,
     ) -> Subscription:
-        """Move an organization onto ``plan_code``, keeping its billing period.
+        """Move an organization onto ``plan_code``, or schedule the move.
 
-        **An upgrade is gated on payment.** The order below is the whole point:
-        the invoice is issued and collected *before* the subscription row moves,
-        and ``collect_invoice`` raises on a decline, so there is no interleaving
-        that leaves an organization entitled-but-unpaid. Before this, any org
-        admin could self-serve onto Enterprise for nothing (C7).
+        **An upgrade is gated on payment.** The order is the whole point: the
+        invoice is issued and collected *before* the subscription row moves,
+        and ``collect_invoice`` raises on a decline, so there is no
+        interleaving that leaves an organization entitled-but-unpaid. Before
+        this, any org admin could self-serve onto Enterprise for nothing (C7).
 
-        A downgrade, a no-op, or a change that prorates to zero or a credit
-        needs no collection and applies immediately.
+        **A downgrade waits.** The tenant has paid through
+        ``current_period_end``; taking capacity away before then is charging
+        for something and not delivering it. The change is recorded and
+        ``run_renewals`` applies it when the period actually ends. Passing
+        ``effective="immediately"`` overrides that, and the forfeited
+        remainder is credited to the organization's balance instead of
+        vanishing -- it is never refunded to a card (BIL-12).
 
-        A mid-cycle plan change does not restart the cycle: the tenant keeps
-        the period they already paid for and the difference is prorated (see
-        ``preview_plan_change``). The period only restarts when the old one has
-        lapsed or the billing interval itself changes.
+        An upgrade does not restart the cycle: the tenant keeps the period
+        they already paid for and the difference is prorated. The period only
+        restarts when the old one has lapsed or the billing interval changes,
+        and in the latter case the abandoned remainder is credited too.
+
+        ``quoted_amount_cents`` is the figure the tenant was shown. If the
+        real amount has moved since -- somebody added seats between the
+        preview and the click -- the change is refused rather than charging a
+        number nobody agreed to.
         """
         plan = self.get_plan_by_code(db, plan_code)
         subscription = self.get_or_create_subscription(db, organization_id)
-        preview = self.preview_plan_change(db, organization_id=organization_id, plan_code=plan_code)
-        amount_due = int(preview["proration_cents"])
+        preview = self.preview_plan_change(
+            db, organization_id=organization_id, plan_code=plan_code, effective=effective
+        )
+
+        if preview["blockers"] and not force:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "plan_change_blocked",
+                    "target_plan": plan.code,
+                    "blockers": preview["blockers"],
+                    "message": preview["blockers"][0]["message"],
+                },
+            )
+
+        amount_due = int(preview["amount_due_cents"])
+        if quoted_amount_cents is not None and int(quoted_amount_cents) != amount_due:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "quote_expired",
+                    "quoted_cents": int(quoted_amount_cents),
+                    "actual_cents": amount_due,
+                    "message": (
+                        "The price changed while you were deciding. "
+                        "Review the new total and try again."
+                    ),
+                },
+            )
+
+        if preview["scheduled"]:
+            effective_at = preview["effective_at"] or _aware(subscription.current_period_end)
+            if effective_at is not None:
+                return self.schedule_plan_change(
+                    db, subscription=subscription, plan=plan, effective_at=effective_at
+                )
+
+        credit_cents = int(preview["wallet_credit_cents"])
 
         if not require_payment or amount_due <= 0:
-            return self._apply_plan_change(db, subscription=subscription, plan=plan)
+            subscription = self._apply_plan_change(db, subscription=subscription, plan=plan)
+            self._credit_change(db, subscription=subscription, preview=preview, amount=credit_cents)
+            return subscription
 
         payment_method = self._require_payment_method(
             db,
@@ -1705,10 +2088,58 @@ class BillingService:
             period_end=_aware(subscription.current_period_end),
             period_label=f"Upgrade to {plan.name}",
             due_at=_utcnow() + timedelta(days=INVOICE_DUE_DAYS),
+            # A double-submitted upgrade finds the invoice it already issued
+            # instead of issuing and collecting a second one.
+            idempotency_key=f"plan-change:{organization_id}:{plan.code}:"
+            f"{(_aware(subscription.current_period_start) or _utcnow()).date()}",
         )
         # Raises 402 on a decline, leaving the subscription on the old plan.
+        # Draws down any balance the organization holds before the card.
         self.collect_invoice(db, invoice=invoice, payment_method_id=payment_method.id)
-        return self._apply_plan_change(db, subscription=subscription, plan=plan)
+        subscription = self._apply_plan_change(db, subscription=subscription, plan=plan)
+        self._credit_change(db, subscription=subscription, preview=preview, amount=credit_cents)
+        return subscription
+
+    def _credit_change(
+        self,
+        db: Session,
+        *,
+        subscription: Subscription,
+        preview: dict[str, Any],
+        amount: int,
+    ) -> None:
+        """Bank the value an immediate change gave up (BIL-12).
+
+        Credit, never a refund: the money stays spendable inside the
+        application, which is the whole design of the wallet.
+        """
+        if amount <= 0:
+            return
+        direction = preview["direction"]
+        kind = (
+            WalletEntryKind.interval_switch_remainder
+            if direction == PlanChangeDirection.interval_switch.value
+            else WalletEntryKind.downgrade_proration
+        )
+        description = (
+            f"Unused remainder of {preview['current_plan_name']} "
+            f"after switching to {preview['target_plan_name']}"
+        )
+        wallet_service.credit(
+            db,
+            organization_id=subscription.organization_id,
+            amount_cents=amount,
+            kind=kind,
+            description=description,
+            currency=preview.get("currency") or "USD",
+            # The same plan change replayed credits once.
+            idempotency_key=(
+                f"plan-change-credit:{subscription.organization_id}:"
+                f"{preview['current_plan_code']}->{preview['target_plan_code']}:"
+                f"{(_aware(subscription.current_period_start) or _utcnow()).isoformat()}"
+            ),
+        )
+        db.commit()
 
     def _require_payment_method(
         self,
@@ -1762,14 +2193,26 @@ class BillingService:
         period_label: str | None = None,
         due_at: datetime | None = None,
         tax_cents: int = 0,
+        idempotency_key: str | None = None,
     ) -> Invoice:
         """Create and persist an ``open`` invoice.
 
         This is the only constructor of ``Invoice`` in the application. Before
         it existed, every invoice in a running system came from the seed script
         (AUDIT_REPORT.md section 7, finding 1).
+
+        ``idempotency_key`` makes the call safe to repeat: a second request
+        carrying a key that has already been used returns the original invoice
+        rather than issuing a duplicate. Callers that then collect will find it
+        already paid, because ``collect_invoice`` is itself idempotent.
         """
         now = _utcnow()
+        if idempotency_key:
+            existing = db.scalar(
+                select(Invoice).where(Invoice.idempotency_key == idempotency_key)
+            )
+            if existing is not None:
+                return existing
         subtotal = int(amount_cents)
         for _ in range(5):  # numbering races are retried, not swallowed
             invoice = Invoice(
@@ -1788,12 +2231,22 @@ class BillingService:
                 due_at=due_at or now,
                 line_items=line_items,
                 provider=self.provider.name,
+                idempotency_key=idempotency_key,
             )
             db.add(invoice)
             try:
                 db.commit()
             except IntegrityError:
                 db.rollback()
+                if idempotency_key:
+                    # The clash may have been the key rather than the number,
+                    # which means a concurrent request already issued this
+                    # invoice. Returning theirs is the correct answer.
+                    existing = db.scalar(
+                        select(Invoice).where(Invoice.idempotency_key == idempotency_key)
+                    )
+                    if existing is not None:
+                        return existing
                 continue
             db.refresh(invoice)
             return invoice
@@ -1984,7 +2437,14 @@ class BillingService:
         up next.
         """
         now = now or _utcnow()
-        report = {"closed": 0, "invoiced": [], "collected": 0, "failed": 0, "expired": 0}
+        report = {
+            "closed": 0,
+            "invoiced": [],
+            "collected": 0,
+            "failed": 0,
+            "expired": 0,
+            "plan_changes_applied": 0,
+        }
         subscriptions = list(
             db.scalars(
                 select(Subscription).where(
@@ -2010,6 +2470,13 @@ class BillingService:
                 db.commit()
                 report["expired"] += 1
                 continue
+            # A scheduled downgrade lands *before* the invoice is cut, so the
+            # renewal is priced on the plan the tenant is actually renewing
+            # onto rather than the one they have been leaving all period.
+            if self.apply_pending_plan_change(db, subscription=subscription, now=now):
+                report["plan_changes_applied"] += 1
+                db.commit()
+                db.refresh(subscription)
             invoice = self.close_period(db, subscription=subscription, now=now)
             report["closed"] += 1
             report["invoiced"].append(invoice.number)
@@ -2082,15 +2549,31 @@ class BillingService:
         return report
 
     def change_plan_with_proration(
-        self, db: Session, *, organization_id: str, plan_code: str, payment_method_id: str | None = None
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        plan_code: str,
+        payment_method_id: str | None = None,
+        effective: str | None = None,
+        force: bool = False,
     ) -> tuple[Subscription, dict[str, Any]]:
-        """``change_plan`` plus the proration figures the preview promised."""
-        preview = self.preview_plan_change(db, organization_id=organization_id, plan_code=plan_code)
+        """``change_plan`` plus the figures the preview promised.
+
+        The preview is taken first and passed to ``change_plan`` as the quote,
+        so the tenant is charged the number they were shown or nothing at all.
+        """
+        preview = self.preview_plan_change(
+            db, organization_id=organization_id, plan_code=plan_code, effective=effective
+        )
         subscription = self.change_plan(
             db,
             organization_id=organization_id,
             plan_code=plan_code,
             payment_method_id=payment_method_id,
+            effective=effective,
+            quoted_amount_cents=int(preview["amount_due_cents"]),
+            force=force,
         )
         return subscription, preview
 
@@ -2217,6 +2700,9 @@ class BillingService:
         else:
             return False
         if event.subscription_id:
+            self._supersede_provider_subscription(
+                subscription, new_subscription_id=event.subscription_id
+            )
             subscription.provider_subscription_id = event.subscription_id
         subscription.provider = event.provider
         db.add(subscription)
@@ -2232,6 +2718,47 @@ class BillingService:
         db.flush()
         self._sync_organization_billing(db, subscription=subscription)
         return True
+
+    def _supersede_provider_subscription(
+        self, subscription: Subscription, *, new_subscription_id: str
+    ) -> None:
+        """Cancel the remote subscription this one is about to replace.
+
+        Overwriting ``provider_subscription_id`` used to be all that happened,
+        which orphaned the old subscription: still active at the provider,
+        still billing every month, and no longer referenced by any row here,
+        so nothing could ever cancel it. The id is the only handle on it, so
+        it has to be used before it is lost.
+
+        A failure is logged rather than raised. The event being applied is a
+        payment that has already succeeded; refusing to record it because the
+        cleanup call failed would be the worse outcome, and the reconciliation
+        script (``scripts/reconcile_provider_subscriptions.py``) exists to find
+        whatever this misses.
+        """
+        previous = subscription.provider_subscription_id
+        if not previous or previous == new_subscription_id:
+            return
+        try:
+            self.provider.cancel_subscription(
+                subscription=subscription, at_period_end=False
+            )
+            logger.warning(
+                "cancelled a superseded provider subscription",
+                extra={
+                    "organization_id": subscription.organization_id,
+                    "previous_subscription_id": previous,
+                    "new_subscription_id": new_subscription_id,
+                },
+            )
+        except Exception:  # noqa: BLE001 - see docstring
+            logger.exception(
+                "could not cancel a superseded provider subscription; it may still be billing",
+                extra={
+                    "organization_id": subscription.organization_id,
+                    "previous_subscription_id": previous,
+                },
+            )
 
     def _resolve_subscription(self, db: Session, event: ProviderEvent) -> Subscription | None:
         if event.subscription_id:
@@ -2363,7 +2890,20 @@ class BillingService:
         }
 
     # ------------------------------------------------------- plan transitions
-    def preview_plan_change(self, db: Session, *, organization_id: str, plan_code: str) -> dict[str, Any]:
+    def preview_plan_change(
+        self,
+        db: Session,
+        *,
+        organization_id: str,
+        plan_code: str,
+        effective: str | None = None,
+    ) -> dict[str, Any]:
+        """What changing to ``plan_code`` costs, when it lands, and what breaks.
+
+        Read-only, and the single source of these numbers: ``change_plan``
+        calls this and then honours what it returned, rather than recomputing
+        and charging whatever the second computation happened to say.
+        """
         target = self.get_plan_by_code(db, plan_code)
         subscription = self.get_or_create_subscription(db, organization_id)
         current = subscription.plan or self.get_plan_by_code(db, FREE_PLAN_CODE)
@@ -2375,22 +2915,204 @@ class BillingService:
         target_amount = self.invoice_amount_cents(target, licensed, cycle)
         fraction = self.remaining_fraction(subscription)
         proration = round((target_amount - current_amount) * fraction)
+
+        direction = plan_change_assessor.direction(
+            current=current,
+            target=target,
+            current_amount=current_amount,
+            target_amount=target_amount,
+        )
+        requested = _coerce_effective(effective)
+        mode = requested or plan_change_assessor.default_effective_mode(direction)
+        period_end = _aware(subscription.current_period_end)
+        if mode == PlanChangeEffective.period_end and period_end is None:
+            # Nothing to wait for: a subscription with no period cannot defer.
+            mode = PlanChangeEffective.immediately
+        effective_at = _utcnow() if mode == PlanChangeEffective.immediately else period_end
+
+        assessment = plan_change_assessor.assess(
+            db,
+            organization_id=organization_id,
+            current=current,
+            target=target,
+            direction=direction,
+            effective_mode=mode,
+            effective_at=effective_at,
+        )
+
+        # A scheduled change costs nothing today and forfeits nothing: the
+        # tenant uses what they bought, right up to the period end.
+        scheduled = mode == PlanChangeEffective.period_end
+        amount_due = 0 if scheduled else max(0, proration)
+        credit = 0 if scheduled else self._credit_for(
+            direction=direction,
+            proration_cents=proration,
+            current_plan=current,
+            seats=licensed,
+            cycle=cycle,
+            fraction=fraction,
+        )
+
+        balance = wallet_service.balance_cents(db, organization_id)
+        wallet_applied = min(balance, amount_due)
+
         return {
             "current_plan_code": current.code,
             "current_plan_name": current.name,
             "target_plan_code": target.code,
             "target_plan_name": target.name,
             "cycle": cycle,
+            "currency": target.currency,
             "seats_licensed": licensed,
             "current_amount_cents": current_amount,
             "target_amount_cents": target_amount,
             "proration_cents": proration,
             "remaining_fraction": round(fraction, 6),
-            "effective_at": _utcnow(),
+            "effective_at": effective_at,
             "next_invoice_total_cents": target_amount,
-            "next_invoice_at": _aware(subscription.current_period_end),
+            "next_invoice_at": period_end,
             "is_downgrade": target_amount < current_amount,
+            # BIL-12 additions.
+            "direction": direction.value,
+            "effective_mode": mode.value,
+            "scheduled": scheduled,
+            #: What the tenant pays now, before balance is applied.
+            "amount_due_cents": amount_due,
+            #: How much of that the wallet covers, and what the card is left.
+            "wallet_balance_cents": balance,
+            "wallet_applied_cents": wallet_applied,
+            "charge_cents": max(0, amount_due - wallet_applied),
+            #: Balance this change *adds*. Always 0 for a scheduled change.
+            "wallet_credit_cents": credit,
+            "blockers": [issue.as_dict() for issue in assessment.blockers],
+            "warnings": [issue.as_dict() for issue in assessment.warnings],
+            "allowed": assessment.allowed,
         }
+
+    @staticmethod
+    def _credit_for(
+        *,
+        direction: PlanChangeDirection,
+        proration_cents: int,
+        current_plan: Plan,
+        seats: int,
+        cycle: str,
+        fraction: float,
+    ) -> int:
+        """Balance an immediate change hands back (BIL-12).
+
+        An immediate downgrade returns the difference it gave up. An interval
+        switch returns the *whole* unused remainder, because the period
+        restarts: the old month is abandoned outright, not partially used, and
+        silently keeping that money was the bug.
+        """
+        if direction == PlanChangeDirection.interval_switch:
+            return max(
+                0,
+                round(BillingService.invoice_amount_cents(current_plan, seats, cycle) * fraction),
+            )
+        return max(0, -proration_cents)
+
+
+    # ------------------------------------------------------- seat capacity
+    def cheapest_plan_for_users(self, db: Session, *, users: int) -> Plan | None:
+        """The least expensive active plan whose ``max_users`` holds ``users``.
+
+        Used to answer "upgrade to what?" with a specific plan rather than
+        sending the tenant to the pricing page to work it out themselves.
+        """
+        candidates = []
+        for plan in self.list_plans(db):
+            limit = (plan.entitlements or {}).get(ENTITLEMENT_MAX_USERS)
+            if limit is None or int(limit) >= users:
+                candidates.append(plan)
+        if not candidates:
+            return None
+        return min(candidates, key=lambda p: self.monthly_unit_cents(p))
+
+    def check_seat_capacity(self, db: Session, *, organization_id: str, amount: int = 1) -> None:
+        """Assert the organization can take ``amount`` more members.
+
+        There are two different ceilings here and conflating them produces an
+        error nobody can act on:
+
+        * ``max_users`` is the **plan's** cap. Past it, the only remedy is a
+          different plan.
+        * ``seats_licensed`` is how many of that cap the organization has
+          **bought**. Past it, the remedy is buying a seat -- a prorated
+          charge, no plan change, no renegotiation.
+
+        The invite path used to check only the first, so an organization could
+        quietly take on members it was not paying for, and the entitlement
+        error it eventually hit said "upgrade your plan" when the actual
+        answer was "you need one more seat".
+        """
+        # Plan cap first: if the plan cannot hold them, buying a seat cannot
+        # help and offering it would be a dead end.
+        try:
+            entitlement_service.check_entitlement(
+                db, organization_id, ENTITLEMENT_MAX_USERS, amount=amount
+            )
+        except HTTPException as exc:
+            if not isinstance(exc.detail, dict):
+                raise
+            _, activated_now = self.seat_counts(db, organization_id)
+            suggestion = self.cheapest_plan_for_users(db, users=activated_now + amount)
+            detail = dict(exc.detail)
+            detail["error"] = "plan_upgrade_required"
+            if suggestion is not None:
+                # Name the plan that actually fits. "Upgrade your plan" on its
+                # own leaves the tenant to work out which one, and get it wrong.
+                detail["suggested_plan"] = suggestion.code
+                detail["suggested_plan_name"] = suggestion.name
+                detail["message"] = (
+                    f"This plan allows {detail.get('limit_value')} users. "
+                    f"Switch to {suggestion.name} to add more."
+                )
+            raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+
+        org = self.organization(db, organization_id)
+        # ``seat_counts`` reports an organization that has never bought seats
+        # as licensing exactly what it uses, which is the right answer for
+        # pricing and the wrong one for a ceiling: read that way, every first
+        # invite is "out of seats". Only an explicitly purchased count is a
+        # ceiling; otherwise the plan cap above is the only limit, as before.
+        purchased = int(org.seats_licensed or 0)
+        if purchased <= 0:
+            return
+
+        licensed, activated = self.seat_counts(db, organization_id)
+        if activated + amount <= licensed:
+            return
+
+        subscription = self.get_or_create_subscription(db, organization_id)
+        plan = subscription.plan or self.get_plan_by_code(db, FREE_PLAN_CODE)
+        cycle = org.billing_cycle or "monthly"
+        needed = activated + amount - licensed
+        fraction = self.remaining_fraction(subscription)
+        before = self.invoice_amount_cents(plan, licensed, cycle)
+        after = self.invoice_amount_cents(plan, licensed + needed, cycle)
+        proration = max(0, round((after - before) * fraction))
+
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "seat_purchase_required",
+                "seats_licensed": licensed,
+                "seats_activated": activated,
+                "seats_needed": needed,
+                "plan": plan.code,
+                "plan_name": plan.name,
+                #: What buying them costs today, so the client can put a real
+                #: number on the button rather than "add a seat".
+                "proration_cents": proration,
+                "currency": plan.currency,
+                "message": (
+                    f"All {licensed} licensed seats are in use. "
+                    f"Add {needed} seat{'s' if needed != 1 else ''} to continue."
+                ),
+            },
+        )
 
     # ---------------------------------------------------------------- seats
     def change_seats(
@@ -2458,12 +3180,34 @@ class BillingService:
             )
             self.collect_invoice(db, invoice=invoice, payment_method_id=payment_method.id)
 
+        credited = 0
+        if proration < 0:
+            # Releasing seats mid-period hands back time already paid for.
+            # It becomes balance, not a refund (BIL-12).
+            entry = wallet_service.credit(
+                db,
+                organization_id=organization_id,
+                amount_cents=-proration,
+                kind=WalletEntryKind.seat_reduction,
+                description=(
+                    f"{abs(delta)} released {plan.name} seat(s), "
+                    "prorated for the remainder of the period"
+                ),
+                currency=plan.currency,
+                idempotency_key=(
+                    f"seat-credit:{organization_id}:{licensed}->{target}:"
+                    f"{(_aware(subscription.current_period_start) or _utcnow()).isoformat()}"
+                ),
+            )
+            credited = -proration if entry is not None else 0
+
         self.provider.update_seats(subscription=subscription, seats=target)
         org.seats_licensed = target
         db.add(org)
         db.commit()
         db.refresh(subscription)
         return {
+            "wallet_credit_cents": credited,
             "seats_licensed": target,
             "seats_activated": activated,
             "proration_cents": proration,
@@ -2764,6 +3508,25 @@ class BillingService:
             )
 
         organization_id = invoice.organization_id
+
+        # Balance is spent before a card is touched (BIL-12). An invoice a
+        # tenant's own credit covers is settled here, with no provider call at
+        # all -- which also means autopay keeps working for an organization
+        # that has balance but no instrument on file.
+        applied = wallet_service.spend_on_invoice(db, invoice=invoice)
+        if applied:
+            invoice.amount_paid_cents = invoice.amount_paid_cents + applied
+            db.add(invoice)
+            db.flush()
+        if invoice.amount_due_cents <= 0:
+            invoice.status = InvoiceStatus.paid
+            invoice.paid_at = _utcnow()
+            invoice.payment_method_label = "Account balance"
+            db.add(invoice)
+            db.commit()
+            db.refresh(invoice)
+            return invoice
+
         if payment_method_id:
             payment_method = self.get_payment_method(
                 db, organization_id=organization_id, payment_method_id=payment_method_id
@@ -2771,6 +3534,10 @@ class BillingService:
         else:
             payment_method = self.default_payment_method(db, organization_id)
 
+        # Only the remainder reaches the provider: ``charge_invoice`` bills
+        # ``amount_due_cents``, which the draw above has already reduced. A
+        # decline leaves that draw in place as a genuine partial payment
+        # rather than bouncing the credit back and forth.
         result = self.provider.charge_invoice(invoice=invoice, payment_method=payment_method)
         now = _utcnow()
         was_overdue = invoice.status == InvoiceStatus.past_due or invoice.is_overdue
@@ -2833,10 +3600,30 @@ class BillingService:
         return invoice
 
     def mark_invoice_paid(self, db: Session, *, invoice: Invoice, amount_cents: int | None = None) -> Invoice:
-        """Record a payment received outside the provider (wire, cheque, credit)."""
+        """Record a payment received outside the provider (wire, cheque, credit).
+
+        A wire that overshoots the invoice is common and used to be recorded
+        as ``amount_paid_cents > total_cents``, which quietly kept the excess:
+        it appeared nowhere a tenant could see it and was never applied to
+        anything. The overshoot is now credited to their balance (BIL-12), so
+        it comes off the next invoice instead.
+        """
         if invoice.status == InvoiceStatus.void:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A void invoice cannot be paid")
-        invoice.amount_paid_cents = invoice.total_cents if amount_cents is None else amount_cents
+        received = invoice.total_cents if amount_cents is None else int(amount_cents)
+        overpaid = max(0, received - invoice.total_cents)
+        invoice.amount_paid_cents = min(received, invoice.total_cents)
+        if overpaid:
+            wallet_service.credit(
+                db,
+                organization_id=invoice.organization_id,
+                amount_cents=overpaid,
+                kind=WalletEntryKind.overpayment,
+                description=f"Overpayment on invoice {invoice.number}",
+                currency=invoice.currency,
+                invoice_id=invoice.id,
+                idempotency_key=f"overpayment:{invoice.id}:{received}",
+            )
         if invoice.amount_paid_cents >= invoice.total_cents:
             invoice.status = InvoiceStatus.paid
             invoice.paid_at = _utcnow()
@@ -2865,57 +3652,80 @@ class BillingService:
         return invoice
 
     def render_invoice_pdf(self, db: Session, *, invoice: Invoice, receipt: bool = False) -> bytes:
-        """Minimal server-rendered invoice/receipt (BIL-13).
+        """The tenant-facing invoice or receipt (BIL-13).
 
-        A stub in presentation only: every figure comes from the invoice row,
-        so swapping in a designed template changes nothing upstream.
+        Laid out with the shared ``pdf_layout.Sheet``, so a platform invoice,
+        a signer receipt and an audit certificate arrive looking like documents
+        from one company. Every figure still comes from the invoice row -- the
+        presentation changed, nothing upstream of it did.
         """
-        from io import BytesIO
-
-        from reportlab.pdfgen import canvas as pdf_canvas
+        from app.services import pdf_layout
 
         org = db.get(Organization, invoice.organization_id)
-        buffer = BytesIO()
-        pdf = pdf_canvas.Canvas(buffer, pagesize=(612, 792))
-        y = 740
-        pdf.setFont("Helvetica-Bold", 16)
-        pdf.drawString(60, y, ("Receipt " if receipt else "Invoice ") + invoice.number)
-        pdf.setFont("Helvetica", 10)
-        y -= 26
-        for label, value in (
-            ("Organization", org.name if org else invoice.organization_id),
-            ("Status", invoice.status),
-            ("Period", invoice.period_label or ""),
-            ("Issued", invoice.issued_at.strftime("%Y-%m-%d")),
-            ("Due", invoice.due_at.strftime("%Y-%m-%d") if invoice.due_at else "—"),
-            ("Payment method", invoice.payment_method_label or "—"),
-        ):
-            pdf.drawString(60, y, f"{label}: {value}")
-            y -= 16
-        y -= 10
-        pdf.setFont("Helvetica-Bold", 10)
-        pdf.drawString(60, y, "Description")
-        pdf.drawRightString(540, y, "Amount")
-        pdf.setFont("Helvetica", 10)
-        y -= 16
-        for item in invoice.line_items or []:
-            pdf.drawString(60, y, str(item.get("description", "")))
-            pdf.drawRightString(540, y, f"{item.get('amount_cents', 0) / 100:,.2f} {invoice.currency}")
-            y -= 14
-        y -= 10
-        for label, cents in (
-            ("Subtotal", invoice.subtotal_cents),
-            ("Tax", invoice.tax_cents),
-            ("Total", invoice.total_cents),
-            ("Paid", invoice.amount_paid_cents),
-            ("Due", invoice.amount_due_cents),
-        ):
-            pdf.drawRightString(480, y, label)
-            pdf.drawRightString(540, y, f"{cents / 100:,.2f}")
-            y -= 14
-        pdf.showPage()
-        pdf.save()
-        return buffer.getvalue()
+        kind = "Receipt" if receipt else "Invoice"
+        currency = (invoice.currency or "usd").upper()
+
+        def money(cents: int | None) -> str:
+            return f"{(cents or 0) / 100:,.2f} {currency}"
+
+        sheet = pdf_layout.Sheet(footer=f"{kind} {invoice.number} · SignerPro")
+        billed_to = org.name if org else invoice.organization_id
+        sheet.header(
+            eyebrow="SignerPro",
+            title=kind,
+            reference=invoice.number,
+            issuer=f"Billed to {billed_to}",
+            issued=f"Issued {invoice.issued_at.strftime('%d %b %Y')}",
+        )
+
+        # Paid, open and past due are three different things to the person
+        # reading this, and only one of them asks anything of them.
+        status = (invoice.status or "").lower()
+        if receipt or status == "paid":
+            sheet.badge("PAID", pdf_layout.POSITIVE)
+        elif status in {"past_due", "uncollectible"}:
+            sheet.badge(status.replace("_", " ").upper(), pdf_layout.NEGATIVE)
+        else:
+            sheet.badge(status.replace("_", " ").upper() or "OPEN", pdf_layout.WARNING)
+
+        sheet.section("Details")
+        sheet.rows(
+            [
+                ("Billing period", invoice.period_label),
+                ("Due", invoice.due_at.strftime("%d %b %Y") if invoice.due_at else None),
+                ("Payment method", invoice.payment_method_label),
+            ]
+        )
+
+        sheet.section("Line items")
+        sheet.table(
+            headers=("Description", "Amount"),
+            lines=[
+                (str(item.get("description", "")), money(item.get("amount_cents", 0)))
+                for item in (invoice.line_items or [])
+            ],
+        )
+
+        entries: list[tuple[str, str, bool]] = [
+            ("Subtotal", money(invoice.subtotal_cents), False),
+            ("Tax", money(invoice.tax_cents), False),
+            ("Total", money(invoice.total_cents), True),
+            ("Paid", money(invoice.amount_paid_cents), False),
+        ]
+        # An amount still owed is the one number the reader must act on, so it
+        # is emphasised -- but only when there is one. A settled invoice ending
+        # on a bold "Due 0.00" reads like a demand.
+        if invoice.amount_due_cents:
+            entries.append(("Amount due", money(invoice.amount_due_cents), True))
+        sheet.totals(entries)
+
+        sheet.fine_print(
+            [
+                f"{kind} {invoice.number} for {billed_to}.",
+                "Questions about this invoice? Reply to your SignerPro billing contact.",
+            ]
+        )
+        return sheet.save()
 
     # ------------------------------------------------------- webhook replay
     def replay_webhook_event(self, db: Session, *, event: ProcessedWebhookEvent) -> ProcessedWebhookEvent:

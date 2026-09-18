@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { useSF } from '@/lib/sf/state';
 import { documentPathFor } from '@/lib/sf/routes';
 import { BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 export type PreviewRecipient = { id: string; name: string; role: string; fieldCount: number };
 
@@ -47,6 +48,7 @@ export default function SignerPreview({
     fontSize: '.75rem', fontWeight: on ? 600 : 500,
     background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
     boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
   });
 
   const chip = (on: boolean): CSSProperties => ({
@@ -83,8 +85,8 @@ export default function SignerPreview({
         ) : null}
 
         <div role="group" aria-label="Preview viewport" style={{ marginLeft: 'auto', display: 'flex', gap: '4px', background: '#eceff4', padding: '4px', borderRadius: '10px' }}>
-          <button type="button" aria-pressed={!mobile} onClick={() => setMobile(false)} style={viewportBtn(!mobile)}>Desktop</button>
-          <button type="button" aria-pressed={mobile} onClick={() => setMobile(true)} style={viewportBtn(mobile)}>Mobile</button>
+          <button type="button" aria-pressed={!mobile} onClick={() => setMobile(false)} style={viewportBtn(!mobile)}><Icon name="desktop" size={12} />Desktop</button>
+          <button type="button" aria-pressed={mobile} onClick={() => setMobile(true)} style={viewportBtn(mobile)}><Icon name="mobile" size={12} />Mobile</button>
         </div>
       </div>
 

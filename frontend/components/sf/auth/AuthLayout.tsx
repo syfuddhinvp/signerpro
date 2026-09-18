@@ -14,6 +14,7 @@ import BrandMark from '@/components/sf/BrandMark';
 import { AUTH_TABS, AUTH_TITLES } from '@/lib/sf/data';
 import { AUTH_PATHS } from '@/lib/sf/routes';
 import { TEXT_MUTED, TEXT_MUTED_ON_DARK } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 export type AuthMode = 'signin' | 'signup' | 'mfa' | 'forgot' | 'reset' | 'invite';
 
@@ -105,11 +106,13 @@ export default function AuthLayout({
   // rather than removed so the roadmap stays visible, but they cannot be
   // clicked and cannot pretend to sign anyone in.
   const ssoVisible = mode === 'signin' || mode === 'signup';
-  const ssoOptions = ['Continue with SSO', 'Continue with passkey'].map(label => ({
+  const ssoOptions = ([['Continue with SSO', 'shield'], ['Continue with passkey', 'key']] as const).map(([label, mark]) => ({
     label,
+    mark,
     style: {
       height: '38px', borderRadius: '10px', border: '1px solid #eceff4', background: '#f8fafc',
       color: TEXT_MUTED, fontSize: '.78125rem', fontWeight: 600, cursor: 'not-allowed',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
     } as CSSProperties,
   }));
 
@@ -180,7 +183,7 @@ export default function AuthLayout({
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   {ssoOptions.map(o => (
-                    <button key={o.label} type="button" disabled aria-disabled="true" title="Not available yet" style={o.style}>{o.label}</button>
+                    <button key={o.label} type="button" disabled aria-disabled="true" title="Not available yet" style={o.style}><Icon name={o.mark} size={13} />{o.label}</button>
                   ))}
                 </div>
                 <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, textAlign: 'center', fontFamily: 'var(--font-sans)' }}>

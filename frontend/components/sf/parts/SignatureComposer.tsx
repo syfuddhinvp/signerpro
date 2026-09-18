@@ -20,6 +20,7 @@ import { SIG_TABS, TYPE_FACES, INKS } from '@/lib/sf/data';
 import { btn, inputStyle, TEXT_MUTED } from '@/lib/sf/ui';
 import type { SavedSignatureResponse } from '@/lib/api/types';
 import { typeFaceStack } from '@/lib/sf/fonts';
+import Icon from '@/components/sf/Icon';
 
 export type SigTabId = 'draw' | 'type' | 'upload' | 'saved';
 
@@ -227,7 +228,7 @@ export default function SignatureComposer({
               />
               <span style={{ fontSize: '.71875rem', fontFamily: 'var(--font-sans)', color: '#334155' }}>{String(s.sigStroke)}px</span>
             </div>
-            <button type="button" onClick={clearCanvas} style={ghostBtn}>Clear</button>
+            <button type="button" onClick={clearCanvas} style={ghostBtn}><Icon name="trash" size={13} />Clear</button>
             <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, marginLeft: 'auto' }}>Bézier smoothing · stylus &amp; touch supported</span>
           </div>
         </div>

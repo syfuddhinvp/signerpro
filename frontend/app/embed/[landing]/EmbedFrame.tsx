@@ -17,6 +17,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import type { EmbedLanding } from './types';
+import Icon from '@/components/sf/Icon';
 
 const LANDING_LABEL: Record<EmbedLanding, string> = {
   builder: 'Preparation',
@@ -51,6 +52,7 @@ export default function EmbedFrame({
   const returnStyle: CSSProperties = {
     marginLeft: 'auto', padding: '6px 12px', borderRadius: '8px', border: '1px solid #c7d2fe',
     background: '#fff', color: '#3730a3', fontSize: '.71875rem', fontWeight: 600, cursor: 'pointer', flex: '0 0 auto',
+    display: 'inline-flex', alignItems: 'center', gap: '6px',
   };
 
   const meta = [
@@ -80,7 +82,7 @@ export default function EmbedFrame({
         <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>{title}</span>
         <span style={{ fontSize: '.65625rem', color: '#4338ca' }}>{meta}</span>
         {contacts.map(name => <span key={name} style={contactChipStyle}>{name}</span>)}
-        {returnUrl ? <button type="button" style={returnStyle} onClick={goBack}>Return to host</button> : null}
+        {returnUrl ? <button type="button" style={returnStyle} onClick={goBack}><Icon name="arrowLeft" size={12} />Return to host</button> : null}
       </div>
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{children}</div>
     </>

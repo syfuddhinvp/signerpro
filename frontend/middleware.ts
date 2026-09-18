@@ -7,8 +7,9 @@ import { pathAllowed } from '@/lib/auth/access';
 /**
  * Route protection and access-token rotation.
  *
- * Everything is private except the auth screens, the auth route handlers and
- * the links mailed to people who have no account: the signer link
+ * Everything is private except the marketing page (`/` and `/product`), the
+ * auth screens, the auth route handlers and the links mailed to people who
+ * have no account: the signer link
  * (`/sign/<token>`), the password-reset link (`/reset-password?token=…`) and
  * the invitation link (`/invite/<token>`) and the branding logo embedded in
  * invitation emails (`/brand/<id>/logo`, an image and nothing else).
@@ -19,9 +20,13 @@ import { pathAllowed } from '@/lib/auth/access';
  * spent impersonation session hands the cookie back to the admin who started
  * it (see `expireImpersonation`).
  */
-const PUBLIC_PREFIXES = ['/login', '/register', '/api/auth', '/sign', '/reset-password', '/invite', '/verify', '/embed', '/brand'];
+const PUBLIC_PREFIXES = ['/product', '/login', '/register', '/api/auth', '/sign', '/reset-password', '/invite', '/verify', '/embed', '/brand'];
 
 function isPublic(pathname: string): boolean {
+  // `/` is matched exactly and never as a prefix — as a prefix it would make
+  // every route in the app public. The page itself sends a signed-in visitor
+  // on to `/overview`.
+  if (pathname === '/') return true;
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 

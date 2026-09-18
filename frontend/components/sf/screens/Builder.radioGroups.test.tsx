@@ -113,7 +113,7 @@ describe('a radio group is one field per button', () => {
   it('adds a button to the group, below the last one', async () => {
     mount([0, 1, 2].map(button));
     select(0);
-    fireEvent.click(screen.getByText('+ Add option'));
+    fireEvent.click(screen.getByText('Add option'));
 
     await waitFor(() => expect(savedFields().length).toBeGreaterThan(0), { timeout: 3000 });
     const rows = lastSaved();

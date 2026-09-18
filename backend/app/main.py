@@ -58,9 +58,11 @@ async def lifespan(app: FastAPI):
     # outlives the app object -- so any process that re-enters the lifespan
     # (a restart in-process, or a test client per test) would otherwise spend
     # the rest of its life delivering inline on the request path.
+    from app.services.cloud_export_service import cloud_export_service
     from app.services.webhook_service import webhook_service
 
     webhook_service.resume()
+    cloud_export_service.resume()
 
     logger.info(
         "startup.complete",
@@ -81,6 +83,15 @@ async def lifespan(app: FastAPI):
         logger.info("shutdown.webhook_drained", extra={"abandoned": abandoned})
     except Exception:  # noqa: BLE001 - shutdown must never raise
         logger.warning("shutdown.webhook_drain_failed", exc_info=True)
+    try:
+        # Same contract as the webhook drain: an abandoned upload leaves its
+        # row `pending`, which `process_due_retries` picks up.
+        from app.services.cloud_export_service import cloud_export_service
+
+        abandoned = cloud_export_service.drain()
+        logger.info("shutdown.cloud_export_drained", extra={"abandoned": abandoned})
+    except Exception:  # noqa: BLE001 - shutdown must never raise
+        logger.warning("shutdown.cloud_export_drain_failed", exc_info=True)
     try:
         from app.core.database import engine
 

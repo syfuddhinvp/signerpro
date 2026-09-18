@@ -25,6 +25,7 @@
 
 import React from 'react';
 import { btn, TEXT_MUTED } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 /** `x`, `y`, `width`, `height` as fractions of the image, from its top left. */
 export type CropRect = { x: number; y: number; width: number; height: number };
@@ -214,11 +215,11 @@ export default function ImageCropDialog({ file, pageAspect, onDone }: ImageCropD
           </span>
           <button type="button" onClick={() => setCrop(shape === null ? WHOLE_IMAGE : largestOfShape(shape))}
             style={btn('#fff', '#475569', '#e3e7ee')}>
-            {shape === null ? 'Whole image' : 'Reset'}
+            <Icon name={shape === null ? 'image' : 'undo'} size={13} />{shape === null ? 'Whole image' : 'Reset'}
           </button>
-          <button type="button" onClick={() => onDone(null)} style={btn('#fff', '#475569', '#e3e7ee')}>Cancel</button>
+          <button type="button" onClick={() => onDone(null)} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
           <button type="button" onClick={() => onDone(crop)} style={btn('#0f172a', '#fff', '#0f172a')}>
-            Add this area
+            <Icon name="check" size={13} />Add this area
           </button>
         </div>
       </div>

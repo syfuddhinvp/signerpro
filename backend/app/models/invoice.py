@@ -30,6 +30,10 @@ class Invoice(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_invoices_organization_id", "organization_id"),
         Index("ix_invoices_status", "status"),
         Index("ix_invoices_number", "number", unique=True),
+        # Replay protection for the paths that issue an invoice in response to
+        # a button (an upgrade, a seat purchase). Without it a double-clicked
+        # upgrade issues and collects twice.
+        Index("uq_invoices_idempotency_key", "idempotency_key", unique=True),
     )
 
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
@@ -50,6 +54,10 @@ class Invoice(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     # [{description, quantity, unit_cents, amount_cents}]
     line_items: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    #: Caller-supplied de-duplication key. NULL for invoices with no natural
+    #: one, such as a renewal, which is guarded by its period instead.
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     provider_invoice_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

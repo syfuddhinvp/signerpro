@@ -11,7 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { SFProvider } from '@/lib/sf/state';
 import { DialogProvider } from '@/components/sf/DialogProvider';
 import { resetNavigation } from '@/test/navigation';
-import type { PaymentRequestResponse, SignerPaymentResponse } from '@/lib/api/types';
+import type { PaymentReceiptResponse, PaymentRequestResponse, SignerPaymentResponse } from '@/lib/api/types';
 import Audit, { type AuditProps, type PayerRef } from './Audit';
 
 vi.mock('next/navigation', async () => (await import('@/test/navigation')).navigationMock());
@@ -80,6 +80,20 @@ const payment = (over: Partial<SignerPaymentResponse> = {}): SignerPaymentRespon
   ...over,
 });
 
+const receipt = (over: Partial<PaymentReceiptResponse> = {}): PaymentReceiptResponse => ({
+  id: 'rcp-1', organization_id: 'org-1', signer_payment_id: 'sp-1', document_id: 'doc-1',
+  document_ref: 'doc-1', recipient_id: 'r1', number: 'RCP-2026-000001', status: 'issued',
+  currency: 'usd', subtotal_cents: 25000, tax_cents: 0, total_cents: 25000,
+  refunded_amount_cents: 0, net_cents: 25000, payer_name: 'Alice Signer',
+  payer_email: 'alice@example.com', document_title: 'Buyer Seller Packet',
+  issuer_name: 'Northwind', description: null, line_items: null, provider: 'stripe',
+  provider_account_id: 'acct_1', provider_payment_intent_id: 'pi_1', provider_charge_id: 'ch_1',
+  provider_receipt_url: 'https://example.com/receipt', issued_at: '2026-01-01T00:00:00Z',
+  paid_at: '2026-01-01T00:00:00Z', refunded_at: null, checksum: 'a'.repeat(64),
+  audit_log_id: 'al-1', verified: true,
+  ...over,
+});
+
 beforeEach(() => {
   cleanup();
   resetNavigation();
@@ -94,7 +108,31 @@ describe('Audit · payments panel', () => {
     expect(within(panel).getByText(/750\.00 USD of 1000\.00 USD/)).toBeInTheDocument();
     expect(within(panel).getByText(/3 of 4 paid/)).toBeInTheDocument();
     expect(within(panel).getByText('Alice Signer')).toBeInTheDocument();
-    expect(within(panel).getByRole('link', { name: /receipt/i })).toHaveAttribute('href', 'https://example.com/receipt');
+    expect(within(panel).getByRole('link', { name: /stripe receipt/i })).toHaveAttribute('href', 'https://example.com/receipt');
+  });
+
+  it('offers the tenant\'s own receipt, with Stripe\'s page as the secondary reference', () => {
+    /* The Stripe link used to be the ONLY evidence of the money: a page on
+       the tenant's connected account that this app does not host and loses
+       when they disconnect it, while the certificate printed "Paid"
+       regardless. The numbered internal receipt is now the document. */
+    mount({
+      paymentSummary: summary(),
+      payments: [payment({ receipt: receipt() })],
+      payers,
+    });
+    const panel = screen.getByTestId('payments-panel');
+    expect(within(panel).getByRole('button', { name: /RCP-2026-000001/ })).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: /stripe receipt/i })).toBeInTheDocument();
+  });
+
+  it('flags a receipt whose stored row no longer matches its checksum', () => {
+    mount({
+      paymentSummary: summary(),
+      payments: [payment({ receipt: receipt({ verified: false }) })],
+      payers,
+    });
+    expect(within(screen.getByTestId('payments-panel')).getByText(/checksum mismatch/i)).toBeInTheDocument();
   });
 
   it('does not render a panel when nothing was ever requested', () => {

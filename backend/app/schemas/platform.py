@@ -5,7 +5,7 @@ directory, feature flags / security posture (FLG-1…FLG-6) and the log and
 audit streams (ACT-1…ACT-3).
 """
 
-from datetime import datetime
+from datetime import date as dt_date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -56,6 +56,156 @@ class TenantDetail(TenantRow):
     incidents_90d: int = 0
     flag_overrides: list["TenantFlagOverride"] = []
     admins: list["DirectoryUser"] = []
+
+
+# --- Tenant profile (the per-tenant record page) ----------------------------
+#
+# One request backing the whole tenant record: who is in it, what it has sent,
+# what it is billed, what it collects from signers, and which credentials can
+# act on it. Every list here is capped and ordered newest-first — the page is a
+# record, not an export, and an unbounded tenant list would be both.
+
+
+class TenantDocumentRow(BaseModel):
+    id: str
+    title: str
+    status: str
+    is_template: bool = False
+    sender_email: str | None = None
+    created_at: datetime
+    sent_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class TenantApiKeyRow(BaseModel):
+    id: str
+    label: str
+    mode: str
+    masked: str
+    scopes: list[str] = []
+    created_by_email: str | None = None
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+    created_at: datetime
+
+
+class TenantInvoiceRow(BaseModel):
+    id: str
+    number: str
+    status: str
+    currency: str
+    total_cents: int = 0
+    amount_paid_cents: int = 0
+    issued_at: datetime
+    due_at: datetime | None = None
+    paid_at: datetime | None = None
+
+
+class TenantChargeRow(BaseModel):
+    id: str
+    amount_cents: int = 0
+    currency: str
+    status: str
+    method_label: str | None = None
+    description: str | None = None
+    decline_code: str | None = None
+    occurred_at: datetime
+
+
+class TenantSignerPaymentRow(BaseModel):
+    id: str
+    document_id: str
+    document_title: str | None = None
+    amount_cents: int = 0
+    refunded_amount_cents: int = 0
+    currency: str
+    status: str
+    paid_at: datetime | None = None
+    created_at: datetime
+
+
+class TenantSignerPaymentTotals(BaseModel):
+    """Per currency, never summed across them — an amount in one currency is
+    not an amount in another, and a single total would silently claim it is."""
+
+    currency: str
+    collected_cents: int = 0
+    refunded_cents: int = 0
+    count: int = 0
+
+
+class TenantWebhookRow(BaseModel):
+    id: str
+    url: str
+    is_active: bool = True
+    event_types: list[str] | None = None
+    description: str | None = None
+    created_at: datetime
+
+
+class TenantCounts(BaseModel):
+    users: int = 0
+    active_users: int = 0
+    documents: int = 0
+    templates: int = 0
+    contacts: int = 0
+    folders: int = 0
+    teams: int = 0
+    api_keys: int = 0
+    active_api_keys: int = 0
+    webhooks: int = 0
+    invoices: int = 0
+    signer_payments: int = 0
+
+
+class TenantSubscriptionInfo(BaseModel):
+    plan_code: str | None = None
+    plan_name: str | None = None
+    status: str | None = None
+    price_cents: int | None = None
+    current_period_start: datetime | None = None
+    current_period_end: datetime | None = None
+    trial_ends_at: datetime | None = None
+    canceled_at: datetime | None = None
+    cancel_at_period_end: bool = False
+    provider: str | None = None
+
+
+class TenantPaymentAccountInfo(BaseModel):
+    """The tenant's own Stripe connection — how signers pay *them*. Distinct
+    from what the tenant pays us, which is the invoice/charge history."""
+
+    provider: str
+    charges_enabled: bool = False
+    payouts_enabled: bool = False
+    details_submitted: bool = False
+    livemode: bool = False
+    default_currency: str | None = None
+    disabled_reason: str | None = None
+    onboarded_at: datetime | None = None
+
+
+class TenantProfile(BaseModel):
+    tenant: TenantDetail
+    counts: TenantCounts
+    documents_by_status: dict[str, int] = {}
+    users: list["DirectoryUser"] = []
+    recent_documents: list[TenantDocumentRow] = []
+    api_keys: list[TenantApiKeyRow] = []
+    invoices: list[TenantInvoiceRow] = []
+    charges: list[TenantChargeRow] = []
+    signer_payments: list[TenantSignerPaymentRow] = []
+    signer_payment_totals: list[TenantSignerPaymentTotals] = []
+    webhooks: list[TenantWebhookRow] = []
+    subscription: TenantSubscriptionInfo | None = None
+    payment_account: TenantPaymentAccountInfo | None = None
+    audit: list["PlatformAuditRow"] = []
+    #: Invoiced/paid/outstanding in the tenant's invoice currency, which every
+    #: invoice for one tenant shares.
+    invoiced_cents: int = 0
+    invoice_paid_cents: int = 0
+    invoice_outstanding_cents: int = 0
+    invoice_currency: str = "USD"
 
 
 class TenantCreate(BaseModel):
@@ -267,8 +417,30 @@ class IpAllowlistEntryCreate(BaseModel):
 class CertificationRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: str
     name: str
+    #: What the operator recorded: not_assessed | in_process | certified.
     status: str
+    #: What may be shown: ``status``, or ``expired`` once ``expires_on`` passes.
+    effective_status: str
+    expired: bool = False
+    auditor: str | None = None
+    assessed_on: dt_date | None = None
+    expires_on: dt_date | None = None
+    evidence_url: str | None = None
+    notes: str | None = None
+    updated_at: datetime | None = None
+
+
+class CertificationUpdate(BaseModel):
+    """A change to one compliance record. Unset fields are left alone."""
+
+    status: str | None = None
+    auditor: str | None = None
+    assessed_on: dt_date | None = None
+    expires_on: dt_date | None = None
+    evidence_url: str | None = None
+    notes: str | None = None
 
 
 class ComplianceResponse(BaseModel):
@@ -333,3 +505,4 @@ class PlatformAuditPage(BaseModel):
 
 
 TenantDetail.model_rebuild()
+TenantProfile.model_rebuild()

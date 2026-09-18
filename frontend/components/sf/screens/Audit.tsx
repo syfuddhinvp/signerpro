@@ -12,8 +12,9 @@ import type { AttestationRow, AuditRow, CertificateCard } from '@/lib/sf/adapter
 import { apiCall, apiDownload, saveBlob } from '@/lib/api/browser';
 import { audit as auditApi, documents as documentsApi, payments as paymentsApi, recipients as recipientsApi } from '@/lib/api/resources';
 import { typeFaceStack } from '@/lib/sf/fonts';
-import { isSealedStatus } from '@/lib/sf/sealed';
-import type { PaymentRequestResponse, SignerPaymentResponse } from '@/lib/api/types';
+import { isLockedStatus, isSealedStatus } from '@/lib/sf/sealed';
+import type { PaymentReceiptResponse, PaymentRequestResponse, SignerPaymentResponse } from '@/lib/api/types';
+import Icon from '@/components/sf/Icon';
 
 /** One payer this document's payment rows can be attributed to.
  *
@@ -107,7 +108,7 @@ export default function Audit({
   const router = useRouter();
   const { askConfirm, askText } = useDialogs();
   const A = accent();
-  useDocumentTitle(documentTitle, sealed);
+  useDocumentTitle(documentTitle, sealed, isLockedStatus(documentStatus));
   const isAdmin = session?.role === 'admin';
 
   const payerName = (recipientId: string) => payers.find(p => p.id === recipientId)?.name ?? 'a signer';
@@ -277,6 +278,18 @@ export default function Audit({
     name + '-certificate.pdf',
     'Certificate downloaded · verified against ' + (chain?.hashAlgorithm ?? 'SHA-256'),
   );
+  /* The tenant's own receipt PDF, rendered on demand from the row so a
+     refund is reflected the next time anyone downloads it. */
+  const downloadReceipt = (receipt: PaymentReceiptResponse) => {
+    const filename = receipt.number + '.pdf';
+    flash('Preparing ' + filename + '…');
+    void apiDownload(paymentsApi.receiptPdfPath(receipt.id), { filename }).then(res => {
+      if (!res.ok) { flash('Could not download receipt · ' + res.error.message); return; }
+      saveBlob(res.data);
+      flash('Receipt ' + receipt.number + ' downloaded');
+    });
+  };
+
   const copyHash = () => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) void navigator.clipboard.writeText(documentHash);
     flash('Document hash copied · ' + documentHash.slice(0, 24) + '…');
@@ -308,7 +321,7 @@ export default function Audit({
                 disabled={voiding}
                 style={btn('#fff', '#b91c1c', '#fecaca')}
               >
-                {voiding ? 'Voiding…' : 'Void envelope'}
+                <Icon name="cancel" size={13} />{voiding ? 'Voiding…' : 'Void envelope'}
               </button>
             ) : null}
           </div>
@@ -377,11 +390,11 @@ export default function Audit({
             ))}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            <button type="button" onClick={downloadAll} style={primaryBtnWide}>Download document + certificate</button>
+            <button type="button" onClick={downloadAll} style={primaryBtnWide}><Icon name="download" size={13} />Download document + certificate</button>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            <button type="button" onClick={downloadCertificate} style={ghostBtn}>Certificate only</button>
-            <button type="button" onClick={copyHash} style={ghostBtn}>Copy hash</button>
+            <button type="button" onClick={downloadCertificate} style={ghostBtn}><Icon name="download" size={13} />Certificate only</button>
+            <button type="button" onClick={copyHash} style={ghostBtn}><Icon name="copy" size={13} />Copy hash</button>
           </div>
         </div>
         {paymentSummary ? (
@@ -411,9 +424,32 @@ export default function Audit({
                         {p.refunded_amount_cents > 0 ? ' · ' + formatCents(p.refunded_amount_cents, p.currency) + ' refunded' : ''}
                         {p.provider_payment_intent_id ? ' · ' + p.provider_payment_intent_id : ''}
                       </span>
-                      {p.receipt_url ? (
-                        <a href={p.receipt_url} target="_blank" rel="noreferrer" style={{ fontSize: '.6875rem', color: A, textDecoration: 'none' }}>Receipt →</a>
-                      ) : null}
+                      {/* Our own receipt first, Stripe's hosted page second.
+                          The Stripe link used to be the only evidence of the
+                          money — a page on the tenant's connected account
+                          that this app does not host and loses when they
+                          disconnect it — so it is now the cross-reference and
+                          the numbered internal record is the document. */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        {p.receipt ? (
+                          <button
+                            type="button"
+                            onClick={() => downloadReceipt(p.receipt!)}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '.6875rem', color: A, fontFamily: 'var(--font-sans)' }}
+                          >
+                            {p.receipt.number} ↓
+                          </button>
+                        ) : null}
+                        {/* A receipt whose stored row no longer matches its
+                            checksum must say so rather than be shown as an
+                            ordinary one. */}
+                        {p.receipt && !p.receipt.verified ? (
+                          <span style={{ fontSize: '.6875rem', color: '#b91c1c' }}>checksum mismatch</span>
+                        ) : null}
+                        {p.receipt_url ? (
+                          <a href={p.receipt_url} target="_blank" rel="noreferrer" style={{ fontSize: '.6875rem', color: TEXT_MUTED, textDecoration: 'none' }}>Stripe receipt →</a>
+                        ) : null}
+                      </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={pill(paymentStatusTone(p.status))}>{p.status}</span>
@@ -424,7 +460,7 @@ export default function Audit({
                           disabled={refundingId === p.id}
                           style={btn('#fff', '#b91c1c', '#fecaca')}
                         >
-                          {refundingId === p.id ? 'Refunding…' : 'Refund'}
+                          <Icon name="undo" size={13} />{refundingId === p.id ? 'Refunding…' : 'Refund'}
                         </button>
                       ) : null}
                     </div>
@@ -453,7 +489,7 @@ export default function Audit({
                   disabled={mintingId === payerForLink(a.email)?.id}
                   style={btn('#fff', '#475569', '#e3e7ee')}
                 >
-                  {mintingId === payerForLink(a.email)?.id ? 'Copying…' : 'Copy link'}
+                  <Icon name="link" size={13} />{mintingId === payerForLink(a.email)?.id ? 'Copying…' : 'Copy link'}
                 </button>
               ) : null}
             </div>

@@ -115,19 +115,23 @@ describe('composing', () => {
   const compose = async (to: string) => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Compose' }));
-    fireEvent.change(screen.getByLabelText(/Recipients/), { target: { value: to } });
-    fireEvent.change(screen.getByLabelText(/Subject/), { target: { value: 'Maintenance' } });
-    fireEvent.change(screen.getByLabelText(/Message/), { target: { value: 'Back shortly.' } });
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: to } });
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Maintenance' } });
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Back shortly.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   };
+
+  const sendCall = () =>
+    apiCall.mock.calls.find(([p]) => p === '/api/saas/mail/send')?.[1] as
+      | { body: { to: string[]; cc: string[]; bcc: string[] } }
+      | undefined;
 
   it('splits a pasted recipient list on commas, semicolons and newlines', async () => {
     respond({ sent: 3, failed: 0, items: [] });
     await compose('one@example.com, two@example.com;three@example.com');
 
     await waitFor(() => {
-      const call = apiCall.mock.calls.find(([p]) => p === '/api/saas/mail/send');
-      expect((call?.[1] as { body: { to: string[] } }).body.to)
+      expect(sendCall()?.body.to)
         .toEqual(['one@example.com', 'two@example.com', 'three@example.com']);
     });
   });
@@ -145,13 +149,76 @@ describe('composing', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Sent to 1. Failed for 1');
     /* Still open, still holding the message: re-sending to everyone would
        double-mail whoever was reached on the first attempt. */
-    expect((screen.getByLabelText(/Recipients/) as HTMLInputElement).value)
+    expect((screen.getByLabelText('To') as HTMLInputElement).value)
       .toBe('one@example.com, two@example.com');
   });
 
   it('clears the composer only when every recipient was reached', async () => {
     respond({ sent: 2, failed: 0, items: [] });
     await compose('one@example.com, two@example.com');
-    await waitFor(() => expect(screen.queryByLabelText(/Recipients/)).toBeNull());
+    await waitFor(() => expect(screen.queryByLabelText('To')).toBeNull());
+  });
+
+  /* Cc and Bcc start hidden, as they do in every mail client: three address
+     fields on open read as three fields that want filling in. */
+  it('reveals Cc and Bcc only when asked, and sends what was typed into them', async () => {
+    respond({ sent: 1, failed: 0, items: [] });
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Compose' }));
+
+    expect(screen.queryByLabelText('Cc')).toBeNull();
+    expect(screen.queryByLabelText('Bcc')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cc' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bcc' }));
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: 'ada@example.com' } });
+    fireEvent.change(screen.getByLabelText('Cc'), { target: { value: 'lead@example.com' } });
+    fireEvent.change(screen.getByLabelText('Bcc'), { target: { value: 'audit@example.com; ops@example.com' } });
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Maintenance' } });
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Back shortly.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(sendCall()?.body.cc).toEqual(['lead@example.com']);
+      expect(sendCall()?.body.bcc).toEqual(['audit@example.com', 'ops@example.com']);
+    });
+  });
+
+  it('carries an attachment as base64 with its name and type', async () => {
+    respond({ sent: 1, failed: 0, items: [] });
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Compose' }));
+
+    const file = new File(['hello'], 'notice.txt', { type: 'text/plain' });
+    fireEvent.change(screen.getByTestId('compose-file-input'), { target: { files: [file] } });
+    /* The chip proves the read finished; sending before it would post nothing. */
+    expect(await screen.findByText('notice.txt')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: 'ada@example.com' } });
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Maintenance' } });
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Back shortly.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      const body = sendCall()?.body as unknown as { attachments: { filename: string; content_type: string; content: string }[] };
+      /* Base64 only: the `data:` prefix restates a content type the request
+         already carries, and the API rejects it as invalid base64. */
+      expect(body.attachments).toEqual([
+        { filename: 'notice.txt', content_type: 'text/plain', content: btoa('hello') },
+      ]);
+    });
+  });
+
+  it('refuses a file over the API\'s own limit instead of posting it', async () => {
+    respond({ sent: 1, failed: 0, items: [] });
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Compose' }));
+
+    const huge = new File(['x'], 'scan.pdf', { type: 'application/pdf' });
+    Object.defineProperty(huge, 'size', { value: 6 * 1024 * 1024 });
+    fireEvent.change(screen.getByTestId('compose-file-input'), { target: { files: [huge] } });
+
+    expect((await screen.findByRole('alert')).textContent).toContain('larger than 5 MB');
+    expect(screen.queryByLabelText('Remove scan.pdf')).toBeNull();
   });
 });

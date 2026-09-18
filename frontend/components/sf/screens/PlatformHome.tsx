@@ -6,6 +6,7 @@ import { useSF } from '@/lib/sf/state';
 import { btn, railHead, TEXT_MUTED, TEXT_MUTED_ON_DARK, TEXT_ON_DARK } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
 import { platformInvoices as platformInvoicesApi } from '@/lib/api/resources';
+import Icon from '@/components/sf/Icon';
 import type {
   AuditStreamRow,
   DunningQueueRow,
@@ -158,7 +159,7 @@ export default function PlatformHome({
                 <span style={{ fontSize:'.78125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{d.tenant}</span>
                 <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{d.meta}</span>
               </div>
-              <button type="button" onClick={d.onRetry} style={ghostBtn}>{d.label}</button>
+              <button type="button" onClick={d.onRetry} style={ghostBtn}><Icon name="refresh" size={13} />{d.label}</button>
             </div>
           )) : (<span style={emptyNote}>No invoices in collection.</span>)}
         </div>

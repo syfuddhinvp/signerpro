@@ -79,7 +79,7 @@ describe('the inspector authors the choices a dropdown offers', () => {
   const openDropdown = (count = 0) => {
     mount([field('dropdown')]);
     fireEvent.pointerDown(screen.getByLabelText(/Dropdown for Buyer/i));
-    for (let i = 0; i < count; i++) fireEvent.click(screen.getByText('+ Add option'));
+    for (let i = 0; i < count; i++) fireEvent.click(screen.getByText('Add option'));
   };
 
   it('writes each choice back in the order the rows are in', async () => {

@@ -7,6 +7,7 @@
    whatever was left over. The width lives in localStorage per rail, so the size
    somebody picks survives navigation and reloads. */
 import React, { type CSSProperties } from 'react';
+import Icon from '@/components/sf/Icon';
 
 const HANDLE = 6;
 
@@ -112,14 +113,14 @@ export default function ResizableRail({
   };
 
   const border = side === 'left' ? { borderRight: '1px solid #e3e7ee' } : { borderLeft: '1px solid #e3e7ee' };
-  const chevron = side === 'left' ? (collapsed ? '›' : '‹') : (collapsed ? '‹' : '›');
+  const chevron = <Icon name={(side === 'left') === collapsed ? 'chevronRight' : 'chevronLeft'} size={13} />;
 
   if (collapsed) {
     return (
       <div style={{ flex: '0 0 34px', width: '34px', background: '#fff', ...border, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '10px 0' }}>
         <button
           type="button" onClick={toggle} title={'Show ' + label} aria-label={'Show ' + label} aria-expanded={false}
-          style={{ width: '24px', height: '24px', borderRadius: '7px', border: '1px solid #e3e7ee', background: '#fff', color: '#475569', cursor: 'pointer', fontSize: '.8125rem', lineHeight: 1 }}
+          style={{ width: '24px', height: '24px', borderRadius: '7px', border: '1px solid #e3e7ee', background: '#fff', color: '#475569', cursor: 'pointer', fontSize: '.8125rem', lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
         >{chevron}</button>
         <span aria-hidden="true" style={{ writingMode: 'vertical-rl', fontSize: '.6875rem', color: '#64748b', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{label}</span>
       </div>
@@ -151,6 +152,7 @@ export default function ResizableRail({
           position: 'absolute', top: '8px', right: (side === 'left' ? HANDLE + 8 : 8) + 'px', zIndex: 2,
           width: '22px', height: '22px', borderRadius: '7px', border: '1px solid #e3e7ee', background: '#fff',
           color: '#475569', cursor: 'pointer', fontSize: '.8125rem', lineHeight: 1,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         }}
       >{chevron}</button>
       {side === 'right' ? handle : null}

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core import email_layout
 from app.core.email import EmailMessage, email_service
 from app.core.security import create_access_token, generate_signing_token, hash_password, hash_signing_token
 from app.models.invitation import Invitation
@@ -12,8 +13,8 @@ from app.models.mixins import now_utc
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.auth import TokenResponse
-from app.services.entitlement_service import entitlement_service
 from app.schemas.invitation import InvitationAcceptRequest, InvitationCreate, InvitationCreateResponse
+from app.services.billing_service import billing_service
 
 INVITATION_TTL = timedelta(days=7)
 
@@ -43,8 +44,10 @@ class InvitationService:
         if pending and _as_aware_utc(pending.expires_at) > now_utc():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An invitation is already pending for this email")
 
-        # Surface the seat limit before an invite is sent, not after the invitee tries to accept.
-        entitlement_service.check_entitlement(db, inviter.organization_id, "max_users", amount=1)
+        # Surface the seat limit before an invite is sent, not after the
+        # invitee tries to accept -- and distinguish "buy a seat" from
+        # "change plan", which are different problems with different fixes.
+        billing_service.check_seat_capacity(db, organization_id=inviter.organization_id, amount=1)
 
         raw_token = generate_signing_token()
         invitation = Invitation(
@@ -61,18 +64,41 @@ class InvitationService:
 
         link = self._link(raw_token)
         organization = db.get(Organization, inviter.organization_id)
+        workspace = organization.name if organization else "SignFlow CRM"
+        html = email_layout.shell(
+            email_layout.eyebrow("Team invitation")
+            + email_layout.heading(f"Join {workspace} on SignerPro")
+            + email_layout.paragraph(
+                f"{inviter.name} invited you to join their workspace."
+            )
+            + email_layout.details(
+                [
+                    ("Workspace", workspace),
+                    ("Your role", invitation.role.value.replace("_", " ").title()),
+                    ("Invited by", inviter.name),
+                ]
+            )
+            + email_layout.button("Accept invitation", link)
+            + email_layout.fallback_link(link)
+            + email_layout.note(
+                "This invitation is single-use and expires in 7 days."
+            ),
+            brand=email_layout.Brand(name=workspace),
+            preheader=f"{inviter.name} invited you to {workspace}.",
+        )
         email_service.send(
             EmailMessage(
                 to_email=email,
-                subject=f"You have been invited to join {organization.name if organization else 'SignFlow CRM'}",
+                subject=f"You have been invited to join {workspace}",
                 body=(
                     f"Hello,\n\n"
                     f"{inviter.name} invited you to join "
-                    f"\"{organization.name if organization else 'SignFlow CRM'}\" on SignFlow CRM "
+                    f"\"{workspace}\" on SignFlow CRM "
                     f"as {invitation.role.value}.\n"
                     f"Accept your invitation here: {link}\n\n"
                     "This invitation is single-use and expires in 7 days."
                 ),
+                html=html,
                 category="member_invite",
             ),
             organization=organization,
@@ -115,7 +141,7 @@ class InvitationService:
 
         # Re-check on the path that actually consumes the seat: the plan may have
         # changed, or other invites may have been accepted, since this one was sent.
-        entitlement_service.check_entitlement(db, invitation.organization_id, "max_users", amount=1)
+        billing_service.check_seat_capacity(db, organization_id=invitation.organization_id, amount=1)
 
         # An invitation carries a password just like registration does. If the
         # org has since turned SSO enforcement on, accepting it must not mint a

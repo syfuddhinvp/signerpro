@@ -6,6 +6,7 @@ import { useSF, type Contact } from '@/lib/sf/state';
 import { SRC_TONE, type Dict } from '@/lib/sf/data';
 import { btn, pill, railHead, TEXT_MUTED } from '@/lib/sf/ui';
 import { contactPathFor } from '@/lib/sf/routes';
+import Icon from '@/components/sf/Icon';
 
 /**
  * Server data, adapted in `app/(app)/contacts/page.tsx` via
@@ -73,7 +74,7 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts }:
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
             <div style={railHead}>{contactScopeLabel}</div>
             <div style={{ display:'flex', gap:'7px' }}>
-              <button type="button" onClick={openNewContact} style={primaryBtn}>New contact</button>
+              <button type="button" onClick={openNewContact} style={primaryBtn}><Icon name="addUser" size={13} />New contact</button>
             </div>
           </div>
           {allContacts.length ? (

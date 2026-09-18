@@ -16,6 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   EMPTY,
+  toCertificationViews,
   LIBRARY_FILTER_DEFAULTS,
   envelopeRef,
   formatCents,
@@ -33,12 +34,14 @@ import {
   libraryFiltersToQuery,
   libStatusToApiStatus,
   toAttestations,
+  toBalanceTiles,
   toAuditRows,
   toCertificateCard,
   toContact,
   toLibraryRow,
   toLogRow,
   toOverviewStats,
+  toPlanPreviewPairs,
   toTemplateRow,
   toLibraryParams,
   toTemplateParams,
@@ -340,5 +343,168 @@ describe('recipients typed by email alone', () => {
     expect(items[0].id).toBe('r1');
     expect(items[1].id).toBeUndefined();
     expect(items.map(i => i.signing_order)).toEqual([1, 2]);
+  });
+});
+
+describe('plan change preview rows tell the truth about when and what', () => {
+  const base = {
+    current_plan_code: 'business',
+    current_plan_name: 'Business',
+    target_plan_code: 'team',
+    target_plan_name: 'Team',
+    cycle: 'monthly',
+    currency: 'USD',
+    seats_licensed: 3,
+    current_amount_cents: 9000,
+    target_amount_cents: 3600,
+    proration_cents: -2700,
+    remaining_fraction: 0.5,
+    effective_at: '2026-10-14T00:00:00Z',
+    next_invoice_total_cents: 3600,
+    next_invoice_at: '2026-10-14T00:00:00Z',
+    is_downgrade: true,
+    direction: 'downgrade' as const,
+    effective_mode: 'period_end' as const,
+    scheduled: true,
+    amount_due_cents: 0,
+    wallet_balance_cents: 0,
+    wallet_applied_cents: 0,
+    charge_cents: 0,
+    wallet_credit_cents: 0,
+    blockers: [],
+    warnings: [],
+    allowed: true,
+  };
+
+  it('a scheduled change leads with the date and charges nothing', () => {
+    const rows = Object.fromEntries(toPlanPreviewPairs(base));
+    expect(rows['Starts']).toBe(formatDate('2026-10-14T00:00:00Z'));
+    // Not "Prorated today $0.00", which is true and tells the user nothing.
+    expect(rows['Due today']).toContain('you keep Business until then');
+    expect(rows['Prorated today']).toBeUndefined();
+  });
+
+  it('an immediate downgrade names the credit rather than a refund', () => {
+    const rows = Object.fromEntries(
+      toPlanPreviewPairs({
+        ...base,
+        scheduled: false,
+        effective_mode: 'immediately',
+        wallet_credit_cents: 2700,
+      }),
+    );
+    expect(rows['Credited to balance']).toBe(formatCents(2700));
+  });
+
+  it('balance spent on an upgrade is shown separately from the card', () => {
+    const rows = Object.fromEntries(
+      toPlanPreviewPairs({
+        ...base,
+        direction: 'upgrade',
+        is_downgrade: false,
+        scheduled: false,
+        effective_mode: 'immediately',
+        amount_due_cents: 5000,
+        wallet_balance_cents: 2000,
+        wallet_applied_cents: 2000,
+        charge_cents: 3000,
+      }),
+    );
+    expect(rows['Account balance']).toBe('−' + formatCents(2000));
+    expect(rows['Charged today']).toBe(formatCents(3000));
+  });
+});
+
+describe('toBalanceTiles', () => {
+  const base = {
+    currency: 'USD', available_cents: 41255, pending_cents: 9800,
+    pending_settles_at: null, next_payout_cents: 40000, next_payout_at: null,
+    payout_destination: 'stripe', disputes_cents: 0, dispute_count: 0,
+    dispute_rate_pct: null as number | null,
+    source: 'provider' as 'provider' | 'ledger',
+    other_currencies: [] as string[],
+  };
+
+  const metaOf = (tiles: { label: string; meta: string }[], label: string) =>
+    tiles.find(t => t.label === label)!.meta;
+
+  it('an unknown dispute rate reads as unknown, not as zero', () => {
+    /* `0.0% rate` would claim we checked and found none. We did not check. */
+    expect(metaOf(toBalanceTiles(base), 'DISPUTES')).toBe('0 open · rate n/a');
+  });
+
+  it('a known dispute rate is still shown', () => {
+    expect(metaOf(toBalanceTiles({ ...base, dispute_count: 2, dispute_rate_pct: 1.5 }), 'DISPUTES'))
+      .toBe('2 open · 1.5% rate');
+  });
+
+  it('a ledger-derived balance says it is an estimate', () => {
+    expect(metaOf(toBalanceTiles({ ...base, source: 'ledger' }), 'AVAILABLE'))
+      .toBe('usd · estimated from charges');
+  });
+
+  it('a provider balance does not call itself an estimate', () => {
+    expect(metaOf(toBalanceTiles(base), 'AVAILABLE')).toBe('usd · available to pay out');
+  });
+
+  it('currencies excluded from the figures are named rather than dropped', () => {
+    expect(metaOf(toBalanceTiles({ ...base, other_currencies: ['EUR', 'GBP'] }), 'AVAILABLE'))
+      .toBe('usd · plus eur, gbp');
+  });
+
+  it('pending money with no settlement date is still in transit', () => {
+    expect(metaOf(toBalanceTiles(base), 'PENDING')).toBe('in transit');
+    expect(metaOf(toBalanceTiles({ ...base, pending_cents: 0 }), 'PENDING')).toBe('nothing in transit');
+  });
+});
+
+
+describe('toCertificationViews', () => {
+  const api = {
+    certifications: [],
+    last_key_rotation_at: null,
+    rotation_interval_days: 90,
+    key_rotation_implemented: false,
+    disclaimer: '',
+  };
+  const row = {
+    id: 'c1', name: 'SOC 2 Type II', status: 'certified', effective_status: 'certified',
+    expired: false, auditor: 'Acme LLP', assessed_on: '2026-01-15', expires_on: '2027-01-15',
+    evidence_url: 'https://acme.example/soc2.pdf', notes: null, updated_at: null,
+  };
+
+  it('shows the evidence behind a current attestation', () => {
+    const [view] = toCertificationViews({ ...api, certifications: [row] });
+    expect(view.label).toBe('SOC 2 Type II');
+    expect(view.evidence).toBe('Acme LLP · assessed 2026-01-15 · expires 2027-01-15');
+  });
+
+  it('says so when a certified record has no report behind it', () => {
+    const [view] = toCertificationViews({
+      ...api,
+      certifications: [{ ...row, auditor: null, assessed_on: null, expires_on: null, evidence_url: null }],
+    });
+    expect(view.evidence).toBe('no report linked');
+  });
+
+  it('a lapsed attestation reads as expired, not as certified', () => {
+    const [view] = toCertificationViews({
+      ...api,
+      certifications: [{ ...row, effective_status: 'expired', expired: true, expires_on: '2021-01-15' }],
+    });
+    expect(view.label).toBe('SOC 2 Type II (expired)');
+    expect(view.evidence).toContain('expired 2021-01-15');
+    // The stored value is untouched — the editor still opens on what the
+    // operator recorded, so it can be corrected rather than guessed at.
+    expect(view.status).toBe('certified');
+  });
+
+  it('an unassessed record claims nothing', () => {
+    const [view] = toCertificationViews({
+      ...api,
+      certifications: [{ ...row, status: 'not_assessed', effective_status: 'not_assessed', auditor: null, assessed_on: null, expires_on: null, evidence_url: null }],
+    });
+    expect(view.label).toBe('SOC 2 Type II (not assessed)');
+    expect(view.evidence).toBe('No evidence recorded.');
   });
 });

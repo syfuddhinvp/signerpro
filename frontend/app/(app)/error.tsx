@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { fallbackGhost, fallbackPage, fallbackPrimary } from '@/lib/sf/fallback';
 import FallbackHero from '@/components/sf/parts/FallbackHero';
+import Icon from '@/components/sf/Icon';
 
 /**
  * In-app error boundary. It renders inside the Shell, so it fills the content
@@ -17,7 +18,7 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
         digest={error.digest}
         actions={
           <>
-            <button type="button" onClick={reset} style={fallbackPrimary}>Retry</button>
+            <button type="button" onClick={reset} style={fallbackPrimary}><Icon name="refresh" size={14} />Retry</button>
             <Link href="/documents" style={fallbackGhost}>Open documents</Link>
           </>
         }

@@ -251,3 +251,17 @@ def catalog_pdf(
     if not entry.file_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This form has no PDF yet")
     return FileResponse(storage.path(entry.file_path), media_type="application/pdf", filename=f"{entry.slug}.pdf")
+
+
+@platform_router.get("/{catalog_id}/pdf")
+def curator_catalog_pdf(
+    catalog_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_platform_admin),
+) -> FileResponse:
+    """The entry's PDF as the curator sees it — drafts included, so the file
+    can be checked before the entry is published."""
+    entry = catalog_service.get(db, catalog_id=catalog_id, published_only=False)
+    if not entry.file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This form has no PDF yet")
+    return FileResponse(storage.path(entry.file_path), media_type="application/pdf", filename=f"{entry.slug}.pdf")

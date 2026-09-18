@@ -168,8 +168,9 @@ export default function NotificationBell({ initial = EMPTY_FEED }: { initial?: N
               <button
                 type="button"
                 onClick={markAllRead}
-                style={{ marginLeft:'auto', border:'none', background:'transparent', cursor:'pointer', fontSize:'.71875rem', color:'#4f46e5', padding:0 }}
-              >Mark all read</button>
+                style={{ marginLeft:'auto', border:'none', background:'transparent', cursor:'pointer', fontSize:'.71875rem', color:'#4f46e5', padding:0,
+                  display:'inline-flex', alignItems:'center', gap:'4px' }}
+              ><Icon name="check" size={11} />Mark all read</button>
             ) : null}
           </div>
 

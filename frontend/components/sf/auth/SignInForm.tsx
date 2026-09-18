@@ -110,7 +110,7 @@ export default function SignInForm() {
           <Link href={AUTH_PATHS.forgot} style={linkStyle}>Forgot password?</Link>
         </div>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
-        <button type="submit" disabled={pending} style={authPrimary}>{pending ? 'Signing in…' : 'Continue'}</button>
+        <button type="submit" disabled={pending} style={authPrimary}><Icon name="signIn" size={14} />{pending ? 'Signing in…' : 'Continue'}</button>
       </form>
     </AuthLayout>
   );

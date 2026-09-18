@@ -238,8 +238,8 @@ export default function Sandbox() {
           </div>
           {inSandbox ? (
             <>
-              <button type="button" onClick={sbSeed} style={ghostBtn}>Seed data</button>
-              <button type="button" onClick={sbReset} style={ghostBtn}>Reset</button>
+              <button type="button" onClick={sbSeed} style={ghostBtn}><Icon name="upload" size={13} />Seed data</button>
+              <button type="button" onClick={sbReset} style={ghostBtn}><Icon name="refresh" size={13} />Reset</button>
             </>
           ) : null}
         </div>
@@ -260,13 +260,13 @@ export default function Sandbox() {
             <select value={sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', fontFamily:'var(--font-sans)', background:'#fff', color:'#0f172a', outline:'none' }}>
               {sbPathOptions.map(o => (<option key={o.id} value={o.id}>{o.label}</option>))}
             </select>
-            <button type="button" onClick={sbSend} style={primaryBtn}>{sbSendLabel}</button>
+            <button type="button" onClick={sbSend} style={primaryBtn}><Icon name="play" size={13} />{sbSendLabel}</button>
           </div>
 
           <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <span style={railHead}>Query parameters</span>
-              <button type="button" onClick={() => set((x: any) => ({ sbParams: x.sbParams.concat([{ k:'', v:'' }]) } as any))} style={linkBtn(A)}>+ Add parameter</button>
+              <button type="button" onClick={() => set((x: any) => ({ sbParams: x.sbParams.concat([{ k:'', v:'' }]) } as any))} style={linkBtn(A)}><Icon name="plus" size={11} />Add parameter</button>
             </div>
             {sbParams.map((p: any, i: number) => (
               <div key={i} style={{ display:'flex', gap:'8px', alignItems:'center' }}>
@@ -293,7 +293,7 @@ export default function Sandbox() {
                   <button key={l.id} type="button" onClick={l.onClick} aria-pressed={l.selected as any} style={l.style}>{l.label}</button>
                 ))}
               </div>
-              <button type="button" onClick={() => flash('Snippet copied')} style={ghostBtn}>Copy</button>
+              <button type="button" onClick={() => flash('Snippet copied')} style={ghostBtn}><Icon name="copy" size={13} />Copy</button>
             </div>
           </div>
           <pre style={jsonBoxStyle}>{sbSnippets[st.sbLang]}</pre>
@@ -332,7 +332,7 @@ export default function Sandbox() {
         <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
             <div style={railHead}>Recent calls</div>
-            <button type="button" onClick={() => set({ sbResponse: null, sbHistory: [] } as any)} style={linkBtn(A)}>Clear</button>
+            <button type="button" onClick={() => set({ sbResponse: null, sbHistory: [] } as any)} style={linkBtn(A)}><Icon name="trash" size={11} />Clear</button>
           </div>
           {sbHistory.map((h: any) => (
             <button key={h.key} type="button" onClick={h.onClick} style={h.style}>

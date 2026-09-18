@@ -16,12 +16,14 @@ from app.models.user import User
 from app.schemas.account import (
     AccountAuditFeed,
     AvatarUpdate,
+    AuthorizeResponse,
+    CloudExportItem,
     CloudTargetItem,
     CloudTargetsUpdate,
     FieldFavoritesResponse,
     FieldFavoritesUpdate,
-    IntegrationConnectRequest,
     IntegrationResponse,
+    OAuthCallbackRequest,
     NotificationPreferenceResponse,
     NotificationPreferencesUpdate,
     SavedSignatureCreate,
@@ -30,6 +32,8 @@ from app.schemas.account import (
 from app.schemas.auth import CurrentUserResponse, ProfileUpdateRequest
 from app.services.account_service import account_service
 from app.services.auth_service import auth_service
+from app.services.cloud_export_service import cloud_export_service
+from app.services.cloud_integration_service import cloud_integration_service
 
 
 router = APIRouter(tags=["account"])
@@ -239,14 +243,51 @@ def update_cloud_targets(
     return account_service.update_cloud_targets(db, user=user, payload=payload)
 
 
-@router.post("/api/integrations/{provider}/connect", response_model=IntegrationResponse)
-def connect_integration(
+@router.get("/api/integrations/exports", response_model=list[CloudExportItem])
+def list_cloud_exports(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[CloudExportItem]:
+    return cloud_export_service.list_exports(db, organization_id=user.organization_id, limit=limit)
+
+
+@router.post("/api/integrations/exports/{export_id}/retry", response_model=CloudExportItem)
+def retry_cloud_export(
+    export_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+) -> CloudExportItem:
+    return cloud_export_service.retry_export(
+        db, organization_id=user.organization_id, export_id=export_id
+    )
+
+
+@router.post("/api/integrations/{provider}/authorize", response_model=AuthorizeResponse)
+def authorize_integration(
     provider: str,
-    payload: IntegrationConnectRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+) -> AuthorizeResponse:
+    """Start the OAuth dance: where to send the browser, and the signed state.
+
+    Nothing is written yet -- the integration row only exists once the tenant
+    actually comes back from the provider's consent screen.
+    """
+    return cloud_integration_service.begin_authorization(db, user=user, provider=provider)
+
+
+@router.post("/api/integrations/{provider}/callback", response_model=IntegrationResponse)
+def integration_oauth_callback(
+    provider: str,
+    payload: OAuthCallbackRequest,
     db: Session = Depends(get_db),
     user: User = Depends(require_org_admin),
 ) -> IntegrationResponse:
-    return account_service.connect_integration(db, user=user, provider=provider, payload=payload)
+    """Finish the dance: verify the state, exchange the code, store the grant."""
+    return cloud_integration_service.complete_authorization(
+        db, user=user, provider=provider, payload=payload
+    )
 
 
 @router.delete("/api/integrations/{provider}", status_code=status.HTTP_204_NO_CONTENT)

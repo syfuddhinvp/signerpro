@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { fallbackGhost, fallbackPage, fallbackPrimary } from '@/lib/sf/fallback';
 import FallbackHero from '@/components/sf/parts/FallbackHero';
+import Icon from '@/components/sf/Icon';
 
 /** Root error boundary — the layout itself may have failed, so keep this self-contained. */
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
@@ -14,7 +15,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
         digest={error.digest}
         actions={
           <>
-            <button type="button" onClick={reset} style={fallbackPrimary}>Try again</button>
+            <button type="button" onClick={reset} style={fallbackPrimary}><Icon name="refresh" size={14} />Try again</button>
             <Link href="/overview" style={fallbackGhost}>Back to overview</Link>
           </>
         }

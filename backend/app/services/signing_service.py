@@ -837,12 +837,28 @@ class SigningService:
                     document_id=document.id,
                 )
         else:
+            from app.core import email_layout
             from app.core.email import email_service, EmailMessage
+            otp_html = email_layout.shell(
+                email_layout.eyebrow("Verification")
+                + email_layout.heading("Your verification code")
+                + email_layout.paragraph(f"Hello {recipient.name},")
+                + email_layout.paragraph(
+                    "Enter this code to continue signing. It is good for one attempt."
+                )
+                + email_layout.code_panel(otp_code)
+                + email_layout.note(
+                    "This code expires in 10 minutes. If you did not ask to sign a "
+                    "document, do not share it with anyone."
+                ),
+                preheader="Your SignerPro verification code.",
+            )
             delivered = email_service.send(
                 EmailMessage(
                     to_email=recipient.email,
                     subject="SignFlow Verification Code",
                     body=f"Hello {recipient.name},\n\nYour secure verification code is: {otp_code}\n\nThis code will expire in 10 minutes.",
+                    html=otp_html,
                     category="verification",
                     document_id=document.id,
                     # The body *is* the passcode: there is no link to mask and

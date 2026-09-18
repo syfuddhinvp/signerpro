@@ -443,6 +443,54 @@ export function toTemplateRows(items: TemplateResponse[]): TemplateRow[] {
   return items.map(toTemplateRow);
 }
 
+/**
+ * A template as the overview's "Start from a template" cards draw it: enough
+ * shape (pages, fields, recipients) to sketch a preview of the form without
+ * fetching its PDF, which no thumbnail endpoint serves.
+ */
+export type TemplateCard = {
+  templateId: string;
+  title: string;
+  /** "3 pages · 12 fields · 2 signers" — the card's meta line. */
+  meta: string;
+  /** `doc_type` as a chip, when the template has one. */
+  docType: string;
+  /** Page count, clamped to what the mini preview can draw. */
+  pages: number;
+  fields: number;
+  uses: number;
+};
+
+/** The mini preview draws at most this many sheets, however long the form is. */
+const PREVIEW_PAGES = 3;
+
+export function toTemplateCard(api: TemplateResponse): TemplateCard {
+  const pages = api.page_count ?? 0;
+  const fields = api.field_count ?? 0;
+  const recipients = api.recipient_count ?? 0;
+  return {
+    templateId: api.id,
+    title: api.title,
+    meta: [
+      plural(pages, 'page'),
+      plural(fields, 'field'),
+      plural(recipients, 'signer'),
+    ].join(' · '),
+    docType: api.doc_type || '',
+    pages: Math.min(Math.max(pages, 1), PREVIEW_PAGES),
+    fields,
+    uses: api.use_count ?? 0,
+  };
+}
+
+export function toTemplateCards(items: TemplateResponse[]): TemplateCard[] {
+  return items.map(toTemplateCard);
+}
+
+function plural(n: number, noun: string): string {
+  return n + ' ' + noun + (n === 1 ? '' : 's');
+}
+
 /* ── document library: store filters → API query params ─────────────────── */
 
 /**
@@ -2516,14 +2564,39 @@ export function toInvoiceRows(items: InvoiceResponse[]): InvoiceRow[] {
 
 /* ── plan change preview (GET /api/billing/change-plan/preview) ─────────── */
 
-/** The checkout modal's summary rows, straight off the proration preview. */
+/**
+ * The checkout modal's summary rows, straight off the proration preview.
+ *
+ * A scheduled change is a different story from an immediate one and is told
+ * as one: nothing is charged, nothing is credited, and the date it lands is
+ * the headline. Showing "Prorated today $0.00" for it would be true and
+ * useless.
+ */
 export function toPlanPreviewPairs(preview: PlanChangePreview): [string, string][] {
-  return [
+  if (preview.scheduled) {
+    return [
+      ['Plan', preview.target_plan_name + ' · ' + formatCents(preview.target_amount_cents)],
+      ['Seats', preview.seats_licensed.toLocaleString('en-US')],
+      ['Starts', preview.effective_at ? formatDate(preview.effective_at) : 'End of this period'],
+      ['Due today', 'Nothing · you keep ' + preview.current_plan_name + ' until then'],
+    ];
+  }
+  const rows: [string, string][] = [
     ['Plan', preview.target_plan_name + ' · ' + formatCents(preview.target_amount_cents)],
     ['Seats', preview.seats_licensed.toLocaleString('en-US')],
-    [preview.proration_cents < 0 ? 'Credited today' : 'Prorated today', formatCents(preview.proration_cents)],
-    ['Next invoice', formatCents(preview.next_invoice_total_cents)],
   ];
+  if (preview.wallet_applied_cents > 0) {
+    // Balance is spent before the card, so the card figure is what the tenant
+    // is actually about to be charged.
+    rows.push(['Account balance', '−' + formatCents(preview.wallet_applied_cents)]);
+    rows.push(['Charged today', formatCents(preview.charge_cents)]);
+  } else if (preview.wallet_credit_cents > 0) {
+    rows.push(['Credited to balance', formatCents(preview.wallet_credit_cents)]);
+  } else {
+    rows.push(['Prorated today', formatCents(preview.amount_due_cents)]);
+  }
+  rows.push(['Next invoice', formatCents(preview.next_invoice_total_cents)]);
+  return rows;
 }
 
 /* ── payment failures (402 from POST /api/invoices/{id}/pay) ────────────── */
@@ -2787,13 +2860,57 @@ export function toSecurityRows(items: PlatformApi.SecurityPostureRow[]): Securit
   }));
 }
 
-/** Certification chip. `in_process` renders the design's "(in process)" suffix. */
-export function certificationLabel(row: { name: string; status: string }): string {
-  return row.status === 'certified' ? row.name : row.name + ' (' + row.status.replace(/_/g, ' ') + ')';
+/** Certification chip. Anything but a current attestation says so in the label. */
+export function certificationLabel(row: { name: string; status: string; effective_status?: string }): string {
+  const status = row.effective_status || row.status;
+  return status === 'certified' ? row.name : row.name + ' (' + status.replace(/_/g, ' ') + ')';
 }
 
-export function toCertificationLabels(api: PlatformApi.ComplianceResponse): string[] {
-  return (api.certifications ?? []).map(certificationLabel);
+export type CertificationView = {
+  id: string;
+  name: string;
+  /** What the operator recorded — what the editor's status control shows. */
+  status: string;
+  /** What is shown: `status`, or `expired` once the attestation has lapsed. */
+  effectiveStatus: string;
+  label: string;
+  /** The evidence, as one line: auditor, dates, and whether a report is linked. */
+  evidence: string;
+  auditor: string;
+  assessedOn: string;
+  expiresOn: string;
+  evidenceUrl: string;
+  notes: string;
+};
+
+/** Is this status one a customer would read as proof of a completed audit? */
+export function certificationIsCurrent(row: { effective_status?: string; status: string }): boolean {
+  return (row.effective_status || row.status) === 'certified';
+}
+
+export function toCertificationViews(api: PlatformApi.ComplianceResponse): CertificationView[] {
+  return (api.certifications ?? []).map(row => {
+    /* The evidence line is the point of the panel: a "certified" chip with no
+       auditor and no report behind it is a claim, and it has to read as one. */
+    const parts: string[] = [];
+    if (row.auditor) parts.push(row.auditor);
+    if (row.assessed_on) parts.push('assessed ' + row.assessed_on);
+    if (row.expires_on) parts.push((row.expired ? 'expired ' : 'expires ') + row.expires_on);
+    if (!row.evidence_url && certificationIsCurrent(row)) parts.push('no report linked');
+    return {
+      id: row.id,
+      name: row.name,
+      status: row.status,
+      effectiveStatus: row.effective_status || row.status,
+      label: certificationLabel(row),
+      evidence: parts.length ? parts.join(' · ') : 'No evidence recorded.',
+      auditor: row.auditor ?? '',
+      assessedOn: row.assessed_on ?? '',
+      expiresOn: row.expires_on ?? '',
+      evidenceUrl: row.evidence_url ?? '',
+      notes: row.notes ?? '',
+    };
+  });
 }
 
 /** The compliance footnote, carrying the API's real rotation interval. */
@@ -2941,15 +3058,24 @@ export function toRevenueStats(summary: PlatformApi.RevenueSummary): PlatformSta
 /** The four balance tiles (`BALANCE_TILES` in the prototype). */
 export function toBalanceTiles(balance: PlatformApi.BalanceResponse): { label: string; value: string; meta: string }[] {
   const currency = balance.currency || 'USD';
+  const others = balance.other_currencies ?? [];
+  /* A balance read from the provider and one inferred from our own charge rows
+     are different claims, and only one of them is what is in the account. The
+     tile says which, so $0.00 is never silently attributed to the provider. */
+  const basis = balance.source === 'ledger' ? 'estimated from charges' : 'available to pay out';
   return [
     { label:'AVAILABLE', value: formatCents(balance.available_cents, currency),
-      meta: currency.toLowerCase() + ' · available to pay out' },
+      meta: others.length
+        ? currency.toLowerCase() + ' · plus ' + others.join(', ').toLowerCase()
+        : currency.toLowerCase() + ' · ' + basis },
     { label:'PENDING', value: formatCents(balance.pending_cents, currency),
-      meta: balance.pending_settles_at ? 'settles ' + formatDate(balance.pending_settles_at) : 'nothing in transit' },
+      meta: balance.pending_settles_at ? 'settles ' + formatDate(balance.pending_settles_at)
+        : balance.pending_cents ? 'in transit' : 'nothing in transit' },
     { label:'NEXT PAYOUT', value: formatCents(balance.next_payout_cents, currency),
       meta: (balance.next_payout_at ? formatDate(balance.next_payout_at) : 'unscheduled') + ' · ' + balance.payout_destination },
     { label:'DISPUTES', value: formatCents(balance.disputes_cents, currency),
-      meta: balance.dispute_count + ' open · ' + balance.dispute_rate_pct.toFixed(1) + '% rate' },
+      meta: balance.dispute_count + ' open · '
+        + (balance.dispute_rate_pct == null ? 'rate n/a' : balance.dispute_rate_pct.toFixed(1) + '% rate') },
   ];
 }
 

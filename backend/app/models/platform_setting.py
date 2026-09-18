@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from datetime import date
+
+from sqlalchemy import Boolean, Date, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -41,10 +43,28 @@ class IpAllowlistEntry(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 
 class Certification(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """An operator-maintained compliance record.
+
+    The platform cannot substantiate an audit, so every field here is a claim
+    the operator entered. ``certified`` is only meaningful alongside the
+    evidence columns — who issued the attestation, when, until when, and where
+    the report lives — which is why the API refuses a bare "certified".
+    """
+
     __tablename__ = "certifications"
     __table_args__ = (Index("ix_certifications_name", "name", unique=True),)
 
     name: Mapped[str] = mapped_column(String(80), nullable=False)
-    # certified | in_process
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="certified", server_default="certified")
+    # not_assessed | in_process | certified
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="not_assessed", server_default="not_assessed")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: Name of the firm that issued the attestation.
+    auditor: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    #: When the attestation was issued, and when it lapses. A ``certified`` row
+    #: past ``expires_on`` reports as expired rather than as current evidence.
+    assessed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    #: Where the report itself can be read.
+    evidence_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

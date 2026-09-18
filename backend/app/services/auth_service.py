@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import request_ip, request_user_agent
 from app.core.config import get_settings
+from app.core import email_layout
 from app.core.email import EmailMessage, email_service
 from app.core.logging import get_logger
 from app.core.security import (
@@ -612,6 +613,23 @@ class AuthService:
         settings = get_settings()
         link = f"{settings.app_base_url.rstrip('/')}/reset-password?token={raw_token}"
         organization = db.get(Organization, user.organization_id)
+        expiry = (
+            f"This link can be used once and expires in {PASSWORD_RESET_TTL_MINUTES} minutes. "
+            "If you did not request it, you can safely ignore this email -- your "
+            "password stays as it is."
+        )
+        html = email_layout.shell(
+            email_layout.eyebrow("Account security")
+            + email_layout.heading("Reset your password")
+            + email_layout.paragraph(f"Hello {user.name},")
+            + email_layout.paragraph(
+                "We received a request to reset the password on your SignerPro account."
+            )
+            + email_layout.button("Set a new password", link)
+            + email_layout.fallback_link(link)
+            + email_layout.note(expiry),
+            preheader="Set a new SignerPro password.",
+        )
         email_service.send(
             EmailMessage(
                 to_email=user.email,
@@ -620,9 +638,9 @@ class AuthService:
                     f"Hello {user.name},\n\n"
                     "We received a request to reset your SignerPro password.\n"
                     f"Set a new password here: {link}\n\n"
-                    f"This link can be used once and expires in {PASSWORD_RESET_TTL_MINUTES} minutes.\n"
-                    "If you did not request this, you can safely ignore this email."
+                    f"{expiry}"
                 ),
+                html=html,
                 category="auth",
             ),
             organization=organization,

@@ -165,6 +165,7 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
   const iconAction: CSSProperties = {
     height:'26px', padding:'0 9px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff',
     cursor:'pointer', fontSize:'.71875rem', color:'#475569',
+    display:'inline-flex', alignItems:'center', gap:'5px',
   };
 
   return (
@@ -246,14 +247,14 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
             onClick={() => run(notificationsApi.markAllRead(apiCall))}
             disabled={busy || facets.unread === 0}
             style={{ ...btn('#fff', '#475569', '#e3e7ee'), opacity: facets.unread === 0 ? .5 : 1 }}
-          >Mark all read</button>
+          ><Icon name="check" size={13} />Mark all read</button>
           <button
             type="button"
             onClick={() => run(notificationsApi.clearRead(apiCall))}
             disabled={busy || facets.read === 0}
             title="Deletes read notifications. Unread ones are kept."
             style={{ ...btn('#fff', '#475569', '#e3e7ee'), opacity: facets.read === 0 ? .5 : 1 }}
-          >Clear read</button>
+          ><Icon name="trash" size={13} />Clear read</button>
         </div>
       </div>
 
@@ -261,16 +262,16 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
       {selected.length ? (
         <div role="group" aria-label="Selection actions" style={{ ...cardStyle, flexDirection:'row', alignItems:'center', gap:'9px', padding:'11px 14px' }}>
           <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{selected.length} selected</span>
-          <button type="button" onClick={() => applyBulk('read')} disabled={busy} style={iconAction}>Mark read</button>
+          <button type="button" onClick={() => applyBulk('read')} disabled={busy} style={iconAction}><Icon name="check" size={12} />Mark read</button>
           {/* Undo, because reading is otherwise final and a bulk misclick is easy. */}
-          <button type="button" onClick={() => applyBulk('unread')} disabled={busy} style={iconAction}>Mark unread</button>
+          <button type="button" onClick={() => applyBulk('unread')} disabled={busy} style={iconAction}><Icon name="undo" size={12} />Mark unread</button>
           <button
             type="button"
             onClick={() => applyBulk('delete')}
             disabled={busy}
             style={{ ...iconAction, marginLeft:'auto', borderColor:'#fecaca', color:'#b91c1c' }}
-          >Delete</button>
-          <button type="button" onClick={() => setSelected([])} style={iconAction}>Clear selection</button>
+          ><Icon name="trash" size={12} />Delete</button>
+          <button type="button" onClick={() => setSelected([])} style={iconAction}><Icon name="close" size={12} />Clear selection</button>
         </div>
       ) : null}
 
@@ -339,9 +340,9 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
 
               <div style={{ display:'flex', gap:'6px', flex:'0 0 auto', alignItems:'center' }}>
                 {row.read_at ? (
-                  <button type="button" onClick={() => run(notificationsApi.markUnread(apiCall, row.id))} disabled={busy} style={iconAction}>Unread</button>
+                  <button type="button" onClick={() => run(notificationsApi.markUnread(apiCall, row.id))} disabled={busy} style={iconAction}><Icon name="undo" size={12} />Unread</button>
                 ) : (
-                  <button type="button" onClick={() => run(notificationsApi.markRead(apiCall, row.id))} disabled={busy} style={iconAction}>Read</button>
+                  <button type="button" onClick={() => run(notificationsApi.markRead(apiCall, row.id))} disabled={busy} style={iconAction}><Icon name="check" size={12} />Read</button>
                 )}
                 <button
                   type="button"
@@ -361,7 +362,7 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
               type="button"
               onClick={() => setLimit(value => value + PAGE_SIZE)}
               style={btn('#fff', '#475569', '#e3e7ee')}
-            >Show more</button>
+            ><Icon name="caretDown" size={13} />Show more</button>
           </div>
         ) : null}
       </div>

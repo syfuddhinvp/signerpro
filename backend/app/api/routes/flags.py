@@ -19,10 +19,11 @@ from app.core.database import get_db
 from app.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from app.models.mixins import now_utc
 from app.models.organization import Organization
-from app.models.platform_setting import IpAllowlistEntry, SecurityPosture
+from app.models.platform_setting import Certification, IpAllowlistEntry, SecurityPosture
 from app.models.user import User
 from app.schemas.platform import (
     CertificationRow,
+    CertificationUpdate,
     ComplianceResponse,
     FeatureFlagResponse,
     FeatureFlagUpdate,
@@ -348,8 +349,97 @@ def get_compliance(
     if implemented and rotation is not None and rotation.enabled:
         last_rotation = rotation.updated_at
     return ComplianceResponse(
-        certifications=[CertificationRow.model_validate(row) for row in certifications],
+        certifications=[
+            CertificationRow(**platform_service.certification_view(row)) for row in certifications
+        ],
         last_key_rotation_at=last_rotation,
         rotation_interval_days=platform_service.KEY_ROTATION_INTERVAL_DAYS,
         key_rotation_implemented=implemented,
     )
+
+
+@platform_router.patch("/compliance/certifications/{certification_id}", response_model=CertificationRow)
+def update_certification(
+    certification_id: str,
+    payload: CertificationUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> CertificationRow:
+    """Record what the operator knows about one certification.
+
+    ``certified`` is the only status a customer would read as proof, so it is
+    the only one with a precondition: the auditor, the assessment date and a
+    link to the report must all be present once the change is applied. Without
+    that the row is a claim with nothing behind it, which is exactly what the
+    compliance panel exists to avoid.
+    """
+    platform_service.ensure_certifications(db)
+    row = db.get(Certification, certification_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Certification not found")
+
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        return CertificationRow(**platform_service.certification_view(row))
+
+    new_status = changes.get("status", row.status)
+    if new_status not in platform_service.CERTIFICATION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="status must be one of: "
+            + ", ".join(sorted(platform_service.CERTIFICATION_STATUSES)),
+        )
+
+    url = changes.get("evidence_url", row.evidence_url)
+    if url and not url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="evidence_url must be an http(s) link to the report",
+        )
+
+    resolved = {field: changes.get(field, getattr(row, field)) for field in platform_service.CERTIFICATION_EVIDENCE_FIELDS}
+    if new_status == platform_service.CERTIFICATION_CERTIFIED:
+        missing = [field for field, value in resolved.items() if not value]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A certified record needs its evidence: " + ", ".join(sorted(missing)),
+            )
+
+    assessed = changes.get("assessed_on", row.assessed_on)
+    expires = changes.get("expires_on", row.expires_on)
+    if assessed and expires and expires < assessed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="expires_on cannot precede assessed_on",
+        )
+
+    before = row.status
+    for field, value in changes.items():
+        setattr(row, field, value)
+    row.updated_by_user_id = admin.id
+    db.add(row)
+
+    view = platform_service.certification_view(row)
+    platform_service.record_platform_audit(
+        db,
+        action="certification.updated",
+        actor=admin,
+        detail=f"{row.name}: {before} → {view['effective_status']}"
+        + (f" · evidence {row.evidence_url}" if row.evidence_url else " · no evidence recorded"),
+        ip_address=request_ip(request),
+        metadata={
+            "certification_id": row.id,
+            "name": row.name,
+            "status": row.status,
+            "effective_status": view["effective_status"],
+            "auditor": row.auditor,
+            "assessed_on": row.assessed_on.isoformat() if row.assessed_on else None,
+            "expires_on": row.expires_on.isoformat() if row.expires_on else None,
+            "evidence_url": row.evidence_url,
+        },
+    )
+    db.commit()
+    db.refresh(row)
+    return CertificationRow(**platform_service.certification_view(row))

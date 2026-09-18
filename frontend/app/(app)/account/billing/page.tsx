@@ -11,6 +11,7 @@ import type {
   InvoiceResponse,
   SubscriptionResponse,
   UpcomingInvoiceResponse,
+  Wallet,
 } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
 
@@ -38,6 +39,10 @@ const FALLBACK_SUB: SubscriptionResponse = {
   cycle: 'monthly',
   next_invoice_total_cents: 0,
   next_invoice_at: null,
+  has_provider_subscription: false,
+  pending_plan_code: null,
+  pending_plan_name: null,
+  pending_plan_effective_at: null,
 };
 
 const FALLBACK_SETTINGS: BillingSettingsResponse = {
@@ -75,7 +80,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ s
   const filter = status && FILTERS.indexOf(status) > -1 ? status : 'all';
   const api = serverCaller('/account/billing');
 
-  const [subResult, settingsResult, pmResult, upcomingResult, chargesResult, invoiceResult, orgResult] = await Promise.all([
+  const [subResult, settingsResult, pmResult, upcomingResult, chargesResult, invoiceResult, orgResult, walletResult] = await Promise.all([
     billingApi.subscription(api),
     billingApi.settings(api),
     billingApi.paymentMethods(api),
@@ -87,10 +92,16 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ s
       query: { status: filter === 'all' ? undefined : filter, scope: 'organization' },
     }),
     organizationsApi.me(api),
+    billingApi.wallet(api, { limit: 10 }),
   ]);
 
   const paymentMethods: PaymentMethodResponse[] = pmResult.ok ? pmResult.data : [];
   const charges: ChargeResponse[] = chargesResult.ok ? chargesResult.data : [];
+  /* A workspace that has never held balance still renders: an empty wallet is
+     the correct answer, not an error. */
+  const wallet: Wallet = walletResult.ok
+    ? walletResult.data
+    : { balance_cents: 0, currency: 'USD', withdrawable: false, total: 0, entries: [] };
 
   return (
     <>
@@ -105,6 +116,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ s
         paymentMethods={paymentMethods}
         upcoming={upcomingResult.ok ? upcomingResult.data : FALLBACK_UPCOMING}
         charges={charges}
+        wallet={wallet}
       />
       {!invoiceResult.ok ? (
         <div style={{ padding: '22px 22px 0' }}>

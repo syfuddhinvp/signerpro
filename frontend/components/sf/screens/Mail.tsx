@@ -5,7 +5,9 @@
  *
  * Every message the product sends is recorded by the email gateway itself, so
  * this screen is a read model over that record plus the one place a human
- * composes mail by hand.
+ * composes mail by hand -- which opens as its own window (`MailComposer`)
+ * rather than as a panel above the list, so the mailbox stays on screen while
+ * a message is being written.
  *
  * Two things about the reading pane are deliberate. The stored body has had
  * its bearer links masked by the backend, so what is shown is the message's
@@ -23,9 +25,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useSF } from '@/lib/sf/state';
 import { apiCall } from '@/lib/api/browser';
 import { mail as mailApi } from '@/lib/api/resources';
-import { btn, inputStyle, lbl, pill, TEXT_MUTED, TONE_BAD, TONE_GOOD, TONE_MUTED, TONE_NEUTRAL } from '@/lib/sf/ui';
+import { btn, inputStyle, pill, TEXT_MUTED, TONE_BAD, TONE_GOOD, TONE_MUTED, TONE_NEUTRAL } from '@/lib/sf/ui';
 import type { MailLogPage, MailLogRow } from '@/lib/api/types';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
+import MailComposer from '@/components/sf/MailComposer';
+import Icon from '@/components/sf/Icon';
 
 export type MailProps = {
   /** `GET /api/saas/mail` as the server render saw it. */
@@ -86,7 +90,7 @@ const CARD: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', bor
 const PANE_HEIGHT = 'calc(100vh - 210px)';
 
 export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
-  const { flash, accent } = useSF();
+  const { accent } = useSF();
   const A = accent();
 
   const [mailPage, setMailPage] = useState<MailLogPage>(page);
@@ -107,12 +111,6 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
   const [asHtml, setAsHtml] = useState(true);
 
   const [composing, setComposing] = useState(false);
-  const [to, setTo] = useState('');
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
-  const [sendHtml, setSendHtml] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [composeError, setComposeError] = useState<string | null>(null);
 
   /* A page that already has rows was fetched by the server render; re-querying
      it immediately would be the same request twice. */
@@ -152,37 +150,6 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
     });
   };
 
-  const send = () => {
-    /* Comma, semicolon or newline: an admin pasting a list from anywhere else
-       should not have to reformat it first. */
-    const addresses = to.split(/[,;\n]/).map(a => a.trim()).filter(Boolean);
-    if (!addresses.length) { setComposeError('Add at least one recipient.'); return; }
-    if (!subject.trim()) { setComposeError('Add a subject.'); return; }
-    if (!body.trim()) { setComposeError('The message is empty.'); return; }
-
-    setSending(true);
-    setComposeError(null);
-    void mailApi.send(apiCall, { to: addresses, subject: subject.trim(), body, send_html: sendHtml })
-      .then(res => {
-        setSending(false);
-        if (!res.ok) { setComposeError(res.error.message); return; }
-        const { sent, failed } = res.data;
-        reload();
-        if (failed) {
-          /* A partial failure stays on screen, and the composer stays open with
-             the message still in it. A toast that says "1 failed" and then
-             disappears leaves an admin with no way to tell which recipients
-             were reached — and re-sending to all of them double-mails the ones
-             who already received it. The rows carry the provider's reason. */
-          setComposeError(`Sent to ${sent}. Failed for ${failed} — the rows carry the provider's reason.`);
-          return;
-        }
-        flash(`Sent to ${sent} recipient${sent === 1 ? '' : 's'}.`);
-        setComposing(false);
-        setTo(''); setSubject(''); setBody('');
-      });
-  };
-
   const chip = (on: boolean): CSSProperties => ({
     height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer',
     fontSize:'.75rem', fontWeight: on ? 600 : 500, whiteSpace:'nowrap',
@@ -205,9 +172,7 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
 
       {/* toolbar */}
       <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
-        <button type="button" onClick={() => setComposing(c => !c)} style={btn(A, '#fff', A)}>
-          {composing ? 'Close composer' : 'Compose'}
-        </button>
+        <button type="button" onClick={() => setComposing(true)} style={btn(A, '#fff', A)}>Compose</button>
         <input type="search" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search mail"
           placeholder="Search recipient or subject…"
           style={{ ...inputStyle, flex:1, minWidth:'180px', width:'auto' }} />
@@ -228,43 +193,7 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
       </div>
 
       {composing ? (
-        <div style={{ ...CARD, padding:'16px 16px 18px', display:'flex', flexDirection:'column', gap:'12px' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'12px' }}>
-            <label style={lbl}>
-              Recipients
-              <input value={to} onChange={e => setTo(e.target.value)} style={inputStyle}
-                placeholder="ada@acme.com, ops@acme.com" />
-            </label>
-            <label style={lbl}>
-              Subject
-              <input value={subject} onChange={e => setSubject(e.target.value)} style={inputStyle}
-                placeholder="Scheduled maintenance on Sunday" />
-            </label>
-          </div>
-          <label style={lbl}>
-            Message
-            <textarea value={body} onChange={e => setBody(e.target.value)} rows={7}
-              placeholder={'Hello,\n\nA blank line starts a new paragraph.'}
-              style={{ border:'1px solid #e3e7ee', borderRadius:'10px', padding:'10px 11px', fontSize:'.78125rem',
-                lineHeight:1.7, resize:'vertical', outline:'none', width:'100%', color:'#0f172a', background:'#fff',
-                fontFamily:'inherit', textTransform:'none', letterSpacing:'normal' }} />
-          </label>
-          <div style={{ display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap' }}>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:'7px', fontSize:'.75rem', color:'#334155' }}>
-              <input type="checkbox" checked={sendHtml} onChange={e => setSendHtml(e.target.checked)} />
-              Also send a branded HTML part
-            </label>
-            <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, flex:1, minWidth:'200px' }}>
-              Sent as plain text with paragraphs. Your text is escaped, never treated as markup.
-            </span>
-            <button type="button" onClick={send} disabled={sending} style={{ ...btn(A, '#fff', A), opacity: sending ? .6 : 1 }}>
-              {sending ? 'Sending…' : 'Send'}
-            </button>
-          </div>
-          {composeError ? (
-            <p role="alert" style={{ margin:0, fontSize:'.75rem', color:'#b91c1c' }}>{composeError}</p>
-          ) : null}
-        </div>
+        <MailComposer onClose={() => setComposing(false)} onSent={reload} />
       ) : null}
 
       {/* the mailbox: list pane + reading pane */}
@@ -335,7 +264,7 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
                   <span style={{ ...pill(STATUS_TONE[detail.status as keyof typeof STATUS_TONE] ?? TONE_NEUTRAL), flex:'0 0 auto' }}>
                     {STATUS_LABEL[detail.status] ?? detail.status}
                   </span>
-                  <button type="button" onClick={() => setOpenId(null)} style={btn('#fff', '#475569', '#e3e7ee')}>Close</button>
+                  <button type="button" onClick={() => setOpenId(null)} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Close</button>
                 </div>
                 <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
                   <span aria-hidden="true" style={{ width:'34px', height:'34px', borderRadius:'50%', flex:'0 0 auto',

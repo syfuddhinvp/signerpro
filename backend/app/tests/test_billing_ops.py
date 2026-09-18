@@ -8,6 +8,7 @@ than stubbing the endpoints out.
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.security import hash_password
@@ -16,10 +17,10 @@ from app.models.charge import Charge
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mixins import now_utc
 from app.models.payment_method import PaymentMethod
-from app.models.subscription import ProcessedWebhookEvent
+from app.models.subscription import ProcessedWebhookEvent, Subscription
 from app.models.user import User
-from app.services.billing_service import DEV_DECLINE_MARKER
-from app.tests.conftest import auth_headers, upgrade_plan
+from app.services.billing_service import DEV_DECLINE_MARKER, billing_service
+from app.tests.conftest import add_payment_method, auth_headers, upgrade_plan
 
 
 def _db():
@@ -67,6 +68,22 @@ def _add_users(org_id: str, count: int, *, prefix: str = "member") -> None:
                 role="sender",
             )
         )
+    session.commit()
+    generator.close()
+
+
+def _lapse_period(client: TestClient, headers: dict[str, str], org_id: str) -> None:
+    """Age the subscription so the next renewal run closes its period."""
+    client.get("/api/billing/subscription", headers=headers)  # materialises the row
+    session, generator = _db()
+    subscription = session.scalar(
+        select(Subscription).where(Subscription.organization_id == org_id)
+    )
+    subscription.current_period_start = now_utc() - timedelta(days=31)
+    subscription.current_period_end = now_utc() - timedelta(minutes=1)
+    if subscription.pending_plan_id:
+        subscription.pending_plan_effective_at = now_utc() - timedelta(minutes=1)
+    session.add(subscription)
     session.commit()
     generator.close()
 
@@ -197,28 +214,145 @@ def test_seat_addition_respects_the_plans_user_entitlement(client: TestClient) -
     assert blocked.json()["detail"]["limit"] == "max_users"
 
 
-def test_entitlements_tighten_again_after_a_downgrade(client: TestClient) -> None:
+def test_a_downgrade_that_would_lock_users_out_is_refused(client: TestClient) -> None:
+    """Being over the target plan's user cap is a blocker, not a surprise.
+
+    This used to succeed and only fail afterwards, when the entitlement
+    service began returning 402s on work that had been succeeding.
+    """
     headers = auth_headers(client)
     client.get("/api/billing/plans")
     org_id = _org_id(client, headers)
     upgrade_plan(client, headers, "business")
 
-    # Business allows 10 users, so a third seat is invitable.
+    # Three members on a plan that allows ten.
     _add_users(org_id, 2)
-    invited = client.post("/api/invitations/", json={"email": "fourth@example.com"}, headers=headers)
-    assert invited.status_code == 201, invited.text
 
-    client.post("/api/billing/change-plan", json={"plan_code": "team"}, headers=headers)
+    blocked = client.post("/api/billing/change-plan", json={"plan_code": "team"}, headers=headers)
+    assert blocked.status_code == 409, blocked.text
+    detail = blocked.json()["detail"]
+    assert detail["error"] == "plan_change_blocked"
+    blocker = detail["blockers"][0]
+    assert blocker["code"] == "over_user_limit"
+    assert blocker["current"] == 3
+    assert blocker["limit"] == 2
+    # The remedy is stated in numbers, not as "reduce your usage".
+    assert "Remove 1 member" in blocker["remedy"]
+
+    # Still on business, and still able to use it.
+    assert client.get("/api/billing/usage", headers=headers).json()["plan_code"] == "business"
+
+
+def test_a_downgrade_is_scheduled_and_entitlements_hold_until_it_lands(
+    client: TestClient,
+) -> None:
+    """The tenant paid through the period end, so they keep the plan until then."""
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    org_id = _org_id(client, headers)
+    upgrade_plan(client, headers, "business")
+
+    preview = client.get(
+        "/api/billing/change-plan/preview", params={"plan_code": "team"}, headers=headers
+    ).json()
+    assert preview["direction"] == "downgrade"
+    assert preview["scheduled"] is True
+    assert preview["amount_due_cents"] == 0
+    # Nothing is forfeited, so nothing is credited.
+    assert preview["wallet_credit_cents"] == 0
+
+    scheduled = client.post("/api/billing/change-plan", json={"plan_code": "team"}, headers=headers)
+    assert scheduled.status_code == 200, scheduled.text
+    body = scheduled.json()
+    assert body["plan_code"] == "business"
+    assert body["pending_plan_code"] == "team"
+    assert body["pending_plan_effective_at"] is not None
+
+    # Business entitlements are intact in the meantime.
+    usage = client.get("/api/billing/usage", headers=headers).json()
+    assert usage["plan_code"] == "business"
+    assert usage["limits"]["max_users"]["limit"] == 10
+
+    # The renewal applies it, and only then do the limits tighten.
+    _lapse_period(client, headers, org_id)
+    session, generator = _db()
+    report = billing_service.run_renewals(session)
+    generator.close()
+    assert report["plan_changes_applied"] == 1
+
     usage = client.get("/api/billing/usage", headers=headers).json()
     assert usage["plan_code"] == "team"
     assert usage["limits"]["max_users"]["limit"] == 2
-    assert usage["limits"]["max_users"]["exceeded"] is True
+    assert client.get("/api/billing/subscription", headers=headers).json()["pending_plan_code"] is None
 
-    blocked = client.post("/api/invitations/", json={"email": "fifth@example.com"}, headers=headers)
-    assert blocked.status_code == 402
-    detail = blocked.json()["detail"]
-    assert detail["limit"] == "max_users"
-    assert detail["plan"] == "team"
+
+def test_a_scheduled_downgrade_can_be_called_off(client: TestClient) -> None:
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    upgrade_plan(client, headers, "business")
+    client.post("/api/billing/change-plan", json={"plan_code": "team"}, headers=headers)
+
+    undone = client.delete("/api/billing/change-plan/pending", headers=headers)
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["pending_plan_code"] is None
+    assert undone.json()["plan_code"] == "business"
+
+
+def test_a_scheduled_downgrade_is_abandoned_if_the_org_outgrew_the_target(
+    client: TestClient,
+) -> None:
+    """Re-checked when it lands, not only when it was requested.
+
+    An organization that hired during the period would otherwise be dropped
+    onto a plan that cannot hold its own members.
+    """
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    org_id = _org_id(client, headers)
+    upgrade_plan(client, headers, "business")
+    client.post("/api/billing/change-plan", json={"plan_code": "team"}, headers=headers)
+
+    _add_users(org_id, 4)  # five users; team allows two
+    _lapse_period(client, headers, org_id)
+    session, generator = _db()
+    report = billing_service.run_renewals(session)
+    generator.close()
+
+    assert report["plan_changes_applied"] == 0
+    subscription = client.get("/api/billing/subscription", headers=headers).json()
+    assert subscription["plan_code"] == "business"
+    assert subscription["pending_plan_code"] is None
+
+
+def test_an_immediate_downgrade_credits_the_wallet_rather_than_forfeiting(
+    client: TestClient,
+) -> None:
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    upgrade_plan(client, headers, "business")
+
+    preview = client.get(
+        "/api/billing/change-plan/preview",
+        params={"plan_code": "team", "effective": "immediately"},
+        headers=headers,
+    ).json()
+    assert preview["scheduled"] is False
+    expected_credit = preview["wallet_credit_cents"]
+    assert expected_credit > 0
+
+    applied = client.post(
+        "/api/billing/change-plan",
+        json={"plan_code": "team", "effective": "immediately"},
+        headers=headers,
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["plan_code"] == "team"
+
+    wallet = client.get("/api/billing/wallet", headers=headers).json()
+    assert wallet["balance_cents"] == expected_credit
+    assert wallet["withdrawable"] is False
+    assert wallet["entries"][0]["kind"] == "downgrade_proration"
+    assert wallet["entries"][0]["amount_cents"] == expected_credit
 
 
 def test_usage_rows_render_every_metered_dimension(client: TestClient) -> None:
@@ -738,3 +872,84 @@ def test_platform_health_reports_derived_components(client: TestClient) -> None:
         "Collections",
     }
     assert all(c["tone"] in {"good", "warn", "bad"} for c in components)
+
+
+def test_losing_a_feature_in_use_warns_but_does_not_refuse(client: TestClient) -> None:
+    """Feature loss is a choice a tenant may make; capacity loss is not.
+
+    The distinction is the one product call in `plan_change_service`, so it is
+    asserted rather than left to the reader of the code.
+    """
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    upgrade_plan(client, headers, "business")
+    minted = client.post(
+        "/api/api-keys",
+        json={"label": "Server key", "mode": "live", "scopes": ["documents:read"]},
+        headers=headers,
+    )
+    assert minted.status_code == 201, minted.text
+
+    preview = client.get(
+        "/api/billing/change-plan/preview", params={"plan_code": "team"}, headers=headers
+    ).json()
+    assert preview["blockers"] == []
+    assert preview["allowed"] is True
+    warning = next(issue for issue in preview["warnings"] if issue["code"] == "api_access_lost")
+    assert warning["current"] == 1
+    assert "API requests will be rejected" in warning["message"]
+
+    # Warned, not refused.
+    assert client.post(
+        "/api/billing/change-plan", json={"plan_code": "team"}, headers=headers
+    ).status_code == 200
+
+
+def test_an_unused_feature_does_not_raise_a_warning(client: TestClient) -> None:
+    """Nothing depends on it, so there is nothing to confirm."""
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    upgrade_plan(client, headers, "business")
+
+    preview = client.get(
+        "/api/billing/change-plan/preview", params={"plan_code": "team"}, headers=headers
+    ).json()
+    assert preview["warnings"] == []
+
+
+def test_a_stale_quote_is_refused_rather_than_charged(client: TestClient) -> None:
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    add_payment_method(client, headers)
+
+    refused = client.post(
+        "/api/billing/change-plan",
+        json={"plan_code": "business", "quoted_amount_cents": 1},
+        headers=headers,
+    )
+    assert refused.status_code == 409, refused.text
+    detail = refused.json()["detail"]
+    assert detail["error"] == "quote_expired"
+    assert detail["quoted_cents"] == 1
+    assert detail["actual_cents"] > 1
+    # Still on the old plan: nothing was charged and nothing moved.
+    assert client.get("/api/billing/subscription", headers=headers).json()["plan_code"] == "team"
+
+
+def test_a_double_submitted_upgrade_is_charged_once(client: TestClient) -> None:
+    headers = auth_headers(client)
+    client.get("/api/billing/plans")
+    add_payment_method(client, headers)
+
+    first = client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    assert first.status_code == 200, first.text
+    # The same click again, before the UI has caught up.
+    second = client.post("/api/billing/change-plan", json={"plan_code": "business"}, headers=headers)
+    assert second.status_code == 200, second.text
+
+    upgrades = [
+        row
+        for row in client.get("/api/invoices", headers=headers).json()
+        if (row.get("period_label") or "").startswith("Upgrade to Business")
+    ]
+    assert len(upgrades) == 1

@@ -28,6 +28,7 @@ import { useSF } from '@/lib/sf/state';
 import { useModalBehaviour } from '@/components/sf/useModalBehaviour';
 import { btn, inputStyle, lbl, TEXT_MUTED } from '@/lib/sf/ui';
 import { MAX_UPLOAD_BYTES, UPLOAD_ACCEPT, isSupportedUpload, titleFromFilename } from '@/lib/sf/uploads';
+import Icon from '@/components/sf/Icon';
 
 const CATEGORIES: [CatalogCategory, string][] = [
   ['government', 'Government'],
@@ -279,9 +280,9 @@ export default function CatalogFormDialog({ entry = null, onClose, onSaved }: Ca
         </div>
 
         <div style={{ padding: '12px 18px', borderTop: '1px solid #eef1f6', display: 'flex', gap: '7px', justifyContent: 'flex-end' }}>
-          <button type="button" onClick={close} style={btn('#fff', '#475569', '#e3e7ee')}>Cancel</button>
+          <button type="button" onClick={close} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
           <button type="button" onClick={submit} disabled={saving} style={{ ...btn(A, '#fff', A), opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Saving…' : editing ? 'Save details' : 'Create form'}
+            <Icon name={editing ? 'save' : 'plus'} size={13} />{saving ? 'Saving…' : editing ? 'Save details' : 'Create form'}
           </button>
         </div>
       </div>

@@ -118,7 +118,7 @@ export default function SignUpForm() {
           <span style={{ fontSize: '.71875rem', color: '#475569', lineHeight: 1.5, textAlign: 'left' }}>I agree to the Terms of Service, the Electronic Record and Signature Disclosure, and the DPA.</span>
         </button>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
-        <button type="button" onClick={submitSignup} disabled={pending} style={authPrimary}>{pending ? 'Creating account…' : 'Create account'}</button>
+        <button type="button" onClick={submitSignup} disabled={pending} style={authPrimary}><Icon name="addUser" size={14} />{pending ? 'Creating account…' : 'Create account'}</button>
       </div>
     </AuthLayout>
   );

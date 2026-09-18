@@ -8,6 +8,7 @@ import { type ScreenKey, screenForPath, workspaceForPath } from '@/lib/sf/routes
 import { tourSteps } from '@/lib/sf/data';
 import { useOptionalSession } from '@/components/sf/SessionProvider';
 import { btn, linkBtn as linkBtnOf, TEXT_MUTED } from '@/lib/sf/ui';
+import Icon from '@/components/sf/Icon';
 
 /** Breathing room between the highlighted element and the ring around it. */
 const SPOT_PAD = 6;
@@ -236,7 +237,7 @@ export default function Tour() {
       <div style={tourCardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
           <span style={{ fontSize: '.65625rem', letterSpacing: '.06em', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>{tourStepLabel}</span>
-          <button type="button" onClick={tourSkip} style={linkBtn}>Skip tour</button>
+          <button type="button" onClick={tourSkip} style={linkBtn}><Icon name="close" size={11} />Skip tour</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
           <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.3px' }}>{tour.title}</span>
@@ -254,8 +255,8 @@ export default function Tour() {
             {tourDots.map((d, i) => (<span key={i} style={d.style}></span>))}
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '7px' }}>
-            <button type="button" onClick={tourBack} style={ghostBtn}>Back</button>
-            <button type="button" onClick={tourNext} style={primaryBtn}>{tourNextLabel}</button>
+            <button type="button" onClick={tourBack} style={ghostBtn}><Icon name="arrowLeft" size={13} />Back</button>
+            <button type="button" onClick={tourNext} style={primaryBtn}><Icon name="arrowRight" size={13} />{tourNextLabel}</button>
           </div>
         </div>
       </div>

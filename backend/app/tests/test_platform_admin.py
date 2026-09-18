@@ -522,6 +522,75 @@ def test_security_posture_and_compliance(client: TestClient) -> None:
     assert compliance["last_key_rotation_at"] is None
 
 
+def test_certification_record_requires_its_evidence(client: TestClient) -> None:
+    platform, _, _ = _platform_and_tenant(client)
+    rows = client.get("/api/saas/compliance", headers=platform).json()["certifications"]
+    soc2 = next(row for row in rows if row["name"] == "SOC 2 Type II")
+    url = f"/api/saas/compliance/certifications/{soc2['id']}"
+
+    # "In process" is a claim about the operator's own work, so it stands alone.
+    in_process = client.patch(url, json={"status": "in_process"}, headers=platform)
+    assert in_process.status_code == 200
+    assert in_process.json()["effective_status"] == "in_process"
+
+    # "Certified" is the one a customer would read as proof of an audit, so it
+    # cannot be recorded without the report behind it.
+    bare = client.patch(url, json={"status": "certified"}, headers=platform)
+    assert bare.status_code == 400
+    for field in ("auditor", "assessed_on", "evidence_url"):
+        assert field in bare.json()["detail"]
+
+    assert client.patch(url, json={"status": "audited"}, headers=platform).status_code == 400
+    assert client.patch(
+        url,
+        json={"status": "certified", "auditor": "Acme LLP", "assessed_on": "2026-01-15", "evidence_url": "acme.example/report"},
+        headers=platform,
+    ).status_code == 400
+    assert client.patch(
+        url,
+        json={"assessed_on": "2026-01-15", "expires_on": "2025-01-15"},
+        headers=platform,
+    ).status_code == 400
+
+    certified = client.patch(
+        url,
+        json={
+            "status": "certified",
+            "auditor": "Acme LLP",
+            "assessed_on": "2026-01-15",
+            "expires_on": "2027-01-15",
+            "evidence_url": "https://acme.example/soc2.pdf",
+        },
+        headers=platform,
+    )
+    assert certified.status_code == 200
+    body = certified.json()
+    assert body["effective_status"] == "certified" and body["expired"] is False
+
+    # A lapsed attestation stops reading as current on its own: nobody has to
+    # remember to come back and downgrade the row.
+    lapsed = client.patch(
+        url, json={"assessed_on": "2020-01-15", "expires_on": "2021-01-15"}, headers=platform
+    ).json()
+    assert lapsed["status"] == "certified"
+    assert lapsed["effective_status"] == "expired" and lapsed["expired"] is True
+
+    assert client.patch(
+        "/api/saas/compliance/certifications/nope", json={"status": "in_process"}, headers=platform
+    ).status_code == 404
+
+    audit = client.get("/api/saas/audit", headers=platform).json()["items"]
+    entry = next(row for row in audit if row["action"] == "certification.updated")
+    assert "SOC 2 Type II" in entry["detail"]
+
+
+def test_certification_update_is_platform_only(client: TestClient) -> None:
+    platform, tenant, _ = _platform_and_tenant(client)
+    rows = client.get("/api/saas/compliance", headers=platform).json()["certifications"]
+    url = f"/api/saas/compliance/certifications/{rows[0]['id']}"
+    assert client.patch(url, json={"status": "in_process"}, headers=tenant).status_code in (401, 403)
+
+
 # --- Logs ------------------------------------------------------------------
 
 

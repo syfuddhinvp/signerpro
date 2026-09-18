@@ -230,9 +230,9 @@ export default function PaymentModal({
                 <span id="payment-amount-problem" role="alert" style={{ fontSize: '.71875rem', color: '#b91c1c' }}>{amountError}</span>
               ) : null}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={onClose} style={btn('#fff', '#475569', '#e3e7ee')}>Cancel</button>
+                <button type="button" onClick={onClose} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
                 <button type="button" disabled={!!amountError} onClick={() => void startIntent()} style={btn('#4f46e5', '#fff', '#4f46e5')}>
-                  Continue to payment
+                  <Icon name="arrowRight" size={13} />Continue to payment
                 </button>
               </div>
             </>
@@ -265,13 +265,13 @@ export default function PaymentModal({
             <>
               <div role="alert" style={noticeStyle}>{errorMessage || 'The payment could not be completed.'}</div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={onClose} style={btn('#fff', '#475569', '#e3e7ee')}>Close</button>
+                <button type="button" onClick={onClose} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Close</button>
                 <button
                   type="button"
                   onClick={() => { setErrorMessage(null); setIntent(null); void startIntent(); }}
                   style={btn('#4f46e5', '#fff', '#4f46e5')}
                 >
-                  Try again
+                  <Icon name="refresh" size={13} />Try again
                 </button>
               </div>
             </>
@@ -376,9 +376,9 @@ function PaymentForm({
       </div>
       {localError ? <div role="alert" style={noticeStyle}>{localError}</div> : null}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-        <button type="button" onClick={onCancel} style={btn('#fff', '#475569', '#e3e7ee')}>Cancel</button>
+        <button type="button" onClick={onCancel} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
         <button type="submit" disabled={!stripe || submitting} style={btn('#4f46e5', '#fff', '#4f46e5')}>
-          {submitting ? 'Processing…' : `Pay ${formatCents(intent.amount_cents, intent.currency)}`}
+          <Icon name="card" size={13} />{submitting ? 'Processing…' : `Pay ${formatCents(intent.amount_cents, intent.currency)}`}
         </button>
       </div>
     </form>

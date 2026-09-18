@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { loadPdfjs } from './pdfjs';
+import Icon from '@/components/sf/Icon';
 
 /** One page's true size, and the scale it is being drawn at. */
 export type PdfGeometry = {
@@ -212,9 +213,10 @@ function PasswordPrompt({ retry, onSubmit }: { retry: boolean; onSubmit: (passwo
       />
       <button
         type="submit"
-        style={{ height: '36px', borderRadius: '9px', border: '1px solid #4f46e5', background: '#4f46e5', color: '#fff', fontSize: '.8125rem', fontWeight: 600, cursor: 'pointer' }}
+        style={{ height: '36px', borderRadius: '9px', border: '1px solid #4f46e5', background: '#4f46e5', color: '#fff', fontSize: '.8125rem', fontWeight: 600, cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' }}
       >
-        Open document
+        <Icon name="documents" size={14} />Open document
       </button>
     </form>
   );
@@ -273,9 +275,10 @@ export default function PdfPages({
           <button
             type="button"
             onClick={retry}
-            style={{ alignSelf: 'flex-start', height: '32px', padding: '0 14px', borderRadius: '9px', border: '1px solid #e3e7ee', background: '#fff', fontSize: '.78125rem', cursor: 'pointer', color: '#0f172a' }}
+            style={{ alignSelf: 'flex-start', height: '32px', padding: '0 14px', borderRadius: '9px', border: '1px solid #e3e7ee', background: '#fff', fontSize: '.78125rem', cursor: 'pointer', color: '#0f172a',
+              display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
-            Try again
+            <Icon name="refresh" size={13} />Try again
           </button>
         }
       />

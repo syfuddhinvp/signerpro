@@ -76,7 +76,7 @@ export default function ForgotForm() {
           <input type="email" name="email" value={s.authEmail} onChange={(e) => set({ authEmail: e.target.value })} placeholder="you@company.com" autoComplete="username" required style={authInput} />
         </label>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
-        <button type="submit" disabled={pending} style={authPrimary}>{pending ? 'Sending…' : 'Send reset link'}</button>
+        <button type="submit" disabled={pending} style={authPrimary}><Icon name="send" size={14} />{pending ? 'Sending…' : 'Send reset link'}</button>
         <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkBtn, { textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' })}><Icon name="arrowLeft" size={12} />Back to sign in</Link>
       </form>
     </AuthLayout>

@@ -257,17 +257,36 @@ class PaymentIntentRequest(BaseModel):
 def create_payment_intent(
     token: str,
     field_id: str,
+    request: Request,
     payload: PaymentIntentRequest = PaymentIntentRequest(),
     db: Session = Depends(get_db),
 ) -> PaymentIntentResponse:
     return signer_payment_service.create_intent(
-        db, raw_token=token, field_id=field_id, amount_cents=payload.amount_cents
+        db,
+        raw_token=token,
+        field_id=field_id,
+        amount_cents=payload.amount_cents,
+        ip_address=request_ip(request),
+        user_agent=request_user_agent(request),
     )
 
 
 @router.post("/{token}/payments/{field_id}/refresh", response_model=SignerPaymentResponse)
-def refresh_payment(token: str, field_id: str, db: Session = Depends(get_db)) -> SignerPaymentResponse:
-    payment = signer_payment_service.refresh_payment(db, raw_token=token, field_id=field_id)
+def refresh_payment(
+    token: str, field_id: str, request: Request, db: Session = Depends(get_db)
+) -> SignerPaymentResponse:
+    # `request` is here purely for the audit trail. This poll is the only
+    # settlement path where the signer's own browser is the caller, so it is
+    # the only one that can record *who* authorised the charge, from where,
+    # on what device -- the evidence a chargeback or a disputed signature
+    # turns on. The webhook path cannot, and says so instead of guessing.
+    payment = signer_payment_service.refresh_payment(
+        db,
+        raw_token=token,
+        field_id=field_id,
+        ip_address=request_ip(request),
+        user_agent=request_user_agent(request),
+    )
     return SignerPaymentResponse.model_validate(payment)
 
 

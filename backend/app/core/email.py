@@ -1,5 +1,7 @@
+import base64
 import re
 import smtplib
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from dataclasses import dataclass
@@ -42,6 +44,19 @@ def redact_secrets(text: str | None) -> str | None:
 
 
 @dataclass(frozen=True)
+class EmailAttachment:
+    """One file travelling with a message.
+
+    ``content`` is the decoded bytes, not base64: the wire format belongs to
+    whoever carried it here, and each provider below re-encodes for itself.
+    """
+
+    filename: str
+    content_type: str
+    content: bytes
+
+
+@dataclass(frozen=True)
 class EmailMessage:
     to_email: str
     subject: str
@@ -60,6 +75,13 @@ class EmailMessage:
     #: the code, so masking links inside it would leave the code itself. Such a
     #: message is logged with its subject and recipient but no body at all.
     body_is_secret: bool = False
+    #: Visible carbon copies. Every recipient sees these addresses.
+    cc: tuple[str, ...] = ()
+    #: Blind copies. Delivered to, but never named in, the headers -- which is
+    #: the whole point, so they are kept out of the MIME message and added to
+    #: the SMTP envelope only.
+    bcc: tuple[str, ...] = ()
+    attachments: tuple[EmailAttachment, ...] = ()
 
 
 class EmailService:
@@ -136,6 +158,22 @@ class EmailService:
                         "subject": message.subject,
                         "text": message.body,
                         **({"html": message.html} if message.html else {}),
+                        **({"cc": list(message.cc)} if message.cc else {}),
+                        **({"bcc": list(message.bcc)} if message.bcc else {}),
+                        **(
+                            {
+                                "attachments": [
+                                    {
+                                        "filename": a.filename,
+                                        "content": base64.b64encode(a.content).decode("ascii"),
+                                        "content_type": a.content_type,
+                                    }
+                                    for a in message.attachments
+                                ]
+                            }
+                            if message.attachments
+                            else {}
+                        ),
                     },
                     timeout=10.0,
                 )
@@ -159,22 +197,54 @@ class EmailService:
                 # are the same message in two renderings, and the client picks
                 # one. As "mixed" a client shows them as two attachments, which
                 # is how a branded invitation arrives twice.
-                mime_msg = MIMEMultipart("alternative" if message.html else "mixed")
+                # With files to carry, the root is "mixed" and the two
+                # renderings of the body become one "alternative" part inside
+                # it: an attachment hung off an "alternative" root would be
+                # offered to the client as a *third* rendering of the message.
+                body_part: MIMEMultipart | MIMEText
+                if message.html:
+                    body_part = MIMEMultipart("alternative")
+                    # Least-preferred part first: RFC 2046 says the last part
+                    # is the one a client should prefer, so the HTML follows.
+                    body_part.attach(MIMEText(message.body, "plain"))
+                    body_part.attach(MIMEText(message.html, "html"))
+                else:
+                    body_part = MIMEText(message.body, "plain")
+
+                if message.attachments:
+                    mime_msg = MIMEMultipart("mixed")
+                    mime_msg.attach(body_part)
+                    for attachment in message.attachments:
+                        subtype = (attachment.content_type.split("/", 1) + ["octet-stream"])[1]
+                        part = MIMEApplication(attachment.content, _subtype=subtype)
+                        part.add_header(
+                            "Content-Disposition", "attachment", filename=attachment.filename
+                        )
+                        mime_msg.attach(part)
+                elif isinstance(body_part, MIMEMultipart):
+                    mime_msg = body_part
+                else:
+                    mime_msg = MIMEMultipart("mixed")
+                    mime_msg.attach(body_part)
+
                 mime_msg["From"] = smtp_from_email
                 mime_msg["To"] = message.to_email
+                if message.cc:
+                    mime_msg["Cc"] = ", ".join(message.cc)
                 mime_msg["Subject"] = message.subject
-                # Least-preferred part first: RFC 2046 says the last part is
-                # the one a client should prefer, so the HTML has to follow.
-                mime_msg.attach(MIMEText(message.body, "plain"))
-                if message.html:
-                    mime_msg.attach(MIMEText(message.html, "html"))
 
                 port = smtp_port or 587
                 with smtplib.SMTP(smtp_host, port, timeout=10.0) as server:
                     if smtp_username and smtp_password:
                         server.starttls()
                         server.login(smtp_username, smtp_password)
-                    server.send_message(mime_msg)
+                    # Bcc addresses ride the envelope only: `send_message`
+                    # would otherwise take the recipients from the headers,
+                    # where a blind copy by definition does not appear.
+                    server.send_message(
+                        mime_msg,
+                        to_addrs=[message.to_email, *message.cc, *message.bcc],
+                    )
                 logger.info(f"[Email Gateway] SMTP email sent successfully to {message.to_email}!")
                 return SendOutcome(True, "sent", "smtp", None, smtp_from_email)
             except Exception as e:
@@ -184,7 +254,13 @@ class EmailService:
         # 3. Development Fallback Print Console
         print("\n--- SignFlow CRM development email ---")
         print(f"To: {message.to_email}")
+        if message.cc:
+            print(f"Cc: {', '.join(message.cc)}")
+        if message.bcc:
+            print(f"Bcc: {', '.join(message.bcc)}")
         print(f"Subject: {message.subject}")
+        for attachment in message.attachments:
+            print(f"Attachment: {attachment.filename} ({len(attachment.content)} bytes)")
         print(message.body)
         print("--- end email ---\n")
         # Only a truthful "delivered" when there was nothing to deliver through.

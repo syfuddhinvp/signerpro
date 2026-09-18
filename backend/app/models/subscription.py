@@ -27,6 +27,7 @@ class Subscription(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_subscriptions_organization_id", "organization_id"),
         Index("ix_subscriptions_plan_id", "plan_id"),
+        Index("ix_subscriptions_pending_plan_effective_at", "pending_plan_effective_at"),
     )
 
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
@@ -38,13 +39,31 @@ class Subscription(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # A downgrade the tenant has asked for but not yet received (BIL-12).
+    # They have paid through ``current_period_end``, so the smaller plan waits
+    # until then rather than taking away capacity that is already bought and
+    # paid for. RESTRICT matches ``plan_id``: a plan somebody is scheduled onto
+    # cannot be deleted out from under them.
+    pending_plan_id: Mapped[str | None] = mapped_column(
+        ForeignKey("plans.id", ondelete="RESTRICT"), nullable=True
+    )
+    pending_plan_effective_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pending_plan_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Payment provider seam (see app/services/billing_service.py). All nullable:
     # the NullPaymentProvider used in development never populates them.
     provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     provider_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     provider_subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
-    plan: Mapped["Plan"] = relationship("Plan", lazy="joined")
+    plan: Mapped["Plan"] = relationship("Plan", lazy="joined", foreign_keys=[plan_id])
+    pending_plan: Mapped["Plan | None"] = relationship(
+        "Plan", lazy="joined", foreign_keys=[pending_plan_id]
+    )
 
 
 class ProcessedWebhookEvent(Base, UUIDPrimaryKeyMixin):

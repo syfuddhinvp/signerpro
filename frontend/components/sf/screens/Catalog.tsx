@@ -16,7 +16,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiCall } from '@/lib/api/browser';
+import { apiCall, apiDownload } from '@/lib/api/browser';
 import { platformCatalog as catalogApi } from '@/lib/api/resources';
 import type { CatalogCategory, CatalogTemplateResponse } from '@/lib/api/types';
 import { useSF } from '@/lib/sf/state';
@@ -26,6 +26,7 @@ import { btn, pill, TEXT_MUTED, TONE_GOOD, TONE_MUTED, TONE_WARN } from '@/lib/s
 import { documentPathFor } from '@/lib/sf/routes';
 import CatalogFormDialog from '@/components/sf/CatalogFormDialog';
 import { MAX_UPLOAD_BYTES, UPLOAD_ACCEPT, isSupportedUpload } from '@/lib/sf/uploads';
+import Icon from '@/components/sf/Icon';
 
 export type CatalogProps = {
   /** `GET /api/platform/catalog-templates`, published and draft alike. */
@@ -139,6 +140,27 @@ export default function Catalog({ items, loadError }: CatalogProps) {
     });
   }, [flash, router]);
 
+  /* The PDF opens in a viewer tab rather than downloading: the curator is
+     checking that the right form sits behind the entry, not filing a copy.
+     Fetched through the session proxy — a plain link would carry no session. */
+  const viewPdf = useCallback((entry: CatalogTemplateResponse) => {
+    setBusy(entry.id);
+    void apiDownload(catalogApi.pdfPath(entry.id), { filename: entry.slug + '.pdf' }).then(res => {
+      setBusy(null);
+      if (!res.ok) {
+        flash(res.status === 404
+          ? entry.title + ' has no PDF yet — upload one first'
+          : 'Could not open ' + entry.title + ' · ' + res.error.message);
+        return;
+      }
+      const url = URL.createObjectURL(res.data.blob);
+      if (!window.open(url, '_blank')) {
+        flash('Allow pop-ups to view ' + entry.title);
+        URL.revokeObjectURL(url);
+      }
+    });
+  }, [flash]);
+
   const seed = useCallback(() => {
     run('seed', 'Built-in blueprints added', () => catalogApi.seed(apiCall));
   }, [run]);
@@ -169,9 +191,9 @@ export default function Catalog({ items, loadError }: CatalogProps) {
         </div>
         <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
           <button type="button" onClick={seed} disabled={busy === 'seed'} style={ghostBtn}>
-            {busy === 'seed' ? 'Adding…' : 'Add built-in blueprints'}
+            <Icon name="plus" size={13} />{busy === 'seed' ? 'Adding…' : 'Add built-in blueprints'}
           </button>
-          <button type="button" onClick={() => setDialog('new')} style={primaryBtn}>New form</button>
+          <button type="button" onClick={() => setDialog('new')} style={primaryBtn}><Icon name="plus" size={13} />New form</button>
         </div>
       </div>
 
@@ -182,8 +204,8 @@ export default function Catalog({ items, loadError }: CatalogProps) {
             Add the built-in blueprints (W-9, I-9, W-4, mutual NDA, offer letter), then upload each form’s PDF and publish it.
           </span>
           <div style={{ marginTop: '6px', display: 'flex', gap: '7px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button type="button" onClick={seed} style={primaryBtn}>Add built-in blueprints</button>
-            <button type="button" onClick={() => setDialog('new')} style={ghostBtn}>New form</button>
+            <button type="button" onClick={seed} style={primaryBtn}><Icon name="plus" size={13} />Add built-in blueprints</button>
+            <button type="button" onClick={() => setDialog('new')} style={ghostBtn}><Icon name="plus" size={13} />New form</button>
           </div>
         </div>
       ) : null}
@@ -224,11 +246,14 @@ export default function Catalog({ items, loadError }: CatalogProps) {
 
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button type="button" onClick={() => pickFile(entry.id)} disabled={working} style={entry.has_file ? ghostBtn : primaryBtn}>
-                {working ? 'Working…' : entry.has_file ? 'Replace PDF' : 'Upload PDF'}
+                <Icon name="upload" size={13} />{working ? 'Working…' : entry.has_file ? 'Replace PDF' : 'Upload PDF'}
               </button>
-              <button type="button" onClick={() => setDialog(entry)} disabled={working} style={ghostBtn}>Edit details</button>
+              {entry.has_file ? (
+                <button type="button" onClick={() => viewPdf(entry)} disabled={working} style={ghostBtn}><Icon name="eye" size={13} />View</button>
+              ) : null}
+              <button type="button" onClick={() => setDialog(entry)} disabled={working} style={ghostBtn}><Icon name="pencil" size={13} />Edit details</button>
               <button type="button" onClick={() => placeFields(entry)} disabled={working} style={ghostBtn}>
-                {entry.field_count ? 'Edit fields' : 'Place fields'}
+                <Icon name="stamp" size={13} />{entry.field_count ? 'Edit fields' : 'Place fields'}
               </button>
               <button
                 type="button"
@@ -239,8 +264,8 @@ export default function Catalog({ items, loadError }: CatalogProps) {
                    cannot explain itself, and "why can't I publish this?" is
                    exactly what a curator needs answered. */
                 title={!entry.published && !entry.has_file ? 'Upload the form’s PDF first' : undefined}
-              >{entry.published ? 'Withdraw' : 'Publish'}</button>
-              <button type="button" onClick={() => remove(entry)} disabled={working} style={dangerBtn}>Delete</button>
+              ><Icon name={entry.published ? 'undo' : 'publish'} size={13} />{entry.published ? 'Withdraw' : 'Publish'}</button>
+              <button type="button" onClick={() => remove(entry)} disabled={working} style={dangerBtn}><Icon name="trash" size={13} />Delete</button>
             </div>
           </div>
         );

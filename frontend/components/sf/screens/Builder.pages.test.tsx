@@ -312,7 +312,7 @@ describe('changing a page’s number', () => {
    original, so before this the only fix was to start the envelope again. */
 describe('adding a page', () => {
   const openAdd = async () => {
-    fireEvent.click(await screen.findByRole('button', { name: '+ Add page' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add page' }));
   };
 
   it('appends a blank page by default', async () => {
@@ -506,6 +506,6 @@ describe('adding a page', () => {
           recipients={[recipient]} routing={null} />
       </DialogProvider></SFProvider>,
     );
-    expect(await screen.findByRole('button', { name: '+ Add page' })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: 'Add page' })).toBeDisabled();
   });
 });

@@ -45,6 +45,9 @@ export type SFState = {
   docTitle: string;
   /** True while the open envelope is completed / voided / declined / expired. */
   docSealed: boolean;
+  /** True while the open envelope is past draft/prepared, so nothing about it
+   *  may be authored any more. Every sealed envelope is also locked. */
+  docLocked: boolean;
   libView: string;
   libSelected: string[];
   reportRange: string;
@@ -153,6 +156,7 @@ export const INITIAL_STATE: SFState =
     sbHistory: [],
     docTitle: '',
     docSealed: false,
+    docLocked: false,
     libView: 'list',
     libSelected: [],
     reportRange: '30d',
@@ -408,14 +412,20 @@ export function SFProvider({ children, accent }: { children: React.ReactNode; ac
  * headed by the document you are actually working on rather than a generic
  * label. Document screens call it; nothing else should.
  */
-export function useDocumentTitle(title: string | null | undefined, sealed = false): void {
+export function useDocumentTitle(
+  title: string | null | undefined,
+  sealed = false,
+  locked = sealed,
+): void {
   const { set } = useSF();
   useEffect(() => {
     // `docSealed` drives the sidebar: a sealed envelope offers its audit trail
     // and nothing else, because the other stages redirect here anyway.
-    set({ docTitle: title || '', docSealed: sealed });
-    return () => set({ docTitle: '', docSealed: false });
-  }, [title, sealed, set]);
+    // `docLocked` is the wider fact the header needs: a sent envelope cannot
+    // be authored either, so it offers no builder and no second send.
+    set({ docTitle: title || '', docSealed: sealed, docLocked: locked });
+    return () => set({ docTitle: '', docSealed: false, docLocked: false });
+  }, [title, sealed, locked, set]);
 }
 
 export function useSF(): SFContextValue {

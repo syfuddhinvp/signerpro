@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { fallbackGhost, fallbackPage, fallbackPrimary } from '@/lib/sf/fallback';
 import FallbackHero from '@/components/sf/parts/FallbackHero';
+import Icon from '@/components/sf/Icon';
 
 /**
  * Body of a segment `error.tsx`.
@@ -34,7 +35,7 @@ export default function SegmentError({
         digest={error.digest}
         actions={
           <>
-            <button type="button" onClick={reset} style={fallbackPrimary}>Retry</button>
+            <button type="button" onClick={reset} style={fallbackPrimary}><Icon name="refresh" size={14} />Retry</button>
             <Link href={homeHref} style={fallbackGhost}>{homeLabel}</Link>
           </>
         }

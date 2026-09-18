@@ -76,6 +76,18 @@ class Settings(BaseSettings):
     secret_encryption_key: str | None = Field(default=None, alias="SECRET_ENCRYPTION_KEY")
     secret_encryption_keys_old: str | None = Field(default=None, alias="SECRET_ENCRYPTION_KEYS_OLD")
 
+    # Cloud storage integrations (Google Drive / Dropbox OAuth)
+    google_drive_client_id: str | None = Field(default=None, alias="GOOGLE_DRIVE_CLIENT_ID")
+    google_drive_client_secret: str | None = Field(default=None, alias="GOOGLE_DRIVE_CLIENT_SECRET")
+    dropbox_app_key: str | None = Field(default=None, alias="DROPBOX_APP_KEY")
+    dropbox_app_secret: str | None = Field(default=None, alias="DROPBOX_APP_SECRET")
+    #: Where the provider sends the browser back after consent. Must match the
+    #: redirect URI registered with the provider *exactly*. Read through the
+    #: ``cloud_oauth_redirect_url`` property, which defaults it off APP_BASE_URL.
+    cloud_oauth_redirect_url_configured: str | None = Field(
+        default=None, alias="CLOUD_OAUTH_REDIRECT_URL"
+    )
+
     # Expiry scheduler
     expiry_batch_size: int = Field(default=500, alias="EXPIRY_BATCH_SIZE")
 
@@ -132,6 +144,18 @@ class Settings(BaseSettings):
     pades_certificate_passphrase: str | None = Field(
         default=None, alias="PADES_CERTIFICATE_PASSPHRASE"
     )
+
+    @property
+    def cloud_oauth_redirect_url(self) -> str:
+        """The page the OAuth consent screen returns to.
+
+        Defaults off ``APP_BASE_URL`` so a normal deployment configures
+        nothing, and is overridable for the rare case where the browser-facing
+        origin is not the one registered with the provider.
+        """
+        if self.cloud_oauth_redirect_url_configured:
+            return self.cloud_oauth_redirect_url_configured.strip()
+        return f"{self.app_base_url.rstrip('/')}/account/integrations/callback"
 
     @property
     def stripe_publishable_key(self) -> str | None:

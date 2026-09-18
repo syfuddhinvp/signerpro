@@ -91,6 +91,21 @@ class SignerPaymentStatus(StrEnum):
     refunded = "refunded"
 
 
+class PaymentReceiptStatus(StrEnum):
+    """Lifecycle of one `PaymentReceipt` (PAY-2).
+
+    Separate from `SignerPaymentStatus` because a receipt only ever exists
+    for money that actually arrived: there is no ``failed`` or ``processing``
+    receipt. A partial refund is its own state rather than being folded into
+    ``refunded``, because "we returned some of this" and "we returned all of
+    this" are materially different answers to a tax authority or a court.
+    """
+
+    issued = "issued"
+    partially_refunded = "partially_refunded"
+    refunded = "refunded"
+
+
 class SignatureType(StrEnum):
     drawn = "drawn"
     typed = "typed"
@@ -129,3 +144,32 @@ def is_signing_role(role: str | None) -> bool:
     never silently drop a recipient out of the completion gate.
     """
     return (role or RecipientRole.sign) != RecipientRole.copy
+
+
+class WalletEntryKind(StrEnum):
+    """Why one `WalletEntry` moved money into or out of an org's balance.
+
+    The kinds are deliberately specific rather than a generic
+    ``credit``/``debit`` pair: a balance line a tenant cannot account for is
+    a support ticket, and "where did this $37 come from" has to be answerable
+    from the ledger alone, without reconstructing the plan change that
+    produced it.
+    """
+
+    #: Unused remainder of the old plan, credited when a downgrade is applied
+    #: immediately rather than scheduled for the period end.
+    downgrade_proration = "downgrade_proration"
+    #: Unused remainder of the paid period when the billing interval changes
+    #: and the period therefore restarts.
+    interval_switch_remainder = "interval_switch_remainder"
+    #: Prorated value of seats released mid-period.
+    seat_reduction = "seat_reduction"
+    #: Money collected beyond what an invoice was owed.
+    overpayment = "overpayment"
+    #: Issued by a platform admin, with a reason, audited.
+    platform_grant = "platform_grant"
+    #: A debit: balance spent on an invoice.
+    invoice_payment = "invoice_payment"
+    #: Correction of an earlier entry. Entries are never edited or deleted,
+    #: so an erroneous credit is undone by a matching negative entry.
+    reversal = "reversal"

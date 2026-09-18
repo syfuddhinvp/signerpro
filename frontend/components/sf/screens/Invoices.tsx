@@ -8,6 +8,7 @@ import { INVOICE_FILTERS } from '@/lib/sf/data';
 import { apiCall, proxyPath } from '@/lib/api/browser';
 import { invoices as invoicesApi, platformInvoices as platformInvoicesApi } from '@/lib/api/resources';
 import { EMPTY, declineNotice, toInvoiceRow, type InvoiceRow } from '@/lib/sf/adapters';
+import Icon from '@/components/sf/Icon';
 
 /**
  * Server data, fetched in `app/(app)/billing/invoices/page.tsx` (tenant scope)
@@ -218,9 +219,9 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
           ))}
         </div>
         <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
-          <button type="button" onClick={invPrimaryAction} style={primaryBtn}>{invPrimaryLabel}</button>
-          <button type="button" onClick={invDownload} style={ghostBtn}>Download PDF</button>
-          <button type="button" onClick={invReceipt} style={ghostBtn}>Email receipt</button>
+          <button type="button" onClick={invPrimaryAction} style={primaryBtn}><Icon name="card" size={13} />{invPrimaryLabel}</button>
+          <button type="button" onClick={invDownload} style={ghostBtn}><Icon name="download" size={13} />Download PDF</button>
+          <button type="button" onClick={invReceipt} style={ghostBtn}><Icon name="mail" size={13} />Email receipt</button>
         </div>
       </div>
     </section>

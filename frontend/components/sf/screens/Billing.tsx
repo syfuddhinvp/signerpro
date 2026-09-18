@@ -10,6 +10,7 @@ import { apiCall } from '@/lib/api/browser';
 import { billing as billingApi } from '@/lib/api/resources';
 import {
   formatCents,
+  formatDate,
   subscriptionStatusTone,
   toChargeRows,
   toPaymentMethodRows,
@@ -17,12 +18,14 @@ import {
   toUpcomingLines,
   upcomingTotalLabel,
 } from '@/lib/sf/adapters';
+import Icon from '@/components/sf/Icon';
 import type {
   BillingSettingsResponse,
   ChargeResponse,
   PaymentMethodResponse,
   SubscriptionResponse,
   UpcomingInvoiceResponse,
+  Wallet,
 } from '@/lib/api/types';
 
 /**
@@ -37,9 +40,11 @@ export type BillingProps = {
   paymentMethods: PaymentMethodResponse[];
   upcoming: UpcomingInvoiceResponse;
   charges: ChargeResponse[];
+  /** Account balance (BIL-12). Spent on invoices; never paid out. */
+  wallet: Wallet;
 };
 
-export default function Billing({ subscription, settings, paymentMethods, upcoming, charges: chargeList }: BillingProps) {
+export default function Billing({ subscription, settings, paymentMethods, upcoming, charges: chargeList, wallet }: BillingProps) {
   const { set, flash, accent } = useSF();
   const { go } = useNav();
   const router = useRouter();
@@ -99,7 +104,8 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
   const cardCaption: CSSProperties = { fontSize:'.53125rem', letterSpacing:'.11em', color:'rgba(248,250,252,.62)', fontFamily:'var(--font-sans)' };
   const cardValue: CSSProperties = { fontSize:'.6875rem', fontWeight:600, letterSpacing:'.06em', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' };
   const cardDefaultPill: CSSProperties = { display:'inline-flex', alignItems:'center', height:'20px', padding:'0 8px', borderRadius:'99px', fontSize:'.59375rem', fontWeight:700, letterSpacing:'.06em', background:'rgba(255,255,255,.18)', border:'1px solid rgba(255,255,255,.35)', color:'#fff', flex:'0 0 auto' };
-  const cardDefaultBtn: CSSProperties = { height:'26px', padding:'0 10px', borderRadius:'99px', fontSize:'.65625rem', fontWeight:600, cursor:'pointer', background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.35)', color:'#fff', flex:'0 0 auto' };
+  const cardDefaultBtn: CSSProperties = { height:'26px', padding:'0 10px', borderRadius:'99px', fontSize:'.65625rem', fontWeight:600, cursor:'pointer', background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.35)', color:'#fff', flex:'0 0 auto',
+    display:'inline-flex', alignItems:'center', gap:'4px' };
 
   const paymentMethods_ = toPaymentMethodRows(paymentMethods).map(p => ({
     id: p.id, brand: p.brand, label: p.label, number: p.number, expiry: p.expiry, holder: p.holder,
@@ -136,6 +142,14 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
   const openCardModal = () => set({ modal: 'card' });
   const openCheckout = () => set({ modal: 'seats' });
   const openPlanChange = () => set({ modal: 'plan' });
+  const keepCurrentPlan = () => {
+    void billingApi.cancelPendingPlanChange(apiCall).then(res => {
+      if (!res.ok) { flash('Could not cancel the scheduled change · ' + res.error.message); return; }
+      flash('Scheduled change cancelled · staying on ' + res.data.plan_name);
+      router.refresh();
+    });
+  };
+
   const goInvoices = () => go('invoices');
 
   const emptyNote: CSSProperties = { fontSize:'.78125rem', color:'#64748b' };
@@ -158,10 +172,31 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
               <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{sub.metaLine}</span>
             </div>
             <div style={{ display:'flex', gap:'8px', flex:'0 0 auto' }}>
-              <button type="button" onClick={openPlanChange} style={ghostBtn}>Change plan</button>
-              <button type="button" onClick={openCheckout} style={primaryBtn}>Add seats</button>
+              <button type="button" onClick={openPlanChange} style={ghostBtn}><Icon name="settings" size={13} />Change plan</button>
+              <button type="button" onClick={openCheckout} style={primaryBtn}><Icon name="addUser" size={13} />Add seats</button>
             </div>
           </div>
+          {subscription.pending_plan_code ? (
+            /* The plan has NOT changed yet. Saying so plainly, with the date
+               and a way out, is the whole point of scheduling it. */
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap', border:'1px solid #bfdbfe', background:'#eff6ff', borderRadius:'12px', padding:'11px 12px' }}>
+              <span style={{ fontSize:'.78125rem', color:'#1e40af' }}>
+                {subscription.pending_plan_name} starts {formatDate(subscription.pending_plan_effective_at)}
+                {' · you keep ' + subscription.plan_name + ' until then'}
+              </span>
+              <button type="button" onClick={keepCurrentPlan} style={ghostBtn}>
+                <Icon name="close" size={13} />Keep {subscription.plan_name}
+              </button>
+            </div>
+          ) : null}
+          {wallet.balance_cents > 0 ? (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap', border:'1px solid #bbf7d0', background:'#f0fdf4', borderRadius:'12px', padding:'11px 12px' }}>
+              <span style={{ fontSize:'.78125rem', color:'#166534' }}>
+                {formatCents(wallet.balance_cents, wallet.currency)} account balance
+                {' · applied to your next invoice before any card is charged'}
+              </span>
+            </div>
+          ) : null}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'11px' }}>
             {subTiles.map(t => (
               <div key={t.label} style={{ border:'1px solid #eef1f6', borderRadius:'12px', padding:'12px', background:'#fbfcfd', display:'flex', flexDirection:'column', gap:'5px' }}>
@@ -188,7 +223,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
                   <span style={cardChip} aria-hidden="true"></span>
                   {p.isDefault ? (<span style={cardDefaultPill}>DEFAULT</span>) : null}
                   {p.notDefault ? (
-                    <button type="button" onClick={p.onDefault} style={cardDefaultBtn}>Make default</button>
+                    <button type="button" onClick={p.onDefault} style={cardDefaultBtn}><Icon name="check" size={11} />Make default</button>
                   ) : null}
                 </div>
                 <div style={{ position:'relative', display:'flex', flexDirection:'column', gap:'3px' }}>
@@ -210,7 +245,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
             ))}
           </div>
           <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
-            <button type="button" onClick={openCardModal} style={primaryBtn}>Add payment method</button>
+            <button type="button" onClick={openCardModal} style={primaryBtn}><Icon name="card" size={13} />Add payment method</button>
             <button type="button" role="switch" aria-checked={autopayStr === 'true'} onClick={toggleAutopay} style={autopayRow}>
               <span style={{ fontSize:'.78125rem', color:'#334155' }}>Autopay</span>
               <span style={autopaySwitch}><span style={autopayKnob}></span></span>
@@ -281,7 +316,34 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
               <span style={c.pill}>{c.status}</span>
             </div>
           ))}
-          <button type="button" onClick={goInvoices} style={ghostBtn}>All invoices &amp; receipts</button>
+          <button type="button" onClick={goInvoices} style={ghostBtn}><Icon name="file" size={13} />All invoices &amp; receipts</button>
+        </div>
+        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+          <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:'8px' }}>
+            <div style={railHead}>Account balance</div>
+            <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.3px' }}>
+              {formatCents(wallet.balance_cents, wallet.currency)}
+            </span>
+          </div>
+          {/* Said once, here, rather than left for a support ticket to answer:
+              this is credit, not money held on the tenant's behalf. */}
+          <div style={{ fontSize:'.6875rem', color:'#64748b', lineHeight:1.55 }}>
+            Applied to your invoices automatically, before any card is charged. Balance is not refundable to a card or bank account.
+          </div>
+          {wallet.entries.length ? null : (
+            <div style={emptyNote}>No balance activity yet.</div>
+          )}
+          {wallet.entries.map(entry => (
+            <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 0', borderTop:'1px solid #f2f4f8' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
+                <span style={{ fontSize:'.78125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{entry.description}</span>
+                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{formatDate(entry.created_at)}</span>
+              </div>
+              <span style={{ fontSize:'.78125rem', fontWeight:700, fontFamily:'var(--font-sans)', color: entry.amount_cents < 0 ? '#64748b' : '#166534' }}>
+                {(entry.amount_cents < 0 ? '−' : '+') + formatCents(Math.abs(entry.amount_cents), entry.currency)}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </section>

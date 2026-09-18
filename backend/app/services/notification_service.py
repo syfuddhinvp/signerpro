@@ -12,6 +12,12 @@ transaction as the audit row that justifies it — a feed row can never claim an
 event the trail does not also record. Subscribers are contractually forbidden
 from raising (the service swallows exceptions), which means a bug here degrades
 to "no notification" rather than to a failed signature.
+
+`notify_org_admins` is the one path into this table that is *not* driven by the
+trail: billing events (BIL-12) happen to an organization rather than to an
+envelope, so there is no audit row to hang them off and no per-user preference
+that would sensibly govern them. It stays here so this module remains the only
+writer of `notifications`.
 """
 
 from __future__ import annotations
@@ -116,3 +122,43 @@ def notify_from_audit(db: Session, entry: AuditLog) -> None:
 def register(audit_service) -> None:
     """Wire the producer to the audit service. Called once, from `app.main`."""
     audit_service.subscribe(notify_from_audit)
+
+
+def notify_org_admins(
+    db: Session,
+    *,
+    organization_id: str,
+    title: str,
+    detail: str | None = None,
+    tone: str = "warn",
+    screen: str | None = "billing",
+) -> int:
+    """Raise one feed row per admin of ``organization_id``. Returns the count.
+
+    Not preference-gated. The events that use it are things the organization
+    is required to know about -- a scheduled plan change that could not be
+    applied, money moved -- rather than activity somebody might want muted.
+    """
+    from app.models.enums import UserRole
+    from app.models.user import User
+
+    admin_ids = list(
+        db.scalars(
+            select(User.id).where(
+                User.organization_id == organization_id,
+                User.role == UserRole.admin,
+            )
+        )
+    )
+    for user_id in admin_ids:
+        db.add(
+            Notification(
+                user_id=user_id,
+                organization_id=organization_id,
+                title=title,
+                detail=detail,
+                tone=tone,
+                screen=screen,
+            )
+        )
+    return len(admin_ids)

@@ -27,7 +27,7 @@ import { audit as auditApi, documents as documentsApi, folders as foldersApi, te
 import { useDialogs } from '@/components/sf/DialogProvider';
 import UploadDocument from '@/components/sf/UploadDocument';
 import CatalogBrowser from '@/components/sf/CatalogBrowser';
-import Icon from '@/components/sf/Icon';
+import Icon, { markFor } from '@/components/sf/Icon';
 import {
   docStatusDetail, libraryFiltersToQuery, libraryFolderLabel, signerProgressLabel,
   type FolderOption, type LibraryFilters, type LibraryRow, type TemplateRow,
@@ -188,17 +188,31 @@ export default function Library(props: LibraryProps) {
     const st = isTpl ? STATUS.completed : docStatusDetail(d.rawStatus ?? d.status);
     const checked = s.libSelected.indexOf(uid) > -1;
 
-    /** The executed PDF, saved to disk. 404 when nothing has been generated. */
+    /* The printable PDF for a row. `final-pdf` only exists once signing has
+       completed; before that the honest thing to hand over is the document as
+       it stands — `GET /api/documents/{id}/pdf`, the uploaded original — rather
+       than refusing outright. The caller is told which of the two it got so the
+       toast does not call an unsigned copy "signed". */
+    const fetchPrintable = async () => {
+      const signed = await apiDownload(documentsApi.finalPdfPath(uid), { filename: d.title + '-signed.pdf' });
+      if (signed.ok) return { res: signed, executed: true as const };
+      if (signed.status !== 404) return { res: signed, executed: true as const };
+      const original = await apiDownload(documentsApi.pdfPath(uid), { filename: d.title + '.pdf' });
+      return { res: original, executed: false as const };
+    };
+
+    /** The executed PDF when there is one, the original otherwise. */
     const downloadPdf = () => {
       flash('Preparing ' + d.title + '…');
-      void apiDownload(documentsApi.finalPdfPath(uid), { filename: d.title + '.pdf' }).then(res => {
+      void fetchPrintable().then(({ res, executed }) => {
         if (!res.ok) {
           flash(res.status === 404
-            ? 'No executed PDF for ' + d.title + ' yet — it is generated when signing completes'
+            ? 'No PDF for ' + d.title + ' — nothing has been uploaded yet'
             : 'Could not download ' + d.title + ' · ' + res.error.message);
           return;
         }
         saveBlob(res.data);
+        if (!executed) flash(d.title + ' is not signed yet — downloaded the document as it stands');
       });
     };
 
@@ -216,13 +230,14 @@ export default function Library(props: LibraryProps) {
     /** Print opens the same real PDF in a viewer; the browser prints from there. */
     const printPdf = () => {
       flash('Opening ' + d.title + ' to print…');
-      void apiDownload(documentsApi.finalPdfPath(uid), { filename: d.title + '.pdf' }).then(res => {
+      void fetchPrintable().then(({ res, executed }) => {
         if (!res.ok) {
           flash(res.status === 404
-            ? 'No executed PDF for ' + d.title + ' yet — it is generated when signing completes'
+            ? 'No PDF for ' + d.title + ' — nothing has been uploaded yet'
             : 'Could not open ' + d.title + ' · ' + res.error.message);
           return;
         }
+        if (!executed) flash(d.title + ' is not signed yet — printing the document as it stands');
         const url = URL.createObjectURL(res.data.blob);
         const w = window.open(url, '_blank');
         if (!w) { flash('Allow pop-ups to print ' + d.title); URL.revokeObjectURL(url); return; }
@@ -311,6 +326,14 @@ export default function Library(props: LibraryProps) {
       }
     };
 
+    const primaryLabel = isTpl ? 'Use template' : (d.status === 'draft' ? 'Prepare and send' : 'Invite to sign');
+
+    /* The builder is a two-step wizard: 1 = Prepare (place the fields),
+       2 = Set up and send (recipients, then the send modal). Menu entries that
+       open the builder say which step they mean, so `Add fields` is not a
+       third alias for `Open`. */
+    const BUILDER_STEP: Record<string, number> = { 'Add fields': 1, 'Prepare and send': 2 };
+
     return {
       id: uid,
       title: d.title,
@@ -354,7 +377,7 @@ export default function Library(props: LibraryProps) {
         if (d.isFavorite) run(d.title + ' removed from Favorites', () => documentsApi.unfavorite(apiCall, uid));
         else run(d.title + ' added to Favorites', () => documentsApi.favorite(apiCall, uid));
       },
-      primaryLabel: isTpl ? 'Use template' : (d.status === 'draft' ? 'Prepare and send' : 'Invite to sign'),
+      primaryLabel,
       onPrimary: isTpl
         ? () => {
           flash('Document created from ' + d.title);
@@ -377,21 +400,22 @@ export default function Library(props: LibraryProps) {
       menuBtn: {
         width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
         background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '.8125rem',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         lineHeight: 1, flex: '0 0 28px',
       } as CSSProperties,
       uid,
-      actions: ROW_ACTIONS.filter(([label]) => !REMOVED_ACTIONS.has(label)).map(([label, target]) => {
+      actions: ROW_ACTIONS.filter(([label]) => !REMOVED_ACTIONS.has(label) && label !== primaryLabel).map(([label, target]) => {
         const wired = actionCall(label);
         return {
           label,
           onClick: () => {
-            set({ menuDoc: null, wizardStep: 1 });
+            set({ menuDoc: null, wizardStep: BUILDER_STEP[label] ?? 1 });
             if (wired) { wired(); return; }
             if (target) go(target as ScreenKey, { documentId: uid });
             else flash(label + ' — ' + d.title);
           },
           style: {
-            display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
+            display: 'flex', alignItems: 'center', gap: '7px', width: '100%', textAlign: 'left', padding: '7px 10px',
             borderRadius: '7px', border: 'none', background: 'transparent', cursor: 'pointer',
             fontSize: '.78125rem',
             color: (label === 'Delete' || label === 'Archive') ? '#b91c1c' : '#334155',
@@ -570,9 +594,9 @@ export default function Library(props: LibraryProps) {
           </div>
           <div style={{ display: 'flex', gap: '7px', flex: '0 0 auto' }}>
             {isTemplateFolder ? (
-              <button type="button" onClick={() => setShowCatalog(true)} style={ghostBtn}>Browse form catalog</button>
+              <button type="button" onClick={() => setShowCatalog(true)} style={ghostBtn}><Icon name="search" size={13} />Browse form catalog</button>
             ) : null}
-            <button type="button" onClick={createFolder} style={ghostBtn}>New folder</button>
+            <button type="button" onClick={createFolder} style={ghostBtn}><Icon name="plus" size={13} />New folder</button>
             {/* The picker is here, not on the builder: a draft with no PDF is
                 nothing the user can prepare, so the file comes first. */}
             <UploadDocument />
@@ -622,8 +646,8 @@ export default function Library(props: LibraryProps) {
           >
             {libSortOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
-          <button type="button" onClick={() => set({ libView: 'list' })} style={libListBtn}>List</button>
-          <button type="button" onClick={() => set({ libView: 'grid' })} style={libGridBtn}>Grid</button>
+          <button type="button" onClick={() => set({ libView: 'list' })} style={libListBtn}><Icon name="distribute" size={12} />List</button>
+          <button type="button" onClick={() => set({ libView: 'grid' })} style={libGridBtn}><Icon name="grid" size={12} />Grid</button>
         </div>
 
         {showFilters ? (
@@ -662,7 +686,7 @@ export default function Library(props: LibraryProps) {
                 type="button"
                 onClick={() => { setQueryDraft(''); pushFilters({ status: 'all', type: 'all', time: 'all', from: '', to: '', owner: 'all', q: '' }); }}
                 style={linkBtn(A)}
-              >Reset filters</button>
+              ><Icon name="refresh" size={11} />Reset filters</button>
             ) : null}
           </div>
         ) : null}
@@ -671,12 +695,12 @@ export default function Library(props: LibraryProps) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', border: '1px solid #c7d2fe', background: '#eef2ff', borderRadius: '11px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '.78125rem', fontWeight: 600, color: '#3730a3' }}>{libSelectedLabel}</span>
             <button type="button" onClick={toggleSelectAll} style={linkBtn(A)}>
-              {allSelected ? 'Deselect all' : 'Select all ' + libRowIds.length}
+              <Icon name="checkbox" size={11} />{allSelected ? 'Deselect all' : 'Select all ' + libRowIds.length}
             </button>
-            <button type="button" onClick={() => set({ libSelected: [] })} style={linkBtn('#64748b')}>Clear</button>
+            <button type="button" onClick={() => set({ libSelected: [] })} style={linkBtn('#64748b')}><Icon name="close" size={11} />Clear</button>
             <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
               {libBulk.map(b => (
-                <button key={b.label} type="button" onClick={b.onClick} style={b.style}>{b.label}</button>
+                <button key={b.label} type="button" onClick={b.onClick} style={b.style}><Icon name={markFor(b.label)} size={12} />{b.label}</button>
               ))}
             </div>
           </div>
@@ -695,7 +719,7 @@ export default function Library(props: LibraryProps) {
               </span>
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
                 {isTemplateFolder ? (
-                  <button type="button" onClick={() => setShowCatalog(true)} style={primaryBtn}>Browse form catalog</button>
+                  <button type="button" onClick={() => setShowCatalog(true)} style={primaryBtn}><Icon name="search" size={13} />Browse form catalog</button>
                 ) : (
                   <UploadDocument label="Upload a file" />
                 )}
@@ -711,7 +735,7 @@ export default function Library(props: LibraryProps) {
                 aria-label={allSelected ? 'Deselect all documents' : 'Select all documents'}
                 onClick={toggleSelectAll}
                 style={checkboxStyle(allSelected, someSelected)}
-              >{allSelected ? '\u2713' : someSelected ? '\u2013' : ''}</button>
+              >{allSelected ? <Icon name="check" size={11} /> : someSelected ? <Icon name="minus" size={11} /> : null}</button>
               <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
                 {allSelected ? 'All ' + libRowIds.length + ' on this page selected' : 'Select all on this page'}
               </span>
@@ -756,7 +780,7 @@ export default function Library(props: LibraryProps) {
               <div style={isGrid
                 ? { display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'stretch', marginTop: 'auto' }
                 : { display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 auto' }}>
-                <button type="button" onClick={d.onPrimary} style={isGrid ? { ...primaryBtn, flex: 1 } : primaryBtn}>{d.primaryLabel}</button>
+                <button type="button" onClick={d.onPrimary} style={isGrid ? { ...primaryBtn, flex: 1 } : primaryBtn}><Icon name={markFor(d.primaryLabel)} size={13} />{d.primaryLabel}</button>
                 <div style={{ position: 'relative' }}>
                   <button
                     type="button"
@@ -764,7 +788,7 @@ export default function Library(props: LibraryProps) {
                     aria-expanded={d.menuOpen}
                     onClick={d.onMenu}
                     style={d.menuBtn}
-                  >···</button>
+                  ><Icon name="caretDown" size={13} /></button>
                   {d.menuOpen ? (
                     <div
                       role="menu"
@@ -772,7 +796,7 @@ export default function Library(props: LibraryProps) {
                       style={{ position: 'absolute', right: 0, top: '32px', width: '230px', maxHeight: '320px', overflow: 'auto', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '12px', boxShadow: '0 18px 40px -18px rgba(15,23,42,.35)', padding: '6px', zIndex: 30, animation: 'sfIn .12s ease' }}
                     >
                       {d.actions.map(ac => (
-                        <button key={ac.label} type="button" role="menuitem" onClick={ac.onClick} style={ac.style}>{ac.label}</button>
+                        <button key={ac.label} type="button" role="menuitem" onClick={ac.onClick} style={ac.style}><Icon name={markFor(ac.label)} size={12} />{ac.label}</button>
                       ))}
                     </div>
                   ) : null}

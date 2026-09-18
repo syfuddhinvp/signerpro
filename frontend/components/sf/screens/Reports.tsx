@@ -10,6 +10,7 @@ import { SECTION_PARAM, sectionFor } from '@/lib/sf/routes';
 import { btn, railHead, TEXT_MUTED } from '@/lib/sf/ui';
 import { apiCall } from '@/lib/api/browser';
 import { reports as reportsApi } from '@/lib/api/resources';
+import Icon from '@/components/sf/Icon';
 import {
   REPORT_CARDS,
   reportFieldLabel,
@@ -282,7 +283,7 @@ export default function Reports({
             >
               {REPORT_RANGES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
-            <button type="button" onClick={exportReport} style={ghostBtn}>Export report</button>
+            <button type="button" onClick={exportReport} style={ghostBtn}><Icon name="download" size={13} />Export report</button>
           </div>
         </div>
 
@@ -428,9 +429,9 @@ export default function Reports({
               </div>
             )}
             <div style={{ display:'flex', gap:'8px' }}>
-              <button type="button" onClick={() => { void runReport(); }} disabled={busy} style={primaryBtn}>Run report</button>
-              <button type="button" onClick={() => { void saveDefinition(); }} disabled={busy} style={ghostBtn}>Save definition</button>
-              <button type="button" onClick={() => { void scheduleWeekly(); }} disabled={busy} style={ghostBtn}>Schedule weekly</button>
+              <button type="button" onClick={() => { void runReport(); }} disabled={busy} style={primaryBtn}><Icon name="play" size={13} />Run report</button>
+              <button type="button" onClick={() => { void saveDefinition(); }} disabled={busy} style={ghostBtn}><Icon name="save" size={13} />Save definition</button>
+              <button type="button" onClick={() => { void scheduleWeekly(); }} disabled={busy} style={ghostBtn}><Icon name="calendar" size={13} />Schedule weekly</button>
             </div>
 
             {runFields.length ? (

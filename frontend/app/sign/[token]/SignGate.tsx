@@ -15,6 +15,7 @@ import { useSF } from '@/lib/sf/state';
 import { SignState } from './states';
 import type { SignerBranding } from './types';
 import { acceptConsent, sendOtp, verifyOtp } from './actions';
+import Icon from '@/components/sf/Icon';
 
 const stack: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', marginTop: '4px' };
 const row: CSSProperties = { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' };
@@ -67,8 +68,8 @@ export function OtpGate({ token, email, brand }: { token: string; email: string;
           style={{ ...inputStyle, height: '38px', textAlign: 'center', letterSpacing: '.3em' }}
         />
         <div style={row}>
-          <button type="button" onClick={send} disabled={pending} style={ghost}>Send code</button>
-          <button type="button" onClick={verify} disabled={pending || code.trim().length < 4} style={primary}>Verify and continue</button>
+          <button type="button" onClick={send} disabled={pending} style={ghost}><Icon name="send" size={13} />Send code</button>
+          <button type="button" onClick={verify} disabled={pending || code.trim().length < 4} style={primary}><Icon name="shield" size={13} />Verify and continue</button>
         </div>
         {message ? <p style={note}>{message}</p> : null}
       </div>
@@ -116,7 +117,7 @@ export function ConsentGate({
           <span>I agree to transact business electronically and to use electronic records and signatures for this envelope. I may request a paper copy from the sender at any time.</span>
         </label>
         <div style={row}>
-          <button type="button" onClick={accept} disabled={pending || !agreed} style={primary}>Agree and review document</button>
+          <button type="button" onClick={accept} disabled={pending || !agreed} style={primary}><Icon name="check" size={13} />Agree and review document</button>
         </div>
         {message ? <p style={note}>{message}</p> : null}
       </div>

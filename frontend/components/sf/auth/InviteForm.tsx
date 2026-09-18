@@ -148,7 +148,7 @@ export default function InviteForm({ token }: { token: string }) {
           <span style={strengthLabelStyle}>{STRENGTH_WORDS[score]}</span>
         </div>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
-        <button type="submit" disabled={pending} style={authPrimary}>{pending ? 'Joining…' : 'Accept invitation'}</button>
+        <button type="submit" disabled={pending} style={authPrimary}><Icon name="check" size={14} />{pending ? 'Joining…' : 'Accept invitation'}</button>
         <Link href={AUTH_PATHS.signin} style={Object.assign({}, linkStyle, { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' })}><Icon name="arrowLeft" size={12} />Already have an account? Sign in</Link>
       </form>
     </AuthLayout>

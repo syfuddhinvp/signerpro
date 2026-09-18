@@ -28,6 +28,7 @@ import { documentPathFor } from '@/lib/sf/routes';
 import { useSF } from '@/lib/sf/state';
 import { btn, TEXT_MUTED } from '@/lib/sf/ui';
 import { MAX_UPLOAD_BYTES, UPLOAD_ACCEPT, isSupportedUpload, titleFromFilename } from '@/lib/sf/uploads';
+import Icon from '@/components/sf/Icon';
 
 
 export type UploadDocumentProps = {
@@ -103,7 +104,7 @@ export default function UploadDocument({ documentId, label = 'Upload & prepare',
         aria-describedby={busy ? statusId : undefined}
         style={Object.assign({}, style, busy ? { opacity: .65, cursor: 'progress' } : null)}
       >
-        {busy ? 'Uploading…' : label}
+        <Icon name="upload" size={13} />{busy ? 'Uploading…' : label}
       </button>
       {busy ? (
         <span id={statusId} role="status" style={{ fontSize: '.71875rem', color: TEXT_MUTED }}>

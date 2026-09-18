@@ -11,7 +11,7 @@ a ``PlatformAuditEntry`` **in the same transaction as the change itself**.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any, Iterable
 
@@ -131,6 +131,18 @@ CERTIFICATION_DEFAULTS: list[dict[str, Any]] = [
     {"name": "GDPR", "status": "not_assessed", "sort_order": 6},
     {"name": "FedRAMP", "status": "not_assessed", "sort_order": 7},
 ]
+
+CERTIFICATION_CERTIFIED = "certified"
+#: The statuses an operator may record. ``expired`` is never stored — it is
+#: derived from ``expires_on`` so a lapsed attestation cannot sit in the table
+#: reading as current because nobody came back to change it.
+CERTIFICATION_STATUSES: frozenset[str] = frozenset({"not_assessed", "in_process", CERTIFICATION_CERTIFIED})
+
+#: Recording ``certified`` requires every one of these. They are what separates
+#: a compliance record from a claim: the firm that issued the attestation, the
+#: date it was issued, and the report a customer can be pointed at.
+CERTIFICATION_EVIDENCE_FIELDS: tuple[str, ...] = ("auditor", "assessed_on", "evidence_url")
+
 
 #: Feature-flag catalogue (FLG-1) — the prototype's FLAG_META.
 FEATURE_FLAG_DEFAULTS: list[dict[str, Any]] = [
@@ -516,7 +528,39 @@ def ensure_certifications(db: Session) -> list:
             created = True
     if created:
         db.commit()
-    return list(db.scalars(select(Certification).order_by(Certification.sort_order)).all())
+    return list(
+        db.scalars(
+            select(Certification).order_by(Certification.sort_order, Certification.name)
+        ).all()
+    )
+
+
+def certification_view(row, *, today: date | None = None) -> dict[str, Any]:
+    """The row as the API reports it, with expiry resolved.
+
+    ``status`` is what the operator recorded; ``effective_status`` is what may
+    be shown to anyone. A ``certified`` row whose ``expires_on`` has passed is
+    no longer evidence of anything, so it reports as ``expired`` — the operator
+    has to re-enter the new attestation to make it current again.
+    """
+    today = today or datetime.now(timezone.utc).date()
+    status = row.status
+    expired = bool(
+        status == CERTIFICATION_CERTIFIED and row.expires_on is not None and row.expires_on < today
+    )
+    return {
+        "id": row.id,
+        "name": row.name,
+        "status": status,
+        "effective_status": "expired" if expired else status,
+        "expired": expired,
+        "auditor": row.auditor,
+        "assessed_on": row.assessed_on,
+        "expires_on": row.expires_on,
+        "evidence_url": row.evidence_url,
+        "notes": row.notes,
+        "updated_at": row.updated_at,
+    }
 
 
 # --- Impersonation ---------------------------------------------------------

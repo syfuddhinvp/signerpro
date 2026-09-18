@@ -236,7 +236,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
     : 'All recipients are notified simultaneously and may sign in any order.';
   const routeNoteStyle: CSSProperties = { fontSize: '.75rem', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55 };
   const iconBtn: CSSProperties = { width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee', background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '.8125rem', lineHeight: 1 };
-  const linkActionBtn: CSSProperties = { height: '28px', padding: '0 9px', borderRadius: '8px', border: '1px solid #e3e7ee', background: '#fff', cursor: 'pointer', color: '#334155', fontSize: '.71875rem', fontWeight: 600, whiteSpace: 'nowrap' };
+  const linkActionBtn: CSSProperties = { height: '28px', padding: '0 9px', borderRadius: '8px', border: '1px solid #e3e7ee', background: '#fff', cursor: 'pointer', color: '#334155', fontSize: '.71875rem', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '5px' };
   const disabledBtn: CSSProperties = { opacity: .45, cursor: 'not-allowed' };
   const textarea: CSSProperties = { border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem', resize: 'vertical', outline: 'none', width: '100%', color: '#0f172a' };
   const primaryBtnWide: CSSProperties = Object.assign(btn(A, '#fff', A), { flex: '1', justifyContent: 'center', height: '36px' });
@@ -247,7 +247,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
         <div style={{ maxWidth: '420px', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'center' }}>
           <span style={{ fontSize: '.84375rem', fontWeight: 600, color: '#0f172a' }}>No envelope to route</span>
           <span style={{ fontSize: '.75rem', lineHeight: 1.6, color: '#64748b' }}>Create a draft from the documents list, add its recipients, then set the signing order here.</span>
-          <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, btn(A, '#fff', A), { justifyContent: 'center' })}>Go to documents</button>
+          <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, btn(A, '#fff', A), { justifyContent: 'center' })}><Icon name="documents" size={13} />Go to documents</button>
         </div>
       </section>
     );
@@ -293,7 +293,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
                   title={r.linkReady ? 'Email ' + r.name + ' a fresh signing link' : 'Send the envelope first'}
                   aria-label={'Resend the signing email to ' + r.name}
                   style={Object.assign({}, linkActionBtn, r.linkReady && !r.linkBusy ? null : disabledBtn)}
-                >Resend email</button>
+                ><Icon name="mail" size={12} />Resend email</button>
                 <button
                   type="button"
                   onClick={r.onCopyLink}
@@ -301,7 +301,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
                   title={r.linkReady ? 'Copy ' + r.name + '\u2019s signing link without emailing them' : 'Send the envelope first'}
                   aria-label={'Copy the signing link for ' + r.name}
                   style={Object.assign({}, linkActionBtn, r.linkReady && !r.linkBusy ? null : disabledBtn)}
-                >Copy link</button>
+                ><Icon name="link" size={12} />Copy link</button>
                 <button type="button" aria-label="Move up" onClick={r.onUp} style={iconBtn}><Icon name="arrowUp" size={13} /></button>
                 <button type="button" aria-label="Move down" onClick={r.onDown} style={iconBtn}><Icon name="arrowDown" size={13} /></button>
                 <button type="button" aria-label={'Remove ' + r.name} title={'Remove ' + r.name} onClick={r.onRemove}
@@ -318,7 +318,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
         <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
             <div style={railHead}>Branding</div>
-            <button type="button" onClick={() => go('brand')} style={linkActionBtn}>Manage themes</button>
+            <button type="button" onClick={() => go('brand')} style={linkActionBtn}><Icon name="settings" size={12} />Manage themes</button>
           </div>
           {brandingThemes.length ? (
             <>
@@ -366,7 +366,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
           <label style={lbl}>Email message
             <textarea onChange={(e) => changeRouting({ message: e.target.value })} value={s.message} rows={4} style={textarea} />
           </label>
-          <button type="button" onClick={send} disabled={sending} style={primaryBtnWide}>Send envelope &amp; preview signer view</button>
+          <button type="button" onClick={send} disabled={sending} style={primaryBtnWide}><Icon name="send" size={13} />Send envelope &amp; preview signer view</button>
         </div>
         <div style={{ background: '#0f172a', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ fontSize: '.6875rem', letterSpacing: '.08em', color: TEXT_MUTED_ON_DARK, fontFamily: 'var(--font-sans)' }}>DELIVERY SIMULATION</div>
