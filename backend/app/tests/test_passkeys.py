@@ -132,3 +132,111 @@ def test_a_passkey_belongs_to_its_owner_alone(client: TestClient) -> None:
 
 def test_passkeys_require_authentication(client: TestClient) -> None:
     assert client.get("/api/auth/passkeys").status_code == 401
+
+
+# -- sign-in ------------------------------------------------------------------
+
+
+def _register_credential() -> None:
+    """Put a credential row on the account without a real authenticator.
+
+    `finish_registration` cannot be driven without one (see the module note),
+    so the row is written directly. What the sign-in tests care about is the
+    branch `begin_login` takes when credentials exist, not how they got there.
+    """
+    from app.models.passkey import Passkey
+    from app.models.user import User
+
+    db = _db()
+    user = db.query(User).filter(User.email == "admin@example.com").one()
+    db.add(
+        Passkey(
+            user_id=user.id,
+            credential_id="Y3JlZGVudGlhbA",
+            public_key="cHVibGlj",
+            sign_count=1,
+            label="Laptop",
+        )
+    )
+    db.commit()
+
+
+def test_login_begin_does_not_enumerate_accounts(client: TestClient) -> None:
+    """An unknown address and a real one must be indistinguishable here."""
+    auth_headers(client)
+    _register_credential()
+
+    known = client.post("/api/auth/passkeys/login/begin", json={"email": "admin@example.com"})
+    unknown = client.post("/api/auth/passkeys/login/begin", json={"email": "nobody@example.com"})
+
+    assert known.status_code == 200, known.text
+    assert unknown.status_code == 200, unknown.text
+    assert known.json().keys() == unknown.json().keys()
+    assert known.json()["rpId"] == unknown.json()["rpId"] == module.relying_party()[0]
+    # Both carry a challenge; only the real account has one stored to consume.
+    assert known.json()["challenge"] and unknown.json()["challenge"]
+
+
+def test_login_begin_stores_no_challenge_for_an_unknown_address(client: TestClient) -> None:
+    from app.models.mfa_challenge import MfaChallenge
+
+    auth_headers(client)
+    client.post("/api/auth/passkeys/login/begin", json={"email": "nobody@example.com"})
+    db = _db()
+    assert db.query(MfaChallenge).filter(MfaChallenge.jti.like("webauthn:%")).count() == 0
+
+
+def test_login_finish_refuses_an_unknown_address_as_a_bad_passkey(client: TestClient) -> None:
+    auth_headers(client)
+    response = client.post(
+        "/api/auth/passkeys/login/finish",
+        json={"email": "nobody@example.com", "credential": {"id": "nope"}},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "That passkey could not be verified"
+
+
+def test_login_finish_refuses_an_unverified_assertion(client: TestClient) -> None:
+    """No session may be minted without a signature the server checked."""
+    auth_headers(client)
+    _register_credential()
+    client.post("/api/auth/passkeys/login/begin", json={"email": "admin@example.com"})
+
+    response = client.post(
+        "/api/auth/passkeys/login/finish",
+        json={"email": "admin@example.com", "credential": {"id": "nope", "rawId": "nope"}},
+    )
+    assert response.status_code == 401
+    assert "access_token" not in response.json()
+
+
+def test_login_finish_respects_enforced_sso(client: TestClient) -> None:
+    """Enforcement must not be a control that only applies to passwords."""
+    from app.models.sso_connection import SsoConnection
+    from app.models.user import User
+
+    auth_headers(client)
+    _register_credential()
+    db = _db()
+    user = db.query(User).filter(User.email == "admin@example.com").one()
+    user.is_platform_admin = False
+    db.add(
+        SsoConnection(
+            organization_id=user.organization_id,
+            idp_entity_id="urn:idp",
+            idp_sso_url="https://idp.example.com/sso",
+            idp_x509_cert="cert",
+            allowed_email_domains="example.com",
+            enabled=True,
+            enforced=True,
+        )
+    )
+    db.commit()
+
+    client.post("/api/auth/passkeys/login/begin", json={"email": "admin@example.com"})
+    response = client.post(
+        "/api/auth/passkeys/login/finish",
+        json={"email": "admin@example.com", "credential": {"id": "nope", "rawId": "nope"}},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "This workspace requires single sign-on"

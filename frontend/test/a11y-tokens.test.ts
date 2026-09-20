@@ -20,6 +20,19 @@ import * as ui from '@/lib/sf/ui';
 const read = (rel: string) => readFileSync(resolve(__dirname, '..', rel), 'utf8');
 const globals = read('app/globals.css');
 const tokens = read('app/tokens.css');
+
+/**
+ * The token layer is three files since the marketing site was built: raw
+ * ladders in `primitives.css`, the application's semantic names in
+ * `tokens.css`, and the marketing scale in `marketing-tokens.css`. Tailwind
+ * reads all three, so "is this property defined?" has to be asked of the whole
+ * layer rather than of `tokens.css` alone.
+ */
+const tokenLayer = [
+  read('app/primitives.css'),
+  tokens,
+  read('app/marketing-tokens.css'),
+].join('\n');
 const uiSource = read('lib/sf/ui.ts');
 
 /* ── contrast maths (WCAG 2.1 relative luminance) ────────────────────────── */
@@ -174,20 +187,32 @@ describe('dark-panel text tokens (WCAG 1.4.3)', () => {
 });
 
 describe('the design-token layer actually loads', () => {
-  it('globals.css imports tokens.css and the Tailwind layers', () => {
+  it('globals.css imports every token file and the Tailwind layers', () => {
+    expect(globals).toMatch(/@import\s+'\.\/primitives\.css'/);
     expect(globals).toMatch(/@import\s+'\.\/tokens\.css'/);
+    expect(globals).toMatch(/@import\s+'\.\/marketing-tokens\.css'/);
     expect(globals).toMatch(/@tailwind utilities/);
   });
 
-  it('tokens.css defines every custom property tailwind.config.ts references', () => {
+  it('primitives are imported before the semantic layers that alias them', () => {
+    const order = ['primitives.css', 'tokens.css', 'marketing-tokens.css'].map(name =>
+      globals.indexOf(name),
+    );
+    expect(order[0]).toBeLessThan(order[1]);
+    expect(order[1]).toBeLessThan(order[2]);
+  });
+
+  it('the token layer defines every custom property tailwind.config.ts references', () => {
     const config = read('tailwind.config.ts');
     const referenced = new Set(
       Array.from(config.matchAll(/var\(--([a-z0-9-]+)\)/g), m => m[1])
         .concat(Array.from(config.matchAll(/hsl\("([a-z0-9-]+)"\)/g), m => m[1]))
-        .concat(Array.from(config.matchAll(/hsl\(([a-z0-9-]+)\)/g), m => m[1])),
+        .concat(Array.from(config.matchAll(/hsl\(([a-z0-9-]+)\)/g), m => m[1]))
+        .concat(Array.from(config.matchAll(/mkColor\("([a-z0-9-]+)"\)/g), m => `mk-${m[1]}`)),
     );
-    // `hsl("color-fg-muted")` is the helper's shorthand for `--color-fg-muted`.
-    const missing = Array.from(referenced).filter(name => !tokens.includes(`--${name}:`));
-    expect(missing, `tokens.css is missing: ${missing.join(', ')}`).toEqual([]);
+    // `hsl("color-fg-muted")` is the helper's shorthand for `--color-fg-muted`,
+    // and `mkColor("canvas")` for `--mk-canvas`.
+    const missing = Array.from(referenced).filter(name => !tokenLayer.includes(`--${name}:`));
+    expect(missing, `the token layer is missing: ${missing.join(', ')}`).toEqual([]);
   });
 });

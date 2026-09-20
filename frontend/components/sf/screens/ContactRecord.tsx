@@ -79,7 +79,7 @@ function PairGrid({ rows }: { rows: DetailPair[] }) {
           <div key={r.label} style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0, gridColumn: r.wide ? '1 / -1' : undefined }}>
             <span style={railHead}>{r.label}</span>
             {unset ? (
-              <span style={{ fontSize: '.8125rem', color: '#94a3b8' }}>Not set</span>
+              <span style={{ fontSize: '.8125rem', color: TEXT_MUTED }}>Not set</span>
             ) : r.href ? (
               <a href={r.href} style={{ fontSize: '.8125rem', fontWeight: 500, color: '#0f172a', wordBreak: 'break-word' }}>{r.value}</a>
             ) : (

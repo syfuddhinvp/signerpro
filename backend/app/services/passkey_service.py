@@ -146,6 +146,9 @@ class PasskeyService:
         return json.loads(options_to_json(options))
 
     def finish_authentication(self, db: Session, user: User, credential: dict) -> Passkey:
+        return self._verify_assertion(db, user, credential)
+
+    def _verify_assertion(self, db: Session, user: User, credential: dict) -> Passkey:
         from webauthn import verify_authentication_response
 
         rp_id, origin = relying_party()
@@ -193,6 +196,86 @@ class PasskeyService:
         db.add(passkey)
         db.commit()
         return passkey
+
+    # -- sign-in ------------------------------------------------------------
+    #
+    # The two methods above are step-up: they re-prove a session that already
+    # exists. These two are the login path, and they answer to nobody, so they
+    # carry the extra obligations a public endpoint has -- above all that they
+    # must not become an account-enumeration oracle. Every refusal below is the
+    # same 401 with the same wording, and `begin_login` returns a well-formed
+    # set of options for an address that has no account at all.
+
+    def _login_candidate(self, db: Session, email: str) -> User | None:
+        """The user this address may sign in as, or ``None`` -- never an error."""
+        from app.services.sandbox_service import sandbox_service
+
+        user = db.scalar(select(User).where(User.email == email.strip().lower()))
+        if user is None or user.status in {"deprovisioned", "erased"}:
+            return None
+        # Same second lock as the password path: a sandbox mirror is a
+        # service-layer convenience, not an account that can hold a session.
+        if sandbox_service.is_mirror(user):
+            return None
+        return user
+
+    @staticmethod
+    def _login_refused() -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="That passkey could not be verified"
+        )
+
+    def begin_login(self, db: Session, *, email: str) -> dict:
+        from webauthn import generate_authentication_options, options_to_json
+        from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+
+        user = self._login_candidate(db, email)
+        credentials = [] if user is None else [
+            PublicKeyCredentialDescriptor(id=_unb64(row.credential_id))
+            for row in self.list_for_user(db, user)
+        ]
+        rp_id, _ = relying_party()
+        options = generate_authentication_options(rp_id=rp_id, allow_credentials=credentials)
+        # An unknown address, or a known one with nothing registered, gets a
+        # challenge that is simply never stored. The response is the same shape
+        # either way; the ceremony then fails at `finish_login` like any other
+        # bad attempt, rather than here where the difference would be readable.
+        if credentials:
+            self._store_challenge(db, user, options.challenge)
+        import json
+
+        return json.loads(options_to_json(options))
+
+    def finish_login(self, db: Session, *, email: str, credential: dict, request=None):
+        from app.services.auth_service import auth_service
+        from app.services.sso_service import sso_service
+
+        user = self._login_candidate(db, email)
+        if user is None:
+            raise self._login_refused()
+        # A workspace that enforces SSO has decided its IdP is the only way in.
+        # Passkeys are strong, but they are provisioned here rather than by the
+        # IdP, so leaving this path open would survive an IdP offboarding --
+        # exactly what enforcement exists to prevent. Platform admins keep the
+        # same break-glass exemption they have on the password path.
+        if not user.is_platform_admin and sso_service.is_enforced(db, user.organization_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This workspace requires single sign-on",
+            )
+        try:
+            self._verify_assertion(db, user, credential)
+        except HTTPException as exc:
+            # Collapsed deliberately: "no challenge outstanding", "unknown
+            # passkey" and "bad signature" are all one answer to a caller who
+            # has not proven who they are. A cloned-authenticator refusal is
+            # let through, because it is a warning the user needs to see.
+            if exc.status_code == status.HTTP_400_BAD_REQUEST and "cloned" not in str(exc.detail):
+                raise self._login_refused() from exc
+            raise
+        if auth_service._mfa_active(user):
+            return auth_service._mfa_challenge(db, user, remember=False)
+        return auth_service.issue_session_for(db, user, request=request)
 
     def delete(self, db: Session, user: User, passkey_id: str) -> None:
         passkey = db.get(Passkey, passkey_id)

@@ -170,7 +170,13 @@ class SsoService:
             "post_data": {},
         }
         auth = self._auth(connection, request_data)
-        redirect_url = auth.login()
+        # The slug has to survive the trip to the IdP and back: `complete_login`
+        # has nothing else to identify the workspace by, and the assertion
+        # cannot be verified until the right connection's certificate is
+        # loaded. python3-saml carries `return_to` as RelayState, which the IdP
+        # echoes to the ACS verbatim. Omitting it left every round trip failing
+        # at the ACS with "Missing workspace in RelayState".
+        redirect_url = auth.login(return_to=organization.slug)
         self._store_request_id(db, organization.id, auth.get_last_request_id())
         return redirect_url
 

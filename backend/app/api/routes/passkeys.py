@@ -5,13 +5,15 @@ browser has the authenticator sign it, the server verifies. Both halves are
 here; the challenge itself is never accepted from the client.
 """
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.ratelimit import login_email_limiter, login_ip_limiter
 from app.models.user import User
+from app.schemas.auth import MfaChallengeResponse, TokenResponse
 from app.services.passkey_service import passkey_service
 
 router = APIRouter(prefix="/api/auth/passkeys", tags=["auth"])
@@ -30,6 +32,15 @@ class RegistrationRequest(BaseModel):
 
 
 class AuthenticationRequest(BaseModel):
+    credential: dict
+
+
+class LoginBeginRequest(BaseModel):
+    email: str
+
+
+class LoginFinishRequest(BaseModel):
+    email: str
     credential: dict
 
 
@@ -79,6 +90,34 @@ def finish_authentication(
     user: User = Depends(get_current_user),
 ) -> PasskeyResponse:
     return _response(passkey_service.finish_authentication(db, user, payload.credential))
+
+
+# -- sign-in ------------------------------------------------------------------
+#
+# Unlike everything above, these two take no session: they are how a session is
+# obtained. They are declared before the `/{passkey_id}` route only for
+# readability -- the literal prefixes cannot collide with it.
+
+
+@router.post("/login/begin", dependencies=[Depends(login_ip_limiter)])
+def begin_login(payload: LoginBeginRequest, db: Session = Depends(get_db)) -> dict:
+    # Throttled exactly like the password path: this endpoint is public and
+    # answers about any address, so it is the natural place to grind.
+    login_email_limiter.check(payload.email.strip().lower())
+    return passkey_service.begin_login(db, email=payload.email)
+
+
+@router.post(
+    "/login/finish",
+    response_model=TokenResponse | MfaChallengeResponse,
+    dependencies=[Depends(login_ip_limiter)],
+)
+def finish_login(
+    payload: LoginFinishRequest, request: Request, db: Session = Depends(get_db)
+) -> TokenResponse | MfaChallengeResponse:
+    return passkey_service.finish_login(
+        db, email=payload.email, credential=payload.credential, request=request
+    )
 
 
 @router.delete("/{passkey_id}", status_code=status.HTTP_204_NO_CONTENT)

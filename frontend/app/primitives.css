@@ -1,0 +1,81 @@
+/**
+ * Primitive colour ladders — the raw values every semantic token resolves to.
+ *
+ * The rule the app already follows (`tokens.css`: "nothing else in the app may
+ * hard-code a colour that has a token here") gains a layer beneath it. Before
+ * this file, `tokens.css` carried literal HSL triplets on its semantic names,
+ * so changing the brand hue meant editing thirty lines plus the dark block by
+ * hand and hoping the two stayed in step. Now the literals live here once and
+ * the semantic layers — `--color-*` for the application, `--mk-*` for the
+ * marketing site — alias into them.
+ *
+ * Values are bare HSL triplets (`H S% L%`) for the same reason as tokens.css:
+ * Tailwind wraps them as `hsl(var(--token) / <alpha-value>)`.
+ *
+ * Nothing renders from this file directly. A component that reaches for
+ * `--p-gray-600` has skipped the semantic layer and lost the meaning that made
+ * the token reviewable; use the `--color-*` or `--mk-*` name instead.
+ */
+
+:root {
+  /* ── neutral ladder ─────────────────────────────────────────────────────
+     Slightly warm (hue 222 held, saturation low) so it sits with the paper
+     surfaces below without the blue cast a pure slate ladder gives. */
+  --p-gray-50:  220 20% 98%;
+  --p-gray-100: 220 16% 96%;
+  --p-gray-200: 218 25% 92%;
+  --p-gray-300: 214 24% 84%;
+  --p-gray-400: 215 16% 59%;
+  --p-gray-500: 215 14% 46%;
+  --p-gray-600: 215 14% 34%;   /* #4a5462 — 7.7:1 on white */
+  --p-gray-700: 215 20% 25%;
+  --p-gray-800: 220 26% 18%;
+  --p-gray-900: 222 44% 13%;
+  --p-gray-950: 222 47% 11%;   /* #0f172a — 16.8:1 on white */
+
+  /* ── paper ──────────────────────────────────────────────────────────────
+     The marketing canvas. A warm off-white rather than #fff: every competitor
+     in the category sits on pure white or a cool grey, and the warmth is what
+     lets the same indigo read as a different brand. */
+  --p-paper-50:  40 33% 99%;   /* #fdfcfa */
+  --p-paper-100: 38 30% 96%;   /* #f8f6f1 */
+  --p-paper-200: 36 24% 92%;   /* #f0ece5 */
+
+  /* ── brand (indigo) ─────────────────────────────────────────────────────
+     Unchanged from the app's accent so the product and the site stay one
+     brand while 1,100 inline styles still hard-code it. MARKETING_PLAN.md
+     section 6.3 option B revisits the hue after the Tailwind migration. */
+  --p-brand-50:  226 100% 97%;
+  --p-brand-100: 226 100% 92%;
+  --p-brand-200: 228 96% 89%;
+  --p-brand-400: 239 84% 67%;
+  /* The solid action fill in the dark theme. Neither brand-400 nor brand-500
+     works there: white text on brand-400 is 4.43:1 (short of 4.5), and
+     brand-500 is only 2.77:1 against a dark card, so the button loses its
+     shape. At 64% lightness white text reaches 4.84:1 and the fill holds
+     3.53:1 against the card. Both numbers are asserted in
+     test/marketing-tokens.test.ts. */
+  --p-brand-450: 243 75% 64%;
+  --p-brand-500: 243 75% 59%;  /* #4f46e5 */
+  --p-brand-600: 244 62% 51%;
+  --p-brand-700: 245 58% 44%;
+  --p-brand-800: 244 47% 43%;  /* #3730a3 */
+  --p-brand-900: 245 50% 30%;
+
+  /* ── sealed (green) ─────────────────────────────────────────────────────
+     Reserved for the two states the product is sold on: money collected and a
+     document verified. Not a general-purpose success colour on marketing. */
+  --p-sealed-50:  152 81% 96%;
+  --p-sealed-100: 152 76% 80%;
+  --p-sealed-400: 160 84% 39%;
+  --p-sealed-500: 161 94% 30%;
+  --p-sealed-600: 164 96% 24%;  /* #047857 */
+
+  /* ── status ─────────────────────────────────────────────────────────── */
+  --p-red-100: 0 93% 89%;
+  --p-red-500: 0 74% 42%;
+  --p-red-600: 0 70% 35%;
+  --p-amber-100: 32 98% 83%;
+  --p-amber-500: 32 95% 44%;
+  --p-amber-600: 21 90% 40%;
+}

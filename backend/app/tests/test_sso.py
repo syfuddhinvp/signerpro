@@ -102,6 +102,30 @@ def test_a_disabled_connection_does_not_start_a_ceremony(client: TestClient) -> 
     assert client.get("/api/auth/sso/login/acme").status_code == 404
 
 
+def test_the_authn_request_carries_the_workspace_in_relay_state(client: TestClient) -> None:
+    """The ACS has nothing else to identify the tenant by.
+
+    The assertion cannot be verified until the right connection's certificate
+    is loaded, and the certificate is found by slug. Without RelayState every
+    round trip died at the ACS with "Missing workspace in RelayState".
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    from app.models.organization import Organization
+
+    headers = auth_headers(client)
+    _configure(client, headers)
+    db = _db()
+    org = db.query(Organization).first()
+    org.slug = "acme"
+    db.commit()
+
+    response = client.get("/api/auth/sso/login/acme", follow_redirects=False)
+    assert response.status_code == 303, response.text
+    query = parse_qs(urlparse(response.headers["location"]).query)
+    assert query["RelayState"] == ["acme"]
+
+
 # --- the tenant-isolation property -----------------------------------------
 
 

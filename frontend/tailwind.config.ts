@@ -6,6 +6,17 @@ import type { Config } from "tailwindcss";
  */
 const hsl = (name: string) => `hsl(var(--${name}) / <alpha-value>)`;
 
+/**
+ * The marketing scale.
+ *
+ * `app/marketing-tokens.css` declares these under `[data-surface="marketing"]`;
+ * this block only gives them utility names so a marketing page can be written
+ * in classes instead of a CSS template string. Because the custom properties
+ * are scoped to that attribute, a `mk-` utility used on a product screen
+ * resolves to nothing — which is the intended failure mode.
+ */
+const mkColor = (name: string) => `hsl(var(--mk-${name}) / <alpha-value>)`;
+
 const config: Config = {
   darkMode: ["class", '[data-theme="dark"]'],
   content: [
@@ -103,6 +114,34 @@ const config: Config = {
           fg: hsl("color-fg-info"),
           border: hsl("color-border-info")
         },
+        mk: {
+          canvas: mkColor("canvas"),
+          "canvas-alt": mkColor("canvas-alt"),
+          "canvas-sunken": mkColor("canvas-sunken"),
+          card: mkColor("card"),
+          ink: mkColor("ink"),
+          "ink-muted": mkColor("ink-muted"),
+          "ink-subtle": mkColor("ink-subtle"),
+          hairline: mkColor("hairline"),
+          "hairline-strong": mkColor("hairline-strong"),
+          "control-edge": mkColor("control-edge"),
+          band: mkColor("band"),
+          "band-raised": mkColor("band-raised"),
+          "band-ink": mkColor("band-ink"),
+          "band-ink-muted": mkColor("band-ink-muted"),
+          "band-hairline": mkColor("band-hairline"),
+          action: mkColor("action"),
+          "action-hover": mkColor("action-hover"),
+          "action-active": mkColor("action-active"),
+          "action-ink": mkColor("action-ink"),
+          "action-subtle": mkColor("action-subtle"),
+          "action-muted": mkColor("action-muted"),
+          "action-fg": mkColor("action-fg"),
+          sealed: mkColor("sealed"),
+          "sealed-fg": mkColor("sealed-fg"),
+          "sealed-subtle": mkColor("sealed-subtle"),
+          "sealed-border": mkColor("sealed-border")
+        },
         field: {
           surface: hsl("color-field-surface"),
           ink: hsl("color-signature-ink"),
@@ -113,7 +152,8 @@ const config: Config = {
       },
       fontFamily: {
         sans: "var(--font-sans)",
-        mono: "var(--font-mono)"
+        mono: "var(--font-mono)",
+        display: "var(--mk-font-display)"
       },
       fontSize: {
         display: ["var(--text-display-size)", { lineHeight: "var(--text-display-leading)", letterSpacing: "var(--text-display-tracking)", fontWeight: "var(--text-display-weight)" }],
@@ -122,7 +162,19 @@ const config: Config = {
         "heading-3": ["var(--text-heading-3-size)", { lineHeight: "var(--text-heading-3-leading)", fontWeight: "var(--text-heading-3-weight)" }],
         body: ["var(--text-body-size)", { lineHeight: "var(--text-body-leading)" }],
         label: ["var(--text-label-size)", { lineHeight: "var(--text-label-leading)", letterSpacing: "var(--text-label-tracking)", fontWeight: "var(--text-label-weight)" }],
-        code: ["var(--text-code-size)", { lineHeight: "var(--text-code-leading)" }]
+        code: ["var(--text-code-size)", { lineHeight: "var(--text-code-leading)" }],
+
+        // --- marketing scale ---
+        "mk-display-xl": ["var(--mk-display-xl)", { lineHeight: "var(--mk-lh-display)", letterSpacing: "var(--mk-tracking-xl)" }],
+        "mk-display-lg": ["var(--mk-display-lg)", { lineHeight: "var(--mk-lh-display)", letterSpacing: "var(--mk-tracking-lg)" }],
+        "mk-display-md": ["var(--mk-display-md)", { lineHeight: "var(--mk-lh-display-sm)", letterSpacing: "var(--mk-tracking-md)" }],
+        "mk-display-sm": ["var(--mk-display-sm)", { lineHeight: "var(--mk-lh-display-sm)", letterSpacing: "var(--mk-tracking-sm)" }],
+        "mk-copy-xl": ["var(--mk-copy-xl)", { lineHeight: "var(--mk-lh-copy)" }],
+        "mk-copy-lg": ["var(--mk-copy-lg)", { lineHeight: "var(--mk-lh-copy)" }],
+        "mk-copy-md": ["var(--mk-copy-md)", { lineHeight: "var(--mk-lh-copy)" }],
+        "mk-copy-sm": ["var(--mk-copy-sm)", { lineHeight: "var(--mk-lh-copy)" }],
+        "mk-copy-xs": ["var(--mk-copy-xs)", { lineHeight: "var(--mk-lh-copy-tight)" }],
+        "mk-eyebrow": ["var(--mk-eyebrow-size)", { lineHeight: "1.3", letterSpacing: "var(--mk-eyebrow-tracking)", fontWeight: "var(--mk-eyebrow-weight)" }]
       },
       spacing: {
         "space-1": "var(--space-1)",
@@ -132,14 +184,42 @@ const config: Config = {
         "space-5": "var(--space-5)",
         "space-6": "var(--space-6)",
         "space-7": "var(--space-7)",
-        "space-8": "var(--space-8)"
+        "space-8": "var(--space-8)",
+        "mk-section": "var(--mk-space-section)",
+        "mk-band": "var(--mk-space-band)",
+        "mk-stack": "var(--mk-space-stack)",
+        "mk-stack-lg": "var(--mk-space-stack-lg)",
+        "mk-grid": "var(--mk-space-grid)",
+        "mk-gutter": "var(--mk-gutter)"
+      },
+      maxWidth: {
+        "mk-container": "var(--mk-container)",
+        "mk-wide": "var(--mk-container-wide)",
+        "mk-prose": "var(--mk-container-prose)",
+        "mk-measure": "var(--mk-measure)"
+      },
+      height: {
+        "mk-cta": "var(--mk-cta-height)",
+        "mk-cta-lg": "var(--mk-cta-height-lg)"
+      },
+      minHeight: {
+        "mk-cta": "var(--mk-cta-height)",
+        "mk-cta-lg": "var(--mk-cta-height-lg)"
+      },
+      backgroundImage: {
+        "mk-glow": "var(--mk-glow)",
+        "mk-glow-sealed": "var(--mk-glow-sealed)"
       },
       borderRadius: {
         none: "var(--radius-none)",
         sm: "var(--radius-sm)",
         md: "var(--radius-md)",
         lg: "var(--radius-lg)",
-        full: "var(--radius-full)"
+        full: "var(--radius-full)",
+        "mk-cta": "var(--mk-radius-cta)",
+        "mk-card": "var(--mk-radius-card)",
+        "mk-shot": "var(--mk-radius-shot)",
+        "mk-chip": "var(--mk-radius-chip)"
       },
       boxShadow: {
         panel: "var(--shadow-1)",
@@ -147,7 +227,10 @@ const config: Config = {
         "elevation-2": "var(--shadow-2)",
         "elevation-3": "var(--shadow-3)",
         "elevation-4": "var(--shadow-4)",
-        focus: "var(--focus-ring)"
+        focus: "var(--focus-ring)",
+        "mk-card": "var(--mk-shadow-card)",
+        "mk-shot": "var(--mk-shadow-shot)",
+        "mk-cta": "var(--mk-shadow-cta)"
       },
       transitionDuration: {
         instant: "var(--duration-instant)",

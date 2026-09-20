@@ -14,6 +14,7 @@ export const caveat = Caveat({ subsets: ['latin'], variable: '--font-caveat', di
 export const dancingScript = Dancing_Script({ subsets: ['latin'], variable: '--font-dancing-script', display: 'swap' });
 export const greatVibes = Great_Vibes({ subsets: ['latin'], weight: '400', variable: '--font-great-vibes', display: 'swap' });
 
+
 /** Class list for <html>, which publishes every face as a CSS variable. */
 export const fontVariables = [
   geistSans.variable, geistMono.variable,

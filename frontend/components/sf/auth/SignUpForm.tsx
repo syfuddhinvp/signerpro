@@ -84,8 +84,8 @@ export default function SignUpForm() {
 
   return (
     <AuthLayout mode="signup">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '13px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '9px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <label style={lbl}>Full name
             <input type="text" value={s.reg.name} onChange={(e) => { const v = e.target.value; set(st => ({ reg: Object.assign({}, st.reg, { name: v }) })); }} placeholder="Priya Raman" autoComplete="name" style={authInput} />
           </label>

@@ -14,7 +14,7 @@ import BrandMark from '@/components/sf/BrandMark';
 import { AUTH_TABS, AUTH_TITLES } from '@/lib/sf/data';
 import { AUTH_PATHS } from '@/lib/sf/routes';
 import { TEXT_MUTED, TEXT_MUTED_ON_DARK } from '@/lib/sf/ui';
-import Icon from '@/components/sf/Icon';
+import AuthAlternatives from './AuthAlternatives';
 
 export type AuthMode = 'signin' | 'signup' | 'mfa' | 'forgot' | 'reset' | 'invite';
 
@@ -87,7 +87,7 @@ export default function AuthLayout({
     return {
       id, label, href: TAB_PATH[id] || AUTH_PATHS.signin, selected: on,
       style: {
-        flex: '1', height: '32px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '.8125rem',
+        flex: '1', height: '36px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontSize: '.8125rem',
         fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
         boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
         display: 'grid', placeItems: 'center', textDecoration: 'none',
@@ -101,20 +101,7 @@ export default function AuthLayout({
 
   const authTabsVisible = mode === 'signin' || mode === 'signup';
 
-  // SSO and passkey are not implemented on either side — there is no
-  // `/api/auth/sso/start` and no WebAuthn ceremony. They are rendered disabled
-  // rather than removed so the roadmap stays visible, but they cannot be
-  // clicked and cannot pretend to sign anyone in.
   const ssoVisible = mode === 'signin' || mode === 'signup';
-  const ssoOptions = ([['Continue with SSO', 'shield'], ['Continue with passkey', 'key']] as const).map(([label, mark]) => ({
-    label,
-    mark,
-    style: {
-      height: '38px', borderRadius: '10px', border: '1px solid #eceff4', background: '#f8fafc',
-      color: TEXT_MUTED, fontSize: '.78125rem', fontWeight: 600, cursor: 'not-allowed',
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
-    } as CSSProperties,
-  }));
 
   const authHint = mode === 'signup' ? 'No card required' : 'Protected by multi-factor authentication';
   const authSwitchLabel = mode === 'signup' ? 'Already have an account? Sign in' : 'New to SignerPro? Create an account';
@@ -123,8 +110,8 @@ export default function AuthLayout({
   return (
     <div data-screen-label="Auth" style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', background: '#f5f6f8' }}>
 
-      <div style={{ background: '#0f172a', padding: '44px 42px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '28px', overflow: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
+      <div style={{ background: '#0f172a', padding: 'clamp(40px, 5vh, 64px) clamp(32px, 4vw, 56px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', gap: '40px', overflow: 'auto' }}>
+        <div style={{ width: '100%', maxWidth: '480px', display: 'flex', alignItems: 'center', gap: '11px' }}>
           <BrandMark size={30} accent={A} radius={9} />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
             <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: '.875rem', letterSpacing: '-.2px' }}>SignerPro</span>
@@ -132,10 +119,10 @@ export default function AuthLayout({
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '420px' }}>
-          <h2 style={{ margin: 0, color: '#f8fafc', fontSize: '1.9375rem', lineHeight: 1.18, letterSpacing: '-1px', fontWeight: 700, textWrap: 'pretty' } as CSSProperties}>Agreements that execute themselves — and prove it.</h2>
-          <p style={{ margin: 0, color: TEXT_MUTED_ON_DARK, fontSize: '.84375rem', lineHeight: 1.7 }}>Prepare, route and seal legally binding agreements with a tamper-evident audit trail on every field, signature and view.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
+        <div style={{ width: '100%', maxWidth: '480px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 'clamp(1.75rem, 2.4vw, 2.375rem)', lineHeight: 1.16, letterSpacing: '-1px', fontWeight: 700, textWrap: 'pretty' } as CSSProperties}>Agreements that execute themselves — and prove it.</h2>
+          <p style={{ margin: 0, color: TEXT_MUTED_ON_DARK, fontSize: '.875rem', lineHeight: 1.7, maxWidth: '44ch' }}>Prepare, route and seal legally binding agreements with a tamper-evident audit trail on every field, signature and view.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {AUTH_PROOF.map(p => (
               <div key={p.label} style={{ display: 'flex', gap: '11px', alignItems: 'flex-start' }}>
                 <span style={{ width: '7px', height: '7px', borderRadius: '99px', background: '#10b981', marginTop: '6px', flex: '0 0 7px' }}></span>
@@ -148,52 +135,36 @@ export default function AuthLayout({
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+        <div style={{ width: '100%', maxWidth: '480px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {AUTH_CERTS.map(label => (
             <span key={label} style={certStyle}>{label}</span>
           ))}
         </div>
       </div>
 
-      <div data-sf-scroll="1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '36px 30px', overflow: 'auto' }}>
-        <div style={{ width: '100%', maxWidth: '396px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div data-sf-scroll="1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'clamp(32px, 5vh, 64px) clamp(24px, 4vw, 48px)', overflow: 'auto' }}>
+        <div style={{ width: '100%', maxWidth: '424px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
           {authTabsVisible ? (
-            <div role="tablist" aria-label="Authentication" style={{ display: 'flex', gap: '4px', background: '#eceff4', padding: '4px', borderRadius: '11px' }}>
+            <div role="tablist" aria-label="Authentication" style={{ display: 'flex', gap: '4px', background: '#eceff4', padding: '4px', borderRadius: '12px' }}>
               {authTabs.map(t => (
                 <Link key={t.id} href={t.href} role="tab" aria-selected={t.selected} style={t.style}>{t.label}</Link>
               ))}
             </div>
           ) : null}
 
-          <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <span style={{ fontSize: '1.125rem', fontWeight: 700, letterSpacing: '-.4px' }}>{authTitle}</span>
+          <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: 'clamp(22px, 2.2vw, 28px)', display: 'flex', flexDirection: 'column', gap: '20px', boxShadow: '0 1px 2px rgba(15,23,42,.04)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <span style={{ fontSize: '1.1875rem', fontWeight: 700, letterSpacing: '-.4px' }}>{authTitle}</span>
               <span style={{ fontSize: '.78125rem', color: TEXT_MUTED, lineHeight: 1.5 }}>{authSub}</span>
             </div>
 
             {children}
 
-            {ssoVisible ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ height: '1px', flex: 1, background: '#e3e7ee' }}></span>
-                  <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>OR</span>
-                  <span style={{ height: '1px', flex: 1, background: '#e3e7ee' }}></span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  {ssoOptions.map(o => (
-                    <button key={o.label} type="button" disabled aria-disabled="true" title="Not available yet" style={o.style}><Icon name={o.mark} size={13} />{o.label}</button>
-                  ))}
-                </div>
-                <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, textAlign: 'center', fontFamily: 'var(--font-sans)' }}>
-                  Single sign-on and passkeys are not available yet.
-                </span>
-              </div>
-            ) : null}
+            {ssoVisible ? <AuthAlternatives /> : null}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '0 4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '0 2px' }}>
             <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>{authHint}</span>
             <Link href={authSwitchHref} style={linkBtnStyle}>{authSwitchLabel}</Link>
           </div>

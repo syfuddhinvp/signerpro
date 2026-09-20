@@ -3,11 +3,13 @@ import { SESSION_COOKIE, mayActAsPlatformAdmin, readEdgeSession, type EdgeSessio
 import { backendUrl, expireImpersonation, sessionCookieOptions } from '@/lib/auth/cookie';
 import { refreshSession } from '@/lib/auth/refresh';
 import { pathAllowed } from '@/lib/auth/access';
+import { MARKETING_PUBLIC_PREFIXES } from '@/lib/marketing/routes';
 
 /**
  * Route protection and access-token rotation.
  *
- * Everything is private except the marketing page (`/` and `/product`), the
+ * Everything is private except the marketing site (`/` plus the prefixes in
+ * `lib/marketing/routes.ts`), the
  * auth screens, the auth route handlers and the links mailed to people who
  * have no account: the signer link
  * (`/sign/<token>`), the password-reset link (`/reset-password?token=…`) and
@@ -20,7 +22,10 @@ import { pathAllowed } from '@/lib/auth/access';
  * spent impersonation session hands the cookie back to the admin who started
  * it (see `expireImpersonation`).
  */
-const PUBLIC_PREFIXES = ['/product', '/login', '/register', '/api/auth', '/sign', '/reset-password', '/invite', '/verify', '/embed', '/brand'];
+const PUBLIC_PREFIXES = [
+  ...MARKETING_PUBLIC_PREFIXES,
+  '/login', '/register', '/api/auth', '/sign', '/reset-password', '/invite', '/verify', '/embed', '/brand',
+];
 
 function isPublic(pathname: string): boolean {
   // `/` is matched exactly and never as a prefix — as a prefix it would make

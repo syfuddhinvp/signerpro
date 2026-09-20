@@ -1,0 +1,195 @@
+/**
+ * Marketing design tokens.
+ *
+ * The application's token scale is sized for a dense working surface: body
+ * text at .78rem, a display step at 1.875rem, spacing that stops at 30px. A
+ * landing page needs a 44–80px headline and 64–128px between sections, which
+ * is why the old marketing page hard-coded `clamp(2.25rem, …, 3.5rem)` and
+ * `clamp(56px, 9vw, 104px)` inside a CSS template string — the vocabulary to
+ * say it did not exist. This file is that vocabulary.
+ *
+ * Scoped to `[data-surface="marketing"]` rather than `:root`, so the larger
+ * type and looser rhythm cannot leak into the app if a marketing component is
+ * ever imported next to a product screen. The marketing layout sets the
+ * attribute once; everything under it resolves these names.
+ *
+ * Display sizes are fluid (`clamp`) because a headline is the one thing that
+ * should track viewport width. Copy sizes are fixed rem steps: a fluid body
+ * size interacts badly with user text zoom (WCAG 1.4.4), and the app's own
+ * `html { font-size: clamp(...) }` already scales them once. The `vw` term
+ * appears only where a rem floor and ceiling bracket it.
+ */
+
+[data-surface='marketing'] {
+  /* ── display type ───────────────────────────────────────────────────────
+     44→80, 36→56, 28→40, 22→28px across a 360→1440 viewport. Tracking
+     tightens as size grows, which is what every reference marketing site in
+     MARKETING_RESEARCH.md section 2.1 does and what stops a large headline
+     reading as loose. */
+  --mk-display-xl: clamp(2.75rem, 1.9rem + 3.6vw, 5rem);
+  --mk-display-lg: clamp(2.25rem, 1.6rem + 2.7vw, 3.5rem);
+  --mk-display-md: clamp(1.75rem, 1.4rem + 1.5vw, 2.5rem);
+  --mk-display-sm: clamp(1.375rem, 1.2rem + 0.8vw, 1.75rem);
+
+  --mk-tracking-xl: -0.04em;
+  --mk-tracking-lg: -0.03em;
+  --mk-tracking-md: -0.02em;
+  --mk-tracking-sm: -0.015em;
+  --mk-lh-display: 1.05;
+  --mk-lh-display-sm: 1.2;
+
+  /* ── copy ───────────────────────────────────────────────────────────── */
+  --mk-copy-xl: 1.375rem;   /* hero subheading */
+  --mk-copy-lg: 1.125rem;   /* section lead */
+  --mk-copy-md: 1rem;       /* body */
+  --mk-copy-sm: 0.9375rem;  /* card body, captions */
+  --mk-copy-xs: 0.8125rem;  /* fine print */
+  --mk-lh-copy: 1.6;
+  --mk-lh-copy-tight: 1.45;
+  --mk-measure: 58ch;       /* the lead paragraph's maximum line length */
+
+  --mk-eyebrow-size: 0.8125rem;
+  --mk-eyebrow-tracking: 0.08em;
+  --mk-eyebrow-weight: 700;
+
+  /* Headlines are the UI sans, not a separate display face.
+     A serif was tried here on the theory that type is the cheapest way to look
+     unlike the rest of the category, which sets everything in a grotesque. On
+     the page it read editorial rather than like software, and it fought the
+     Geist it sat above. What carries the brand instead is the warm paper
+     canvas, the sealed green and the product imagery; the headline just has to
+     be sharp. Weight and tracking do that, and it costs no extra font file. */
+  --mk-font-display: var(--font-sans);
+  --mk-display-weight: 700;
+  --mk-font-sans: var(--font-sans);
+
+  /* ── rhythm ─────────────────────────────────────────────────────────── */
+  --mk-space-section: clamp(4rem, 3rem + 4vw, 8rem);    /* 64→128px */
+  --mk-space-band: clamp(5rem, 3.5rem + 6vw, 9rem);     /* hero, closing CTA */
+  --mk-space-stack: 1.5rem;
+  --mk-space-stack-lg: 2.5rem;
+  --mk-space-grid: 1.25rem;
+
+  --mk-container: 1200px;
+  --mk-container-wide: 1400px;
+  --mk-container-prose: 720px;
+  --mk-gutter: clamp(16px, 5vw, 56px);
+
+  /* ── shape ──────────────────────────────────────────────────────────── */
+  --mk-radius-cta: 999px;
+  --mk-radius-card: 16px;
+  --mk-radius-shot: 20px;
+  --mk-radius-chip: 999px;
+  --mk-cta-height: 44px;      /* WCAG 2.2 target size with room to spare */
+  --mk-cta-height-lg: 52px;
+
+  /* ── surfaces ───────────────────────────────────────────────────────── */
+  --mk-canvas: var(--p-paper-50);
+  --mk-canvas-alt: var(--p-paper-100);
+  --mk-canvas-sunken: var(--p-paper-200);
+  --mk-card: 0 0% 100%;
+  --mk-ink: var(--p-gray-950);
+  --mk-ink-muted: var(--p-gray-600);
+  --mk-ink-subtle: var(--p-gray-500);
+  /* `hairline` and `hairline-strong` divide content and are decorative: WCAG
+     1.4.11 does not apply to them. `control-edge` is the boundary of an
+     outline button or an input, which does have to clear 3:1, so it is a
+     separate token rather than a darker hairline someone might lighten. */
+  --mk-hairline: var(--p-paper-200);
+  --mk-hairline-strong: var(--p-gray-300);
+  --mk-control-edge: var(--p-gray-500);
+
+  /* Dark bands. The ink ladder rather than pure black: a true black band next
+     to warm paper reads as a hole in the page. */
+  --mk-band: var(--p-gray-950);
+  --mk-band-raised: var(--p-gray-900);
+  --mk-band-ink: 40 33% 99%;
+  --mk-band-ink-muted: 215 20% 78%;     /* 8.0:1 on --mk-band */
+  --mk-band-hairline: 0 0% 100%;        /* used with an alpha */
+
+  /* ── action ─────────────────────────────────────────────────────────── */
+  --mk-action: var(--p-brand-500);
+  --mk-action-hover: var(--p-brand-600);
+  --mk-action-active: var(--p-brand-700);
+  --mk-action-ink: 0 0% 100%;
+  --mk-action-subtle: var(--p-brand-50);
+  --mk-action-muted: var(--p-brand-100);
+  --mk-action-fg: var(--p-brand-800);
+
+  /* Money collected and documents verified — the two claims the product is
+     sold on, given their own colour so they never read as generic success. */
+  --mk-sealed: var(--p-sealed-400);
+  --mk-sealed-fg: var(--p-sealed-600);
+  --mk-sealed-subtle: var(--p-sealed-50);
+  --mk-sealed-border: var(--p-sealed-100);
+
+  /* ── elevation ──────────────────────────────────────────────────────── */
+  --mk-shadow-card: 0 1px 2px hsl(222 47% 11% / .05), 0 12px 32px -14px hsl(222 47% 11% / .16);
+  --mk-shadow-shot: 0 30px 70px -20px hsl(222 47% 8% / .38);
+  --mk-shadow-cta: 0 1px 2px hsl(243 75% 30% / .18);
+
+  /* The hero's atmosphere. Decorative and hero-only, per the reference sites:
+     a gradient that repeats down the page stops reading as light. */
+  --mk-glow: radial-gradient(1100px 520px at 12% -10%, hsl(var(--p-brand-500) / .42), transparent 62%);
+  --mk-glow-sealed: radial-gradient(760px 420px at 88% 110%, hsl(var(--p-sealed-400) / .20), transparent 60%);
+}
+
+/**
+ * Dark theme for the marketing surface.
+ *
+ * Unlike the app — whose dark block exists but is deliberately unused until the
+ * inline styles are migrated — marketing pages carry no inline colours, so this
+ * one is live. It answers `prefers-color-scheme` and an explicit
+ * `data-theme="dark"`, and the light theme can always be forced back.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) [data-surface='marketing'] {
+    --mk-canvas: 222 47% 9%;
+    --mk-canvas-alt: 222 44% 12%;
+    --mk-canvas-sunken: 222 40% 15%;
+    --mk-card: 222 44% 13%;
+    --mk-ink: 40 33% 99%;
+    --mk-ink-muted: 215 20% 76%;
+    --mk-ink-subtle: 215 18% 68%;
+    --mk-hairline: 220 26% 22%;
+    --mk-hairline-strong: 219 22% 30%;
+    --mk-control-edge: var(--p-gray-400);
+    --mk-band: 222 47% 7%;
+    --mk-band-raised: 222 44% 11%;
+    --mk-action: var(--p-brand-450);
+    --mk-action-hover: var(--p-brand-400);
+    --mk-action-fg: 226 100% 84%;
+    --mk-action-subtle: 244 40% 20%;
+    --mk-action-muted: 244 38% 26%;
+    --mk-sealed-fg: 152 76% 70%;
+    --mk-sealed-subtle: 164 60% 14%;
+    --mk-sealed-border: 164 50% 26%;
+    --mk-shadow-card: 0 1px 2px hsl(0 0% 0% / .30), 0 12px 32px -14px hsl(0 0% 0% / .55);
+    --mk-shadow-shot: 0 30px 70px -20px hsl(0 0% 0% / .65);
+  }
+}
+
+:root[data-theme='dark'] [data-surface='marketing'] {
+  --mk-canvas: 222 47% 9%;
+  --mk-canvas-alt: 222 44% 12%;
+  --mk-canvas-sunken: 222 40% 15%;
+  --mk-card: 222 44% 13%;
+  --mk-ink: 40 33% 99%;
+  --mk-ink-muted: 215 20% 76%;
+  --mk-ink-subtle: 215 18% 68%;
+  --mk-hairline: 220 26% 22%;
+  --mk-hairline-strong: 219 22% 30%;
+  --mk-control-edge: var(--p-gray-400);
+  --mk-band: 222 47% 7%;
+  --mk-band-raised: 222 44% 11%;
+  --mk-action: var(--p-brand-450);
+  --mk-action-hover: var(--p-brand-400);
+  --mk-action-fg: 226 100% 84%;
+  --mk-action-subtle: 244 40% 20%;
+  --mk-action-muted: 244 38% 26%;
+  --mk-sealed-fg: 152 76% 70%;
+  --mk-sealed-subtle: 164 60% 14%;
+  --mk-sealed-border: 164 50% 26%;
+  --mk-shadow-card: 0 1px 2px hsl(0 0% 0% / .30), 0 12px 32px -14px hsl(0 0% 0% / .55);
+  --mk-shadow-shot: 0 30px 70px -20px hsl(0 0% 0% / .65);
+}

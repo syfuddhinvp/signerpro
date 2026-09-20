@@ -56,9 +56,9 @@ export const inputStyle: CSSProperties = { height:'32px', border:'1px solid #e3e
 export const lbl: CSSProperties = { display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' };
 export const railHead: CSSProperties = { fontSize:'.6875rem', letterSpacing:'.08em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)', fontWeight:500 };
 
-export const authInput: CSSProperties = { height:'38px', border:'1px solid #dfe4ec', borderRadius:'10px', padding:'0 12px', fontSize:'.8125rem', background:'#fbfcfd', outline:'none', width:'100%', color:'#0f172a' };
+export const authInput: CSSProperties = { height:'40px', border:'1px solid #dfe4ec', borderRadius:'10px', padding:'0 12px', fontSize:'.8125rem', background:'#fbfcfd', outline:'none', width:'100%', color:'#0f172a' };
 export function authPrimary(A: string): CSSProperties {
-  return { height:'40px', width:'100%', borderRadius:'10px', border:'1px solid ' + A, background: A, color:'#fff', fontSize:'.84375rem', fontWeight:600, cursor:'pointer',
+  return { height:'44px', width:'100%', borderRadius:'10px', border:'1px solid ' + A, background: A, color:'#fff', fontSize:'.84375rem', fontWeight:600, cursor:'pointer',
     display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'7px' };
 }
 export function linkBtn(A: string): CSSProperties {

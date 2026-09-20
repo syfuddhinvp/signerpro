@@ -127,9 +127,18 @@ export async function forwardAuth(
     } satisfies AuthResult);
   }
 
-  const token = (payload as { access_token?: unknown } | null)?.access_token;
+  return sessionResponse(payload, next, options);
+}
+
+/**
+ * Turn a backend token payload into a JSON response carrying the session
+ * cookie. Split out of `forwardAuth` because the SAML assertion consumer needs
+ * the same cookie on a redirect rather than on a JSON body — see
+ * `withSessionCookie`.
+ */
+function sessionResponse(payload: unknown, next: string, options: { remember?: boolean }) {
   const enriched = (payload as { user?: SessionUser } | null)?.user;
-  if (typeof token !== 'string' || !enriched) {
+  if (!enriched) {
     return jsonError('backend_error', 'The SignerPro API returned an unrecognised login response.', 502);
   }
 
@@ -147,6 +156,25 @@ export async function forwardAuth(
     next,
   } satisfies AuthResult);
 
+  return withSessionCookie(response, payload, options);
+}
+
+/**
+ * Attach `sf_session` to any response, given a backend token payload. A payload
+ * that is not a token response yields a JSON error instead of the response
+ * passed in, so no caller can redirect someone to the app without a session.
+ */
+export function withSessionCookie<T extends NextResponse>(
+  response: T,
+  payload: unknown,
+  options: { remember?: boolean } = {},
+): T | NextResponse {
+  const token = (payload as { access_token?: unknown } | null)?.access_token;
+  const enriched = (payload as { user?: SessionUser } | null)?.user;
+  if (typeof token !== 'string' || !enriched) {
+    return jsonError('backend_error', 'The SignerPro API returned an unrecognised login response.', 502);
+  }
+
   const refreshToken = (payload as { refresh_token?: unknown } | null)?.refresh_token;
 
   // The cookie lives as long as the backend's session row (12h, or 30d when
@@ -162,6 +190,36 @@ export async function forwardAuth(
   });
 
   return response;
+}
+
+/**
+ * POST a backend endpoint and hand the browser its JSON verbatim. Used for the
+ * halves of a ceremony that mint nothing — the WebAuthn challenge, which is
+ * opaque to us and must reach `navigator.credentials.get()` unaltered.
+ */
+export async function forwardJson(path: string, body: unknown) {
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${backendUrl()}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+    });
+  } catch {
+    return jsonError('backend_unreachable', 'Cannot reach the SignerPro API. Please try again in a moment.', 503);
+  }
+
+  const payload = await upstream.json().catch(() => null);
+  if (upstream.ok) return NextResponse.json({ ok: true, options: payload });
+  if (upstream.status === 429) {
+    return jsonError('rate_limited', detailOf(payload, 'Too many attempts. Please wait a moment and try again.'), 429);
+  }
+  if (upstream.status === 400 || upstream.status === 422) {
+    return jsonError('bad_request', detailOf(payload, 'Please check the details you entered.'), 400);
+  }
+  return jsonError('backend_error', detailOf(payload, 'The SignerPro API returned an unexpected error.'), 502);
 }
 
 /** Where to land after a successful login — only same-origin paths are honoured. */
