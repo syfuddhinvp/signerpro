@@ -51,6 +51,31 @@ export function contrast(a: string, b: string): number {
 
 const WHITE = '#ffffff';
 
+/* ── token resolution ─────────────────────────────────────────────────────
+ * `lib/sf/ui.ts` exports `hsl(var(--color-…))` references now, so the app can
+ * be themed. The contrast maths below wants a hex, so a reference is resolved
+ * to its light-theme value in `tokens.css` (the `:root` block, before the dark
+ * override) and converted from the bare HSL triplet the tokens are stored as.
+ */
+const LIGHT_TOKENS = tokens.slice(0, tokens.indexOf(":root[data-theme='dark']"));
+
+function hslToHex(h: number, s: number, l: number): string {
+  const sat = s / 100, lig = l / 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = sat * Math.min(lig, 1 - lig);
+  const f = (n: number) => lig - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const to = (x: number) => Math.round(x * 255).toString(16).padStart(2, '0');
+  return `#${to(f(0))}${to(f(8))}${to(f(4))}`;
+}
+
+export function resolveColour(value: string): string {
+  const ref = /^hsl\(var\(--([a-z0-9-]+)\)\)$/.exec(value);
+  if (!ref) return value;
+  const decl = new RegExp(`--${ref[1]}:\\s*([\\d.]+)\\s+([\\d.]+)%\\s+([\\d.]+)%`).exec(LIGHT_TOKENS);
+  if (!decl) throw new Error(`token --${ref[1]} is not defined in tokens.css`);
+  return hslToHex(Number(decl[1]), Number(decl[2]), Number(decl[3]));
+}
+
 describe('focus visibility (WCAG 2.4.7)', () => {
   it('globals.css defines a :focus-visible ring', () => {
     expect(globals).toMatch(/:focus-visible/);
@@ -86,12 +111,12 @@ describe('focus visibility (WCAG 2.4.7)', () => {
 describe('contrast (WCAG 1.4.3 / 1.4.11)', () => {
   it('the exported text tokens clear 4.5:1 on white', () => {
     for (const token of [ui.TEXT_DEFAULT, ui.TEXT_MUTED, ui.TEXT_SUBTLE]) {
-      expect(contrast(token, WHITE)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(resolveColour(token), WHITE), token).toBeGreaterThanOrEqual(4.5);
     }
   });
 
   it('line and control tokens clear 3:1 on white', () => {
-    expect(contrast(ui.BORDER_STRONG, WHITE)).toBeGreaterThanOrEqual(3);
+    expect(contrast(resolveColour(ui.BORDER_STRONG), WHITE)).toBeGreaterThanOrEqual(3);
   });
 
   it('ui.ts uses no #94a3b8 — 2.6:1, the audit\'s most-repeated failure', () => {
@@ -101,16 +126,31 @@ describe('contrast (WCAG 1.4.3 / 1.4.11)', () => {
     expect(code).not.toContain('#a5b0c0');
   });
 
-  it('every text colour ui.ts sets is readable on the surface it sits on', () => {
-    // Colours ui.ts uses for text on a white/near-white card.
-    const textColours = ['#0f172a', '#64748b', '#475569', '#334155'];
-    for (const colour of textColours) {
-      expect(contrast(colour, WHITE), `${colour} on white`).toBeGreaterThanOrEqual(4.5);
+  it('every text token ui.ts sets is readable on a white card', () => {
+    // The tokens ui.ts uses for text on a white/near-white card.
+    const textTokens = ['color-fg-default', 'color-fg-muted', 'color-fg-subtle', 'color-accent-fg', 'color-fg-danger', 'color-fg-success', 'color-fg-warning'];
+    for (const token of textTokens) {
+      const colour = resolveColour(`hsl(var(--${token}))`);
+      expect(contrast(colour, WHITE), `${token} (${colour}) on white`).toBeGreaterThanOrEqual(4.5);
     }
   });
 
+  it('the dark theme keeps the same text tokens readable on its surface', () => {
+    const dark = tokens.slice(tokens.indexOf(":root[data-theme='dark']"));
+    const read = (name: string) => {
+      const m = new RegExp(`--${name}:\\s*([\\d.]+)\\s+([\\d.]+)%\\s+([\\d.]+)%`).exec(dark);
+      if (!m) throw new Error(`dark theme does not override --${name}`);
+      return hslToHex(Number(m[1]), Number(m[2]), Number(m[3]));
+    };
+    const surface = read('color-bg-surface');
+    for (const token of ['color-fg-default', 'color-fg-muted', 'color-fg-subtle', 'color-accent-fg', 'color-fg-danger', 'color-fg-success', 'color-fg-warning']) {
+      expect(contrast(read(token), surface), `${token} on dark surface`).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(contrast(read('color-border-strong'), surface)).toBeGreaterThanOrEqual(3);
+  });
+
   it('the off state of a toggle is distinguishable from its track background', () => {
-    const off = ui.switchStyle(false).background as string;
+    const off = resolveColour(ui.switchStyle(false).background as string);
     expect(contrast(off, WHITE)).toBeGreaterThanOrEqual(3);
   });
 

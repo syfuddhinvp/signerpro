@@ -169,7 +169,7 @@ function PageCanvas({ doc, page, scale, widthPx, heightPx }: {
 /* ── states ────────────────────────────────────────────────────────────── */
 
 const cardStyle: CSSProperties = {
-  background: '#fff', border: '1px solid #e3e7ee', borderRadius: '14px', padding: '22px 20px',
+  background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '14px', padding: '22px 20px',
   display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '460px', margin: '0 auto',
 };
 
@@ -178,11 +178,11 @@ export function PdfMessage({ tone, title, body, action }: {
 }) {
   return (
     <div role="status" style={cardStyle}>
-      <span style={{ fontSize: '.6875rem', letterSpacing: '.12em', fontWeight: 700, color: tone === 'error' ? '#b91c1c' : '#64748b' }}>
+      <span style={{ fontSize: '.6875rem', letterSpacing: '.12em', fontWeight: 700, color: tone === 'error' ? 'hsl(var(--color-fg-danger))' : 'hsl(var(--color-fg-muted))' }}>
         {tone === 'error' ? 'DOCUMENT UNAVAILABLE' : 'DOCUMENT'}
       </span>
-      <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px', color: '#0f172a' }}>{title}</span>
-      <span style={{ fontSize: '.78125rem', lineHeight: 1.6, color: '#475569' }}>{body}</span>
+      <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px', color: 'hsl(var(--color-fg-default))' }}>{title}</span>
+      <span style={{ fontSize: '.78125rem', lineHeight: 1.6, color: 'hsl(var(--color-fg-subtle))' }}>{body}</span>
       {action}
     </div>
   );
@@ -195,9 +195,9 @@ function PasswordPrompt({ retry, onSubmit }: { retry: boolean; onSubmit: (passwo
       style={cardStyle}
       onSubmit={(e) => { e.preventDefault(); if (value) onSubmit(value); }}
     >
-      <span style={{ fontSize: '.6875rem', letterSpacing: '.12em', fontWeight: 700, color: '#64748b' }}>PASSWORD REQUIRED</span>
-      <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px', color: '#0f172a' }}>This PDF is password-protected</span>
-      <span style={{ fontSize: '.78125rem', lineHeight: 1.6, color: '#475569' }}>
+      <span style={{ fontSize: '.6875rem', letterSpacing: '.12em', fontWeight: 700, color: 'hsl(var(--color-fg-muted))' }}>PASSWORD REQUIRED</span>
+      <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px', color: 'hsl(var(--color-fg-default))' }}>This PDF is password-protected</span>
+      <span style={{ fontSize: '.78125rem', lineHeight: 1.6, color: 'hsl(var(--color-fg-subtle))' }}>
         {retry
           ? 'That password did not open the file. Check it with the sender and try again.'
           : 'Enter the password the sender gave you to open the document.'}
@@ -209,11 +209,11 @@ function PasswordPrompt({ retry, onSubmit }: { retry: boolean; onSubmit: (passwo
         onChange={(e) => setValue(e.target.value)}
         aria-label="Document password"
         placeholder="Document password"
-        style={{ height: '36px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 11px', fontSize: '.8125rem', color: '#0f172a' }}
+        style={{ height: '36px', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '0 11px', fontSize: '.8125rem', color: 'hsl(var(--color-fg-default))' }}
       />
       <button
         type="submit"
-        style={{ height: '36px', borderRadius: '9px', border: '1px solid #4f46e5', background: '#4f46e5', color: '#fff', fontSize: '.8125rem', fontWeight: 600, cursor: 'pointer',
+        style={{ height: '36px', borderRadius: '9px', border: '1px solid hsl(var(--color-accent-solid))', background: 'hsl(var(--color-accent-solid))', color: 'hsl(var(--color-fg-on-solid))', fontSize: '.8125rem', fontWeight: 600, cursor: 'pointer',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' }}
       >
         <Icon name="documents" size={14} />Open document
@@ -225,7 +225,7 @@ function PasswordPrompt({ retry, onSubmit }: { retry: boolean; onSubmit: (passwo
 function Skeleton({ label }: { label: string }) {
   return (
     <div role="status" aria-live="polite" style={{ ...cardStyle, alignItems: 'center', textAlign: 'center' }}>
-      <span style={{ fontSize: '.78125rem', color: '#64748b' }}>{label}</span>
+      <span style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-muted))' }}>{label}</span>
     </div>
   );
 }
@@ -275,7 +275,7 @@ export default function PdfPages({
           <button
             type="button"
             onClick={retry}
-            style={{ alignSelf: 'flex-start', height: '32px', padding: '0 14px', borderRadius: '9px', border: '1px solid #e3e7ee', background: '#fff', fontSize: '.78125rem', cursor: 'pointer', color: '#0f172a',
+            style={{ alignSelf: 'flex-start', height: '32px', padding: '0 14px', borderRadius: '9px', border: '1px solid hsl(var(--color-border-subtle))', background: 'hsl(var(--color-bg-surface))', fontSize: '.78125rem', cursor: 'pointer', color: 'hsl(var(--color-fg-default))',
               display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
             <Icon name="refresh" size={13} />Try again
@@ -311,9 +311,9 @@ export default function PdfPages({
               width: geometry.widthPx + 'px',
               height: geometry.heightPx + 'px',
               flex: '0 0 auto',
-              background: '#fff',
+              background: 'hsl(var(--color-bg-surface))',
               borderRadius: '3px',
-              boxShadow: '0 24px 60px -24px rgba(15,23,42,.35), 0 0 0 1px #dfe4ec',
+              boxShadow: '0 24px 60px -24px rgba(15,23,42,.35), 0 0 0 1px hsl(var(--color-border-default))',
               // Only the authoring surface swallows touch gestures (it drags
               // fields). The signing surface must stay scrollable on a phone.
               touchAction: pageBoxProps ? 'none' : 'auto',

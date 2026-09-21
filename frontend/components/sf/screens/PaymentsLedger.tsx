@@ -66,7 +66,7 @@ function statusTone(status: SignerPaymentStatus) {
 
 const rowStyle: CSSProperties = {
   display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px',
-  padding: '11px 0', borderTop: '1px solid #f2f4f8', flexWrap: 'wrap',
+  padding: '11px 0', borderTop: '1px solid hsl(var(--color-border-faint))', flexWrap: 'wrap',
 };
 const metaStyle: CSSProperties = {
   fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)', lineHeight: 1.6,
@@ -164,8 +164,8 @@ export default function PaymentsLedger({
               style={{
                 height: '26px', padding: '0 10px', borderRadius: '7px', border: 'none', cursor: 'pointer',
                 fontSize: '.75rem', fontWeight: filter === id ? 600 : 500,
-                background: filter === id ? '#eef2ff' : 'transparent',
-                color: filter === id ? '#0f172a' : '#64748b',
+                background: filter === id ? 'hsl(var(--color-accent-subtle))' : 'transparent',
+                color: filter === id ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
               }}
             >
               {label}
@@ -175,7 +175,7 @@ export default function PaymentsLedger({
       </div>
 
       {loadError ? (
-        <div style={{ fontSize: '.75rem', color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '9px 11px' }}>
+        <div style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-danger))', background: 'hsl(var(--color-bg-danger-subtle))', border: '1px solid hsl(var(--color-border-danger))', borderRadius: '10px', padding: '9px 11px' }}>
           Could not load the ledger · {loadError}
         </div>
       ) : null}
@@ -183,15 +183,15 @@ export default function PaymentsLedger({
       {currencies.length ? (
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           {currencies.map(currency => (
-            <div key={currency} style={{ border: '1px solid #eef1f6', borderRadius: '11px', padding: '9px 12px', minWidth: '140px' }}>
+            <div key={currency} style={{ border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '11px', padding: '9px 12px', minWidth: '140px' }}>
               <div style={{ fontSize: '.6875rem', color: TEXT_MUTED, letterSpacing: '.04em', textTransform: 'uppercase' }}>
                 Net collected · {currency}
               </div>
-              <div style={{ fontSize: '1rem', fontWeight: 600, color: '#0f172a' }}>
+              <div style={{ fontSize: '1rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>
                 {formatCents(page?.collected_cents_by_currency?.[currency] ?? 0, currency)}
               </div>
               {page?.refunded_cents_by_currency?.[currency] ? (
-                <div style={{ fontSize: '.6875rem', color: '#c2410c' }}>
+                <div style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-warning))' }}>
                   {formatCents(page.refunded_cents_by_currency[currency], currency)} refunded
                 </div>
               ) : null}
@@ -215,7 +215,7 @@ export default function PaymentsLedger({
           return (
             <div key={p.id} style={rowStyle}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
-                <span style={{ fontSize: '.78125rem', fontWeight: 600, color: '#0f172a' }}>
+                <span style={{ fontSize: '.78125rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>
                   {entry.payer_name || entry.payer_email || 'Unknown payer'}
                   {' · '}
                   {formatCents(p.amount_cents, p.currency)}
@@ -252,7 +252,7 @@ export default function PaymentsLedger({
                     </span>
                   )}
                   {entry.receipt && !entry.receipt.verified ? (
-                    <span style={{ fontSize: '.6875rem', color: '#b91c1c', fontWeight: 600 }}>
+                    <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-danger))', fontWeight: 600 }}>
                       checksum mismatch
                     </span>
                   ) : null}
@@ -270,7 +270,7 @@ export default function PaymentsLedger({
                     type="button"
                     onClick={() => void refund(entry)}
                     disabled={busyId === p.id}
-                    style={btn('#fff', '#b91c1c', '#fecaca')}
+                    style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}
                   >
                     <Icon name="undo" size={13} />{busyId === p.id ? 'Refunding…' : 'Refund'}
                   </button>

@@ -82,21 +82,21 @@ const overlay: CSSProperties = {
   display: 'grid', placeItems: 'center', padding: '24px',
 };
 const card: CSSProperties = {
-  width: '480px', maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff',
-  border: '1px solid #e3e7ee', borderRadius: '16px', boxShadow: '0 30px 70px -30px rgba(15,23,42,.5)',
+  width: '480px', maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: 'hsl(var(--color-bg-surface))',
+  border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', boxShadow: '0 30px 70px -30px rgba(15,23,42,.5)',
 };
 const cardHead: CSSProperties = {
   display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px',
-  padding: '16px 18px', borderBottom: '1px solid #eef1f6',
+  padding: '16px 18px', borderBottom: '1px solid hsl(var(--color-border-hairline))',
 };
 const cardBody: CSSProperties = { padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px' };
 const iconBtn: CSSProperties = {
-  width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
-  background: '#fff', color: '#64748b', cursor: 'pointer', fontSize: '.75rem',
+  width: '28px', height: '28px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-subtle))',
+  background: 'hsl(var(--color-bg-surface))', color: 'hsl(var(--color-fg-muted))', cursor: 'pointer', fontSize: '.75rem',
 };
 const noticeStyle = {
-  fontSize: '.78125rem', lineHeight: 1.6, color: '#7c2d12', background: '#fff7ed',
-  border: '1px solid #fed7aa', borderRadius: '10px', padding: '12px 13px',
+  fontSize: '.78125rem', lineHeight: 1.6, color: 'hsl(var(--color-fg-warning))', background: 'hsl(var(--color-bg-warning-subtle))',
+  border: '1px solid hsl(var(--color-border-warning))', borderRadius: '10px', padding: '12px 13px',
 } as const;
 
 export default function PaymentModal({
@@ -211,7 +211,7 @@ export default function PaymentModal({
         <div style={cardBody}>
           {phase === 'amount' ? (
             <>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '.78125rem', color: '#334155' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))' }}>
                 Amount ({currency.toUpperCase()})
                 <input
                   type="number"
@@ -227,11 +227,11 @@ export default function PaymentModal({
                 />
               </label>
               {amountError ? (
-                <span id="payment-amount-problem" role="alert" style={{ fontSize: '.71875rem', color: '#b91c1c' }}>{amountError}</span>
+                <span id="payment-amount-problem" role="alert" style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-danger))' }}>{amountError}</span>
               ) : null}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={onClose} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
-                <button type="button" disabled={!!amountError} onClick={() => void startIntent()} style={btn('#4f46e5', '#fff', '#4f46e5')}>
+                <button type="button" onClick={onClose} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="close" size={13} />Cancel</button>
+                <button type="button" disabled={!!amountError} onClick={() => void startIntent()} style={btn('hsl(var(--color-accent-solid))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-accent-solid))')}>
                   <Icon name="arrowRight" size={13} />Continue to payment
                 </button>
               </div>
@@ -255,8 +255,8 @@ export default function PaymentModal({
 
           {phase === 'polling' ? (
             <div role="status" style={{ padding: '20px 0', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
-              <span aria-hidden="true" style={{ width: '22px', height: '22px', border: '3px solid #e3e7ee', borderTopColor: '#4f46e5', borderRadius: '999px', animation: 'sfSpin .8s linear infinite' }} />
-              <span style={{ fontSize: '.8125rem', fontWeight: 600, color: '#0f172a' }}>Confirming your payment…</span>
+              <span aria-hidden="true" style={{ width: '22px', height: '22px', border: '3px solid hsl(var(--color-border-subtle))', borderTopColor: 'hsl(var(--color-accent-solid))', borderRadius: '999px', animation: 'sfSpin .8s linear infinite' }} />
+              <span style={{ fontSize: '.8125rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>Confirming your payment…</span>
               <span style={{ fontSize: '.71875rem', color: TEXT_MUTED }}>Stripe has your card — we are just waiting on confirmation.</span>
             </div>
           ) : null}
@@ -265,11 +265,11 @@ export default function PaymentModal({
             <>
               <div role="alert" style={noticeStyle}>{errorMessage || 'The payment could not be completed.'}</div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={onClose} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Close</button>
+                <button type="button" onClick={onClose} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="close" size={13} />Close</button>
                 <button
                   type="button"
                   onClick={() => { setErrorMessage(null); setIntent(null); void startIntent(); }}
-                  style={btn('#4f46e5', '#fff', '#4f46e5')}
+                  style={btn('hsl(var(--color-accent-solid))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-accent-solid))')}
                 >
                   <Icon name="refresh" size={13} />Try again
                 </button>
@@ -376,8 +376,8 @@ function PaymentForm({
       </div>
       {localError ? <div role="alert" style={noticeStyle}>{localError}</div> : null}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-        <button type="button" onClick={onCancel} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
-        <button type="submit" disabled={!stripe || submitting} style={btn('#4f46e5', '#fff', '#4f46e5')}>
+        <button type="button" onClick={onCancel} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="close" size={13} />Cancel</button>
+        <button type="submit" disabled={!stripe || submitting} style={btn('hsl(var(--color-accent-solid))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-accent-solid))')}>
           <Icon name="card" size={13} />{submitting ? 'Processing…' : `Pay ${formatCents(intent.amount_cents, intent.currency)}`}
         </button>
       </div>

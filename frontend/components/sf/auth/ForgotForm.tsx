@@ -59,7 +59,7 @@ export default function ForgotForm() {
     return (
       <AuthLayout mode="forgot">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '13px' }}>
-          <div role="status" style={{ fontSize: '.78125rem', color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '11px 12px', lineHeight: 1.6 }}>
+          <div role="status" style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-success))', background: 'hsl(var(--color-bg-success-subtle))', border: '1px solid hsl(var(--color-border-success))', borderRadius: '10px', padding: '11px 12px', lineHeight: 1.6 }}>
             If an account exists for <strong>{s.authEmail.trim()}</strong>, a reset link is on its way.
             The link can be used once and expires in 60 minutes.
           </div>

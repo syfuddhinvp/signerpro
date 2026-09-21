@@ -512,11 +512,11 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   };
 
   /* ── wizard ── */
-  const wizardStepStyle1: CSSProperties = { display:'flex', alignItems:'center', gap:'7px', fontSize:'.75rem', fontWeight: s.wizardStep === 1 ? 600 : 500, color: s.wizardStep === 1 ? '#0f172a' : TEXT_MUTED, background:'none', border:'none', cursor:'pointer' };
-  const wizardStepStyle2: CSSProperties = { display:'flex', alignItems:'center', gap:'7px', fontSize:'.75rem', fontWeight: s.wizardStep === 2 ? 600 : 500, color: s.wizardStep === 2 ? '#0f172a' : TEXT_MUTED, background:'none', border:'none', cursor:'pointer' };
-  const wizardDot1: CSSProperties = { width:'11px', height:'11px', borderRadius:'99px', border:'2px solid ' + (s.wizardStep === 1 ? A : BORDER_STRONG), background: s.wizardStep === 1 ? A : '#fff' };
-  const wizardDot2: CSSProperties = { width:'11px', height:'11px', borderRadius:'99px', border:'2px solid ' + (s.wizardStep === 2 ? A : BORDER_STRONG), background: s.wizardStep === 2 ? A : '#fff' };
-  const wizardLine: CSSProperties = { width:'52px', height:'2px', background:'#e3e7ee' };
+  const wizardStepStyle1: CSSProperties = { display:'flex', alignItems:'center', gap:'7px', fontSize:'.75rem', fontWeight: s.wizardStep === 1 ? 600 : 500, color: s.wizardStep === 1 ? 'hsl(var(--color-fg-default))' : TEXT_MUTED, background:'none', border:'none', cursor:'pointer' };
+  const wizardStepStyle2: CSSProperties = { display:'flex', alignItems:'center', gap:'7px', fontSize:'.75rem', fontWeight: s.wizardStep === 2 ? 600 : 500, color: s.wizardStep === 2 ? 'hsl(var(--color-fg-default))' : TEXT_MUTED, background:'none', border:'none', cursor:'pointer' };
+  const wizardDot1: CSSProperties = { width:'11px', height:'11px', borderRadius:'99px', border:'2px solid ' + (s.wizardStep === 1 ? A : BORDER_STRONG), background: s.wizardStep === 1 ? A : 'hsl(var(--color-bg-surface))' };
+  const wizardDot2: CSSProperties = { width:'11px', height:'11px', borderRadius:'99px', border:'2px solid ' + (s.wizardStep === 2 ? A : BORDER_STRONG), background: s.wizardStep === 2 ? A : 'hsl(var(--color-bg-surface))' };
+  const wizardLine: CSSProperties = { width:'52px', height:'2px', background:'hsl(var(--color-border-subtle))' };
   const wizardCta = s.wizardStep === 1 ? 'Continue' : 'Send envelope';
   const goStep1 = () => set({ wizardStep: 1 });
   const goStep2 = () => set({ wizardStep: 2 });
@@ -543,8 +543,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   };
   const prepareRowStyle: CSSProperties = { flex:'1', minHeight:0, display: s.wizardStep === 1 ? 'flex' : 'none' };
 
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const primaryBtn = btn(A, '#fff', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
   /* Canvas toolbar is icon-only at every width: the name of each tool is its
      `title` — the tooltip on hover — and its `aria-label`, never text beside
      the glyph. Spelling the labels out on a wide canvas made the toolbar read
@@ -553,13 +553,13 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   const sqBtn = (bg: string, fg: string, bd: string): CSSProperties =>
     Object.assign({}, btn(bg, fg, bd),
       { width:'32px', padding:'0', justifyContent:'center', fontSize:'.9375rem', fontWeight:500, flex:'0 0 auto' });
-  const toolBtn = sqBtn('#fff', '#475569', '#e3e7ee');
+  const toolBtn = sqBtn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
   const alignStyle = toolBtn;
-  const dangerStyle = sqBtn('#fff', '#b91c1c', '#fecaca');
-  const gridBtnStyle = sqBtn(s.grid ? '#eef2ff' : '#fff', s.grid ? '#3730a3' : '#475569', s.grid ? '#c7d2fe' : '#e3e7ee');
-  const iconBtn: CSSProperties = { flex:'0 0 auto', width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
+  const dangerStyle = sqBtn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))');
+  const gridBtnStyle = sqBtn(s.grid ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))', s.grid ? 'hsl(var(--color-accent-fg))' : 'hsl(var(--color-fg-subtle))', s.grid ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))');
+  const iconBtn: CSSProperties = { flex:'0 0 auto', width:'28px', height:'28px', borderRadius:'8px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', cursor:'pointer', color:'hsl(var(--color-fg-subtle))', fontSize:'.8125rem', lineHeight:1 };
   const input = inputStyle;
-  const textareaStyle: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'9px', padding:'8px 10px', fontSize:'.78125rem', resize:'vertical', outline:'none', width:'100%', color:'#0f172a' };
+  const textareaStyle: CSSProperties = { border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'8px 10px', fontSize:'.78125rem', resize:'vertical', outline:'none', width:'100%', color:'hsl(var(--color-fg-default))' };
 
   /* ── recipient cards ── */
   /* The fields a recipient is actually being asked to fill in. The sender's own
@@ -575,9 +575,9 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       role: ROLE_LABEL[r.role],
       onClick: () => set({ activeRecipient: r.id }),
       style: { display:'flex', alignItems:'center', gap:'9px', padding:'9px', borderRadius:'11px', cursor:'pointer',
-        border:'1px solid ' + (on ? r.color : '#e3e7ee'), background: on ? r.color + '14' : '#fff', width:'100%' } as CSSProperties,
-      chip: { width:'26px', height:'26px', borderRadius:'8px', background:r.color, color:'#fff', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
-      stateStyle: { marginLeft:'auto', fontSize:'.625rem', fontFamily:'var(--font-sans)', color:'#64748b', whiteSpace:'nowrap' } as CSSProperties
+        border:'1px solid ' + (on ? r.color : 'hsl(var(--color-border-subtle))'), background: on ? r.color + '14' : 'hsl(var(--color-bg-surface))', width:'100%' } as CSSProperties,
+      chip: { width:'26px', height:'26px', borderRadius:'8px', background:r.color, color:'hsl(var(--color-fg-on-solid))', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
+      stateStyle: { marginLeft:'auto', fontSize:'.625rem', fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-muted))', whiteSpace:'nowrap' } as CSSProperties
     };
   });
 
@@ -587,7 +587,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     return { id, label, selected: on,
       onClick: () => set({ paletteTab: id }),
       style: { flex:'1', height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500,
-        background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
+        background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
   });
   /* The pen is a mode, not a shape to drop: you pick it up and then draw. So
      its tile toggles `penMode` on both the pointer and the keyboard path
@@ -626,9 +626,9 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     // rather than floating in the gap beside a content-width button.
     style: { display:'flex', alignItems:'center', gap:'7px', padding:'0 9px', width:'100%', height:'100%', minHeight:'44px', borderRadius:'10px',
       cursor: t.id === 'drawing' ? 'pointer' : 'grab', textAlign:'left',
-      border:'1px solid ' + (s.dragTool === t.id || (t.id === 'drawing' && s.penMode) ? A : '#e3e7ee'),
-      background: s.dragTool === t.id || (t.id === 'drawing' && s.penMode) ? '#eef2ff' : '#fbfcfd', color:'#334155' } as CSSProperties,
-    glyph: { width:'20px', height:'20px', borderRadius:'6px', background:'#eef1f6', display:'grid', placeItems:'center', fontSize:'.625rem', color:'#475569', flex:'0 0 20px', fontFamily:'var(--font-sans)' } as CSSProperties
+      border:'1px solid ' + (s.dragTool === t.id || (t.id === 'drawing' && s.penMode) ? A : 'hsl(var(--color-border-subtle))'),
+      background: s.dragTool === t.id || (t.id === 'drawing' && s.penMode) ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-subtle))', color:'hsl(var(--color-fg-subtle))' } as CSSProperties,
+    glyph: { width:'20px', height:'20px', borderRadius:'6px', background:'hsl(var(--color-bg-muted))', display:'grid', placeItems:'center', fontSize:'.625rem', color:'hsl(var(--color-fg-subtle))', flex:'0 0 20px', fontFamily:'var(--font-sans)' } as CSSProperties
   }));
 
   /* ── page thumbs ── */
@@ -638,17 +638,17 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     return { n: String(n), key: n,
       onClick: () => { set({ page: n, selected: [] }); scrollToPage(n); },
       style: { position:'relative', display:'flex', alignItems:'center', gap:'10px', padding:'8px', borderRadius:'11px', width:'100%',
-        border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? '#eef2ff' : '#fff',
+        border:'1px solid ' + (on ? A : 'hsl(var(--color-border-subtle))'), background: on ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))',
         cursor: pages.length > 1 && !pageBusy ? 'grab' : 'default',
         // The row being carried stays in place, dimmed, so the list it is being
         // dropped into does not jump around under the pointer.
         opacity: dragPage === n ? .45 : 1 } as CSSProperties,
-      sheet: { width:'32px', height:'42px', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'3px', display:'flex', flexDirection:'column', gap:'3px', padding:'5px', flex:'0 0 32px' } as CSSProperties,
+      sheet: { width:'32px', height:'42px', background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'3px', display:'flex', flexDirection:'column', gap:'3px', padding:'5px', flex:'0 0 32px' } as CSSProperties,
       line1: { height:'2px', background:BORDER_STRONG, borderRadius:'2px' } as CSSProperties,
-      line2: { height:'2px', background:'#e3e7ee', borderRadius:'2px', width:'80%' } as CSSProperties,
-      line3: { height:'2px', background:'#e3e7ee', borderRadius:'2px', width:'60%' } as CSSProperties,
+      line2: { height:'2px', background:'hsl(var(--color-border-subtle))', borderRadius:'2px', width:'80%' } as CSSProperties,
+      line3: { height:'2px', background:'hsl(var(--color-border-subtle))', borderRadius:'2px', width:'60%' } as CSSProperties,
       badgeLabel: cnt ? cnt + ' fields' : 'no fields',
-      badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: cnt ? '#047857' : TEXT_MUTED } as CSSProperties,
+      badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: cnt ? 'hsl(var(--color-fg-success))' : TEXT_MUTED } as CSSProperties,
       /* Page-level edits, on the page they act on. Each is a document rewrite,
          so they are disabled while one is in flight and the first/last page
          cannot be moved past the ends of the document. */
@@ -672,12 +672,12 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       onDown: () => { void movePage(n, 1); },
       onRemove: () => { void removePage(n); },
       pageBtn: (enabled: boolean) => (Object.assign({
-        width:'22px', height:'20px', borderRadius:'6px', border:'1px solid #e3e7ee', background:'#fff',
-        fontSize:'.625rem', lineHeight:1, color:'#475569', display:'grid', placeItems:'center',
+        width:'22px', height:'20px', borderRadius:'6px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))',
+        fontSize:'.625rem', lineHeight:1, color:'hsl(var(--color-fg-subtle))', display:'grid', placeItems:'center',
       }, enabled ? { cursor:'pointer' } : { opacity:.4, cursor:'not-allowed' }) as CSSProperties),
       removeBtn: (enabled: boolean) => (Object.assign({
-        width:'22px', height:'20px', borderRadius:'6px', border:'1px solid #e3e7ee', background:'#fff',
-        fontSize:'.625rem', lineHeight:1, color:'#dc2626', display:'grid', placeItems:'center',
+        width:'22px', height:'20px', borderRadius:'6px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))',
+        fontSize:'.625rem', lineHeight:1, color:'hsl(var(--color-fg-danger))', display:'grid', placeItems:'center',
       }, enabled ? { cursor:'pointer' } : { opacity:.4, cursor:'not-allowed' }) as CSSProperties) };
   });
 
@@ -864,19 +864,19 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
         // In pen mode the page below has to receive the gesture, or a stroke
         // could not be drawn across a mark already on it.
         pointerEvents: s.penMode ? 'none' : 'auto',
-        boxShadow: on ? '0 0 0 2px #fff, 0 0 0 4px ' + A + '55' : 'none' } as CSSProperties)
+        boxShadow: on ? '0 0 0 2px hsl(var(--color-bg-surface)), 0 0 0 4px ' + A + '55' : 'none' } as CSSProperties)
       : { position:'absolute', left:(f.x * z) + 'px', top:(f.y * z) + 'px', width:(f.w * z) + 'px', height:(f.h * z) + 'px',
         background: r.color + '1f', border:'1.5px solid ' + r.color, borderRadius:'6px', cursor:'grab',
         pointerEvents: s.penMode ? 'none' : 'auto',
-        boxShadow: on ? '0 0 0 2px #fff, 0 0 0 4px ' + r.color + '66' : 'none',
+        boxShadow: on ? '0 0 0 2px hsl(var(--color-bg-surface)), 0 0 0 4px ' + r.color + '66' : 'none',
         display:'flex', alignItems:'center', justifyContent:'center', padding:'2px 6px',
-        outline: clipped ? '1.5px dashed #dc2626' : 'none', outlineOffset: clipped ? '1px' : undefined } as CSSProperties,
+        outline: clipped ? '1.5px dashed hsl(var(--color-fg-danger))' : 'none', outlineOffset: clipped ? '1px' : undefined } as CSSProperties,
       badge: { position:'absolute', top:'-9px', left:'-1px', height:'17px', padding:'0 6px', borderRadius:'5px', background:r.color,
-        color:'#fff', fontSize:'.59375rem', fontWeight:700, display:'flex', alignItems:'center', gap:'4px', fontFamily:'var(--font-sans)', whiteSpace:'nowrap' } as CSSProperties,
+        color:'hsl(var(--color-fg-on-solid))', fontSize:'.59375rem', fontWeight:700, display:'flex', alignItems:'center', gap:'4px', fontFamily:'var(--font-sans)', whiteSpace:'nowrap' } as CSSProperties,
       badgeText: initials(r.name) + ' · ' + (radio ? radio.choice : t.label)
         + (f.required ? ' *' : '') + (clipped ? ' · too small' : ''),
       label: f.label,
-      inner: { fontSize: (f.w * z) < 110 ? '10px' : '11.5px', fontWeight:600, color:'#0f172a', opacity:.75, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.2 } as CSSProperties,
+      inner: { fontSize: (f.w * z) < 110 ? '10px' : '11.5px', fontWeight:600, color:'hsl(var(--color-fg-default))', opacity:.75, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.2 } as CSSProperties,
 
       /* ── what the recipient sees, previewed ── */
       isCheck: f.type === 'checkbox',
@@ -892,7 +892,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       radioOn: radio ? (extras?.defaultValue ?? '') === radio.choice : false,
       radioRing: { position:'absolute', inset:0, display:'grid', placeItems:'center', pointerEvents:'none' } as CSSProperties,
       radioCircle: { width:dot + 'px', height:dot + 'px', borderRadius:'99px', border:'1.5px solid ' + r.color,
-        background:'#fff', display:'grid', placeItems:'center' } as CSSProperties,
+        background:'hsl(var(--color-bg-surface))', display:'grid', placeItems:'center' } as CSSProperties,
       radioFill: { width: Math.max(3, dot * 0.5) + 'px', height: Math.max(3, dot * 0.5) + 'px',
         borderRadius:'99px', background:r.color } as CSSProperties,
       isSelect: f.type === 'dropdown',
@@ -904,17 +904,17 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
         overflow:'hidden', pointerEvents:'none' } as CSSProperties,
       radioWrap: { display:'flex', flexDirection: (radioColumn ? 'column' : 'row') as CSSProperties['flexDirection'],
         flexWrap:'wrap', gap:'2px 10px', width:'100%', height:'100%', alignContent:'center', overflow:'hidden' } as CSSProperties,
-      radioRow: { display:'flex', alignItems:'center', gap:'5px', fontSize:'.71875rem', color:'#0f172a', whiteSpace:'nowrap' } as CSSProperties,
+      radioRow: { display:'flex', alignItems:'center', gap:'5px', fontSize:'.71875rem', color:'hsl(var(--color-fg-default))', whiteSpace:'nowrap' } as CSSProperties,
       radioDot: { width:'11px', height:'11px', borderRadius:'99px', border:'1.5px solid ' + r.color, flex:'0 0 11px' } as CSSProperties,
       checkGlyph: { width:'100%', height:'100%', display:'grid', placeItems:'center', fontSize: Math.max(10, Math.min(22, boxH - 8)) + 'px',
         color: r.color, fontWeight:700 } as CSSProperties,
       selectRow: { display:'flex', alignItems:'center', justifyContent:'space-between', gap:'6px', width:'100%',
-        fontSize:'.71875rem', color:'#334155', whiteSpace:'nowrap', overflow:'hidden' } as CSSProperties,
+        fontSize:'.71875rem', color:'hsl(var(--color-fg-subtle))', whiteSpace:'nowrap', overflow:'hidden' } as CSSProperties,
       selectText: choices.length ? choices[0] : 'Select…',
       /** Warn where the signer would be stuck, in the sender's own view. */
       noChoices: CHOICE_TYPES.has(f.type) && !radio && choices.length === 0,
-      warnStyle: { fontSize:'.625rem', color:'#b45309', lineHeight:1.25, whiteSpace:'normal', overflow:'hidden' } as CSSProperties,
-      handle: { position:'absolute', right:'-5px', bottom:'-5px', width:'11px', height:'11px', borderRadius:'3px', background:'#fff', border:'1.5px solid ' + r.color, cursor:'nwse-resize' } as CSSProperties
+      warnStyle: { fontSize:'.625rem', color:'hsl(var(--color-fg-warning))', lineHeight:1.25, whiteSpace:'normal', overflow:'hidden' } as CSSProperties,
+      handle: { position:'absolute', right:'-5px', bottom:'-5px', width:'11px', height:'11px', borderRadius:'3px', background:'hsl(var(--color-bg-surface))', border:'1.5px solid ' + r.color, cursor:'nwse-resize' } as CSSProperties
     };
   });
 
@@ -962,7 +962,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
         background: g.on ? g.color + '0f' : 'transparent',
         borderRadius:'8px', pointerEvents:'none', zIndex:0 } as CSSProperties,
       labelStyle: { position:'absolute', top:'-8px', left:'8px', padding:'0 5px', height:'16px',
-        display:'flex', alignItems:'center', borderRadius:'4px', background:'#fff',
+        display:'flex', alignItems:'center', borderRadius:'4px', background:'hsl(var(--color-bg-surface))',
         border:'1px solid ' + g.color + (g.on ? 'cc' : '55'), color:g.color,
         fontSize:'.5625rem', fontWeight:700, whiteSpace:'nowrap', fontFamily:'var(--font-sans)' } as CSSProperties,
     }));
@@ -1170,18 +1170,18 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     ? 'Show “' + (one ? one.label : '') + '” only when “' + condTrigger.label + '” ' +
       (cond.op === 'equals' ? 'equals “' + cond.value + '”' : COND_OP_LABEL[cond.op]) + '.'
     : 'Always visible to the assigned recipient.';
-  const condSummaryStyle: CSSProperties = { fontSize:'.71875rem', color: condTrigger ? '#3730a3' : '#64748b', background: condTrigger ? '#eef2ff' : '#f5f6f8', border:'1px solid ' + (condTrigger ? '#c7d2fe' : '#e3e7ee'), borderRadius:'8px', padding:'8px 9px', lineHeight:1.5 };
-  const inspIcon: CSSProperties = { width:'30px', height:'30px', borderRadius:'9px', background: one ? recipIn(one.to).color : '#e3e7ee', color:'#fff', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, fontFamily:'var(--font-sans)' };
-  const regexBox: CSSProperties = { fontFamily:'var(--font-sans)', fontSize:'.65625rem', color:'#475569', background:'#f5f6f8', border:'1px solid #e3e7ee', borderRadius:'8px', padding:'8px 9px', wordBreak:'break-all' };
+  const condSummaryStyle: CSSProperties = { fontSize:'.71875rem', color: condTrigger ? 'hsl(var(--color-accent-fg))' : 'hsl(var(--color-fg-muted))', background: condTrigger ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-canvas))', border:'1px solid ' + (condTrigger ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))'), borderRadius:'8px', padding:'8px 9px', lineHeight:1.5 };
+  const inspIcon: CSSProperties = { width:'30px', height:'30px', borderRadius:'9px', background: one ? recipIn(one.to).color : 'hsl(var(--color-border-subtle))', color:'hsl(var(--color-fg-on-solid))', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, fontFamily:'var(--font-sans)' };
+  const regexBox: CSSProperties = { fontFamily:'var(--font-sans)', fontSize:'.65625rem', color:'hsl(var(--color-fg-subtle))', background:'hsl(var(--color-bg-canvas))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'8px', padding:'8px 9px', wordBreak:'break-all' };
   const rowBtn: CSSProperties = { display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', background:'transparent', border:'none', cursor:'pointer', padding:'2px 0' };
-  const reqSwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: one && one.required ? '#10b981' : BORDER_STRONG, position:'relative', transition:'background .15s' };
-  const reqKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.required ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
+  const reqSwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: one && one.required ? 'hsl(var(--color-highlight-solid))' : BORDER_STRONG, position:'relative', transition:'background .15s' };
+  const reqKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.required ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))', transition:'left .15s' };
   const roSwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: one && one.readOnly ? A : BORDER_STRONG, position:'relative' };
-  const roKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.readOnly ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff' };
+  const roKnob: CSSProperties = { position:'absolute', top:'2px', left: one && one.readOnly ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))' };
   /** The up/down arrows beside a dropdown choice — small, and plainly inert at the ends. */
   const choiceMoveBtn = (enabled: boolean): CSSProperties => Object.assign({
-    width:'22px', height:'14px', borderRadius:'5px', border:'1px solid #e3e7ee', background:'#fff',
-    fontSize:'.5rem', lineHeight:1, color:'#475569', display:'grid', placeItems:'center', padding:0,
+    width:'22px', height:'14px', borderRadius:'5px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))',
+    fontSize:'.5rem', lineHeight:1, color:'hsl(var(--color-fg-subtle))', display:'grid', placeItems:'center', padding:0,
   }, enabled ? { cursor:'pointer' } : { opacity:.4, cursor:'not-allowed' });
   /* While the envelope is still being prepared every recipient reads `Pending`,
      which says nothing — so the status rides along only once it has moved on. */
@@ -1211,8 +1211,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
      — it hands the gesture straight to the field, so the bar can be dragged. */
   const stopDown = (e: React.PointerEvent) => { e.stopPropagation(); };
   const toolbarBtn: CSSProperties = { display:'grid', placeItems:'center', width:'26px', height:'26px', borderRadius:'7px',
-    border:'1px solid transparent', background:'transparent', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
-  const toolbarDanger: CSSProperties = Object.assign({}, toolbarBtn, { color:'#dc2626' });
+    border:'1px solid transparent', background:'transparent', cursor:'pointer', color:'hsl(var(--color-fg-subtle))', fontSize:'.8125rem', lineHeight:1 };
+  const toolbarDanger: CSSProperties = Object.assign({}, toolbarBtn, { color:'hsl(var(--color-fg-danger))' });
   const fieldToolbar = one && !s.penMode ? {
     id: one.id,
     page: one.page,
@@ -1226,7 +1226,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       position:'absolute',
       left:(one.x * z) + 'px',
       display:'flex', alignItems:'center', gap:'1px', zIndex:6,
-      background:'#fff', border:'1px solid ' + BORDER_STRONG, borderRadius:'9px',
+      background:'hsl(var(--color-bg-surface))', border:'1px solid ' + BORDER_STRONG, borderRadius:'9px',
       boxShadow:'0 8px 20px rgba(15,23,42,.18)', padding:'3px 4px', whiteSpace:'nowrap',
       fontFamily:'var(--font-sans)',
     }, one.y * z >= 42
@@ -1234,9 +1234,9 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       : { top:(one.y * z + one.h * z + 9) + 'px' }) as CSSProperties,
     gripStyle: { display:'grid', placeItems:'center', width:'20px', height:'26px', cursor:'grab', color:BORDER_STRONG, fontSize:'.75rem' } as CSSProperties,
     dotStyle: { width:'9px', height:'9px', borderRadius:'99px', background:recipIn(one.to).color, flex:'0 0 9px' } as CSSProperties,
-    selectStyle: { height:'26px', maxWidth:'168px', border:'1px solid #e3e7ee', borderRadius:'7px', background:'#fff',
-      fontSize:'.71875rem', color:'#0f172a', padding:'0 4px', cursor:'pointer', outline:'none' } as CSSProperties,
-    dividerStyle: { width:'1px', height:'18px', background:'#e3e7ee', margin:'0 2px' } as CSSProperties,
+    selectStyle: { height:'26px', maxWidth:'168px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'7px', background:'hsl(var(--color-bg-surface))',
+      fontSize:'.71875rem', color:'hsl(var(--color-fg-default))', padding:'0 4px', cursor:'pointer', outline:'none' } as CSSProperties,
+    dividerStyle: { width:'1px', height:'18px', background:'hsl(var(--color-border-subtle))', margin:'0 2px' } as CSSProperties,
     annNoteStyle: { fontSize:'.6875rem', color:TEXT_MUTED, padding:'0 6px' } as CSSProperties,
     onGrip: (e: React.PointerEvent) => I.onFieldDown(one.id, e),
     onReassign: (e: React.ChangeEvent<HTMLSelectElement>) => setField(one.id, { to: e.target.value }),
@@ -1252,8 +1252,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   const routingRows = R.map(r => ({
     id: r.id,
     name: r.name, email: r.email, role: r.role, order: s.routing === 'parallel' ? '=' : String(r.order), status: r.status,
-    rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'11px', border:'1px solid #eef1f6', borderRadius:'12px', background:'#fbfcfd' } as CSSProperties,
-    orderStyle: { width:'26px', height:'26px', borderRadius:'8px', background:r.color, color:'#fff', display:'grid', placeItems:'center', fontSize:'.71875rem', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
+    rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'12px', background:'hsl(var(--color-bg-subtle))' } as CSSProperties,
+    orderStyle: { width:'26px', height:'26px', borderRadius:'8px', background:r.color, color:'hsl(var(--color-fg-on-solid))', display:'grid', placeItems:'center', fontSize:'.71875rem', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
     selectStyle: Object.assign({}, inputStyle, { width:'160px' }) as CSSProperties,
     onRole: (e: React.ChangeEvent<HTMLSelectElement>) => changeRole(r.id, e.target.value),
     onUp: () => reorderRecipient(r.id, -1),
@@ -1262,14 +1262,14 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   }));
   const cadences = ['24h','48h','7 days','none'].map(c => ({
     id: c, label: c === 'none' ? 'No reminders' : 'Every ' + c, onClick: () => changeRouting({ cadence: c }),
-    style: btn(s.cadence === c ? '#eef2ff' : '#fff', s.cadence === c ? '#3730a3' : '#475569', s.cadence === c ? '#c7d2fe' : '#e3e7ee')
+    style: btn(s.cadence === c ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))', s.cadence === c ? 'hsl(var(--color-accent-fg))' : 'hsl(var(--color-fg-subtle))', s.cadence === c ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))')
   }));
   const routeNote = s.routing === 'sequential'
     ? 'Each recipient is notified only after the previous one completes. Signer 1 → Signer 2 → Signer 3.'
     : 'All recipients are notified simultaneously and may sign in any order.';
-  const routeNoteStyle: CSSProperties = { fontSize:'.75rem', color:'#3730a3', background:'#eef2ff', border:'1px solid #c7d2fe', borderRadius:'10px', padding:'10px 11px', lineHeight:1.55 };
-  const seqStyle: CSSProperties = { height:'28px', padding:'0 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'.78125rem', fontWeight: s.routing === 'sequential' ? 600 : 500, background: s.routing === 'sequential' ? '#fff' : 'transparent', color: s.routing === 'sequential' ? '#0f172a' : '#64748b', boxShadow: s.routing === 'sequential' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
-  const parStyle: CSSProperties = { height:'28px', padding:'0 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'.78125rem', fontWeight: s.routing === 'parallel' ? 600 : 500, background: s.routing === 'parallel' ? '#fff' : 'transparent', color: s.routing === 'parallel' ? '#0f172a' : '#64748b', boxShadow: s.routing === 'parallel' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
+  const routeNoteStyle: CSSProperties = { fontSize:'.75rem', color:'hsl(var(--color-accent-fg))', background:'hsl(var(--color-accent-subtle))', border:'1px solid hsl(var(--color-accent-border))', borderRadius:'10px', padding:'10px 11px', lineHeight:1.55 };
+  const seqStyle: CSSProperties = { height:'28px', padding:'0 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'.78125rem', fontWeight: s.routing === 'sequential' ? 600 : 500, background: s.routing === 'sequential' ? 'hsl(var(--color-bg-surface))' : 'transparent', color: s.routing === 'sequential' ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: s.routing === 'sequential' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
+  const parStyle: CSSProperties = { height:'28px', padding:'0 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'.78125rem', fontWeight: s.routing === 'parallel' ? 600 : 500, background: s.routing === 'parallel' ? 'hsl(var(--color-bg-surface))' : 'transparent', color: s.routing === 'parallel' ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: s.routing === 'parallel' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
   /* The pre-send checklist, read off the real field set. `document_service.
      validate_for_send` is the authority — a failure there comes back as the
      400 the send call surfaces — so these are advisory. */
@@ -1462,15 +1462,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
      that has been deleted or belongs to another tenant (the API answers 404). */
   if (!documentId) {
     return (
-      <section data-screen-label="Builder" style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0, background:'#eceff4' }}>
-        <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'#fff', borderBottom:'1px solid #e3e7ee' }}>
+      <section data-screen-label="Builder" style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0, background:'hsl(var(--color-bg-muted))' }}>
+        <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'hsl(var(--color-bg-surface))', borderBottom:'1px solid hsl(var(--color-border-subtle))' }}>
           <PdfBadge size={24} />
           <span style={{ fontSize:'.8125rem', fontWeight:600 }}>Prepare document</span>
         </div>
         <div style={{ flex:1, minHeight:0, display:'grid', placeItems:'center', padding:'26px' }}>
-          <div style={{ maxWidth:'420px', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'22px', display:'flex', flexDirection:'column', gap:'10px', textAlign:'center' }}>
-            <span style={{ fontSize:'.84375rem', fontWeight:600, color:'#0f172a' }}>No document to prepare</span>
-            <span style={{ fontSize:'.75rem', lineHeight:1.6, color:'#64748b' }}>Pick a PDF and we will create the draft for it, then open it here to place fields and assign recipients.</span>
+          <div style={{ maxWidth:'420px', background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'22px', display:'flex', flexDirection:'column', gap:'10px', textAlign:'center' }}>
+            <span style={{ fontSize:'.84375rem', fontWeight:600, color:'hsl(var(--color-fg-default))' }}>No document to prepare</span>
+            <span style={{ fontSize:'.75rem', lineHeight:1.6, color:'hsl(var(--color-fg-muted))' }}>Pick a PDF and we will create the draft for it, then open it here to place fields and assign recipients.</span>
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'8px' }}>
               <UploadDocument label="Upload a file" />
               <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, ghostBtn, { justifyContent:'center' })}><Icon name="documents" size={13} />Go to documents</button>
@@ -1524,22 +1524,22 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   return (
     <section data-screen-label="Builder" style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0 }}>
       {catalogSlug ? (
-        <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', padding:'9px 16px', background:'#eef2ff', borderBottom:'1px solid #c7d2fe' }}>
-          <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#3730a3' }}>
+        <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', padding:'9px 16px', background:'hsl(var(--color-accent-subtle))', borderBottom:'1px solid hsl(var(--color-accent-border))' }}>
+          <span style={{ fontSize:'.78125rem', fontWeight:600, color:'hsl(var(--color-accent-fg))' }}>
             Catalog form · {catalogSlug}
           </span>
-          <span style={{ fontSize:'.71875rem', color:'#4338ca', fontFamily:'var(--font-sans)' }}>
+          <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-info))', fontFamily:'var(--font-sans)' }}>
             Place the fields every tenant should get, then save them back to the catalog.
           </span>
           <button
             type="button"
             onClick={saveToCatalog}
             disabled={savingCatalog}
-            style={{ ...btn(A, '#fff', A), marginLeft:'auto', opacity: savingCatalog ? 0.6 : 1 }}
+            style={{ ...btn(A, 'hsl(var(--color-fg-on-solid))', A), marginLeft:'auto', opacity: savingCatalog ? 0.6 : 1 }}
           ><Icon name="save" size={13} />{savingCatalog ? 'Saving…' : 'Save to catalog'}</button>
         </div>
       ) : null}
-      <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'#fff', borderBottom:'1px solid #e3e7ee' }}>
+      <div style={{ flex:'0 0 auto', height:'52px', display:'flex', alignItems:'center', gap:'14px', padding:'0 16px', background:'hsl(var(--color-bg-surface))', borderBottom:'1px solid hsl(var(--color-border-subtle))' }}>
         <div style={{ display:'flex', alignItems:'center', gap:'8px', minWidth:0 }}>
           <PdfBadge size={24} />
           {renaming ? (
@@ -1551,7 +1551,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
                 else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
               }}
-              style={{ fontSize:'.8125rem', fontWeight:600, fontFamily:'inherit', color:'#0f172a', padding:'3px 7px', borderRadius:'7px', border:'1px solid ' + A, outline:'none', minWidth:0, width:'260px', maxWidth:'40vw' }}
+              style={{ fontSize:'.8125rem', fontWeight:600, fontFamily:'inherit', color:'hsl(var(--color-fg-default))', padding:'3px 7px', borderRadius:'7px', border:'1px solid ' + A, outline:'none', minWidth:0, width:'260px', maxWidth:'40vw' }}
             />
           ) : (
             <button type="button" onClick={startRename} title="Rename document" aria-label={'Rename document · ' + docTitle}
@@ -1594,8 +1594,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 <button key={r.id} type="button" onClick={r.onClick} style={r.style}>
                   <span style={r.chip}>{r.order}</span>
                   <span style={{ display:'flex', flexDirection:'column', lineHeight:1.25, textAlign:'left', minWidth:0 }}>
-                    <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.name}</span>
-                    <span style={{ fontSize:'.6875rem', color:'#64748b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.role} · {r.fieldCount} fields</span>
+                    <span style={{ fontSize:'.78125rem', fontWeight:600, color:'hsl(var(--color-fg-default))', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.name}</span>
+                    <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.role} · {r.fieldCount} fields</span>
                   </span>
                   <span style={r.stateStyle}>{r.state}</span>
                 </button>
@@ -1613,12 +1613,12 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
 
           <div>
             <div style={railHead}>Field palette</div>
-            <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'9px', marginTop:'8px' }}>
+            <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'9px', marginTop:'8px' }}>
               {paletteTabs.map(t => (
                 <button key={t.id} type="button" onClick={t.onClick} aria-pressed={t.selected} style={t.style}>{t.label}</button>
               ))}
             </div>
-            <input type="search" value={s.paletteQuery} onChange={e => set({ paletteQuery: e.target.value })} placeholder="Search fields" aria-label="Search fields" style={{ marginTop:'7px', height:'30px', width:'100%', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'.75rem', outline:'none', background:'#fbfcfd' }} />
+            <input type="search" value={s.paletteQuery} onChange={e => set({ paletteQuery: e.target.value })} placeholder="Search fields" aria-label="Search fields" style={{ marginTop:'7px', height:'30px', width:'100%', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 10px', fontSize:'.75rem', outline:'none', background:'hsl(var(--color-bg-subtle))' }} />
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(118px, 1fr))', gridAutoRows:'44px', gap:'7px', marginTop:'9px' }}>
               {tools.map(t => (
                 /* The star sits beside the tile rather than inside it: the tile
@@ -1638,7 +1638,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     title={t.favoriteAria}
                     style={{ position:'absolute', top:'2px', right:'2px', width:'18px', height:'18px', display:'grid', placeItems:'center',
                       border:'none', background:'transparent', padding:0, borderRadius:'5px', lineHeight:1, fontSize:'.6875rem',
-                      cursor: t.favoriteDisabled ? 'default' : 'pointer', color: t.favorite ? '#b45309' : BORDER_STRONG }}
+                      cursor: t.favoriteDisabled ? 'default' : 'pointer', color: t.favorite ? 'hsl(var(--color-fg-warning))' : BORDER_STRONG }}
                   >
                     <Icon name="star" size={13} solid={t.favorite} />
                   </button>
@@ -1656,15 +1656,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 picker that is permanently on screen would be four controls that
                 do nothing most of the time. */}
             {s.penMode ? (
-              <div style={{ marginTop:'10px', border:'1px solid #c7d2fe', background:'#eef2ff', borderRadius:'11px', padding:'10px', display:'flex', flexDirection:'column', gap:'9px' }}>
-                <div style={{ fontSize:'.71875rem', fontWeight:600, color:'#3730a3' }}>Pen is up — drag on the page to draw</div>
+              <div style={{ marginTop:'10px', border:'1px solid hsl(var(--color-accent-border))', background:'hsl(var(--color-accent-subtle))', borderRadius:'11px', padding:'10px', display:'flex', flexDirection:'column', gap:'9px' }}>
+                <div style={{ fontSize:'.71875rem', fontWeight:600, color:'hsl(var(--color-accent-fg))' }}>Pen is up — drag on the page to draw</div>
                 <div role="group" aria-label="Pen colour" style={{ display:'flex', gap:'6px' }}>
                   {INK_COLORS.map(c => (
                     <button
                       key={c} type="button" onClick={() => set({ penInk: c })}
                       aria-label={'Pen colour ' + c} aria-pressed={s.penInk === c} title={c}
                       style={{ width:'22px', height:'22px', borderRadius:'7px', background:c, cursor:'pointer',
-                        border:'2px solid ' + (s.penInk === c ? '#0f172a' : '#fff'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }}
+                        border:'2px solid ' + (s.penInk === c ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-bg-surface))'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }}
                     />
                   ))}
                   {/* The five presets cover the inks a sender reaches for; the
@@ -1678,7 +1678,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     onChange={e => set({ penInk: e.target.value })}
                     style={{ width:'22px', height:'22px', borderRadius:'7px', padding:0, cursor:'pointer',
                       background:'transparent', appearance:'none', WebkitAppearance:'none',
-                      border:'2px solid ' + (INK_COLORS.indexOf(s.penInk) < 0 ? '#0f172a' : '#fff'),
+                      border:'2px solid ' + (INK_COLORS.indexOf(s.penInk) < 0 ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-bg-surface))'),
                       boxShadow:'0 0 0 1px ' + BORDER_STRONG }}
                   />
                 </div>
@@ -1697,7 +1697,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
           <div>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'8px' }}>
               <div style={railHead}>Pages</div>
-              <span style={{ fontSize:'.6875rem', color:'#64748b' }}>{pages.length} in this PDF</span>
+              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>{pages.length} in this PDF</span>
             </div>
             {/* Adding pages is `POST /api/documents/{id}/pages`: a blank sheet,
                 or a file whose pages are converted and spliced in. */}
@@ -1710,7 +1710,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               </button>
               {addOpen ? (
                 <div id="sf-add-page" style={{ marginTop:'8px', display:'flex', flexDirection:'column', gap:'8px',
-                  border:'1px solid #e3e7ee', borderRadius:'10px', padding:'10px', background:'#fff' }}>
+                  border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'10px', padding:'10px', background:'hsl(var(--color-bg-surface))' }}>
                   <label style={lbl}>Position
                     <select value={addAfter} onChange={e => setAddAfter(parseInt(e.target.value, 10))} style={inputStyle}>
                       <option value={0}>At the end</option>
@@ -1733,7 +1733,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     style={Object.assign({}, ghostBtn, { justifyContent:'center' }, pageBusy ? { opacity:.55, cursor:'progress' } : null)}>
                     <Icon name="upload" size={13} />{pageBusy ? 'Adding…' : 'Upload file or image…'}
                   </button>
-                  <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
+                  <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>
                     PDFs, images and documents such as .docx are converted to pages.
                     An image is laid on a page the size of the one it joins.
                   </span>
@@ -1779,21 +1779,21 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
           </div>
         </ResizableRail>
 
-        <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', background:'#eceff4' }}>
-          <div data-sf-scroll="1" style={{ height:'46px', flex:'0 0 46px', borderBottom:'1px solid #e3e7ee', background:'#fff', display:'flex', alignItems:'center', gap:'8px', padding:'0 14px', overflowX:'auto', overflowY:'hidden', scrollbarWidth:'thin' }}>
+        <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', background:'hsl(var(--color-bg-muted))' }}>
+          <div data-sf-scroll="1" style={{ height:'46px', flex:'0 0 46px', borderBottom:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', display:'flex', alignItems:'center', gap:'8px', padding:'0 14px', overflowX:'auto', overflowY:'hidden', scrollbarWidth:'thin' }}>
             <button type="button" aria-label="Undo" title="Undo" onClick={undo} disabled={!canUndo} style={Object.assign({}, iconBtn, canUndo ? null : { opacity: .45, cursor: 'not-allowed' })}><Icon name="undo" size={14} /></button>
             <button type="button" aria-label="Redo" title="Redo" onClick={redo} disabled={!canRedo} style={Object.assign({}, iconBtn, canRedo ? null : { opacity: .45, cursor: 'not-allowed' })}><Icon name="redo" size={14} /></button>
-            <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
-            <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'2px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'2px' }}>
+            <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'hsl(var(--color-border-subtle))' }}></span>
+            <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'2px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'2px' }}>
               <button type="button" aria-label="Zoom out" title="Zoom out" onClick={zoomOut} style={iconBtn}><Icon name="minus" size={13} /></button>
-              <span style={{ minWidth:'52px', textAlign:'center', fontSize:'.75rem', fontFamily:'var(--font-sans)', color:'#334155' }}>{zoomLabel}</span>
+              <span style={{ minWidth:'52px', textAlign:'center', fontSize:'.75rem', fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-subtle))' }}>{zoomLabel}</span>
               <button type="button" aria-label="Zoom in" title="Zoom in" onClick={zoomIn} style={iconBtn}><Icon name="plus" size={13} /></button>
             </div>
             <button type="button" onClick={fitWidth} title="Fit width" aria-label="Fit width" style={toolBtn}><Icon name="fitWidth" size={14} /></button>
             <button type="button" onClick={fitPage} title="Fit page" aria-label="Fit page" style={toolBtn}><Icon name="fit" size={14} /></button>
-            <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
+            <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'hsl(var(--color-border-subtle))' }}></span>
             <button type="button" onClick={toggleGrid} title="Snap grid" aria-label="Snap grid" aria-pressed={s.grid} style={gridBtnStyle}><Icon name="grid" size={14} /></button>
-            <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'#e3e7ee' }}></span>
+            <span style={{ flex:'0 0 auto', width:'1px', height:'20px', background:'hsl(var(--color-border-subtle))' }}></span>
             <div style={{ flex:'0 0 auto', display:'flex', alignItems:'center', gap:'6px' }}>
               <button type="button" onClick={I.alignLeft} title="Align left" aria-label="Align left" style={alignStyle}><Icon name="alignLeft" size={14} /></button>
               <button type="button" onClick={I.alignCenterX} title="Center" aria-label="Center" style={alignStyle}><Icon name="alignCenter" size={14} /></button>
@@ -1804,7 +1804,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               <button type="button" onClick={I.deleteSel} title="Delete" aria-label="Delete" style={dangerStyle}><Icon name="trash" size={14} /></button>
             </div>
             <button type="button" onClick={openPreview} title="Open preview" aria-label="Open preview" style={toolBtn}><Icon name="preview" size={14} /></button>
-            <span style={{ flex:'0 0 auto', marginLeft:'auto', paddingLeft:'8px', fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{selLabel}</span>
+            <span style={{ flex:'0 0 auto', marginLeft:'auto', paddingLeft:'8px', fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{selLabel}</span>
           </div>
 
           <div ref={attachViewport} onScroll={onCanvasScroll} data-sf-scroll="1" style={{ flex:1, minHeight:0, overflow:'auto', overscrollBehavior:'contain', padding:'26px', display:'flex', flexDirection:'column', alignItems:'center' }}>
@@ -1941,8 +1941,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 )}
               />
             ) : (
-              <div role="status" style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'22px 20px', maxWidth:'420px',
-                fontSize:'.78125rem', color:'#475569', lineHeight:1.6, display:'flex', flexDirection:'column', alignItems:'flex-start', gap:'12px' }}>
+              <div role="status" style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'14px', padding:'22px 20px', maxWidth:'420px',
+                fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))', lineHeight:1.6, display:'flex', flexDirection:'column', alignItems:'flex-start', gap:'12px' }}>
                 <span>Upload a file to this envelope before placing fields — the page you place them on has to be the document itself.</span>
                 <UploadDocument documentId={documentId} label="Upload a file" />
               </div>
@@ -1971,8 +1971,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               {/* A field type the product does not fully implement says so here
                   rather than letting the sender assume it works. */}
               {meta(one.type).note ? (
-                <div role="note" style={{ fontSize:'.71875rem', lineHeight:1.55, color:'#7c2d12', background:'#fff7ed',
-                  border:'1px solid #fed7aa', borderRadius:'10px', padding:'9px 10px' }}>
+                <div role="note" style={{ fontSize:'.71875rem', lineHeight:1.55, color:'hsl(var(--color-fg-warning))', background:'hsl(var(--color-bg-warning-subtle))',
+                  border:'1px solid hsl(var(--color-border-warning))', borderRadius:'10px', padding:'9px 10px' }}>
                   <strong>Not implemented.</strong> {meta(one.type).note}
                 </div>
               ) : null}
@@ -1994,14 +1994,14 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   </label>
                 ) : null}
                 {oneIsAnn ? (
-                  <div role="note" style={{ fontSize:'.71875rem', lineHeight:1.55, color:'#3730a3', background:'#eef2ff',
-                    border:'1px solid #c7d2fe', borderRadius:'10px', padding:'9px 10px' }}>
+                  <div role="note" style={{ fontSize:'.71875rem', lineHeight:1.55, color:'hsl(var(--color-accent-fg))', background:'hsl(var(--color-accent-subtle))',
+                    border:'1px solid hsl(var(--color-accent-border))', borderRadius:'10px', padding:'9px 10px' }}>
                     Your own mark on the page. Nobody is asked to fill it in — it is drawn for every recipient and burned into the completed PDF.
                   </div>
                 ) : null}
                 {oneRadio ? (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6',
-                    borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid hsl(var(--color-border-hairline))',
+                    borderRadius:'11px', padding:'10px', background:'hsl(var(--color-bg-subtle))' }}>
                     <div style={railHead}>Radio buttons</div>
                     <div style={{ fontSize:'.71875rem', lineHeight:1.5, color:TEXT_MUTED }}>
                       Each button sits where you drag it on the page. The recipient picks one of them.
@@ -2028,14 +2028,14 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                               aria-label={'Remove ' + m.options.choice}
                               title={radioButtons.length > 1 ? 'Remove this button' : 'Remove the group'}
                               style={{ width:'30px', height:'30px', flex:'0 0 30px', borderRadius:'8px', cursor:'pointer',
-                                border:'1px solid #e3e7ee', background:'#fff', color:'#dc2626', fontSize:'.8125rem',
+                                border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', color:'hsl(var(--color-fg-danger))', fontSize:'.8125rem',
                                 display:'grid', placeItems:'center' }}
                             ><Icon name="trash" size={12} /></button>
                           </div>
                         );
                       })}
                     </div>
-                    <button type="button" onClick={addRadioOption} style={Object.assign({}, btn('#fff', '#334155', '#e3e7ee'),
+                    <button type="button" onClick={addRadioOption} style={Object.assign({}, btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'),
                       { width:'100%', justifyContent:'center' } as CSSProperties)}><Icon name="plus" size={13} />Add option</button>
                     <label style={lbl}>Pre-selected option
                       <select value={radioPreselected} onChange={e => setRadioPreselected(e.target.value)} style={input}>
@@ -2072,15 +2072,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     </div>
                     <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
                       <button type="button" aria-pressed={oneTextbox.bold} onClick={() => editTextbox({ bold: !oneTextbox.bold })}
-                        style={Object.assign({}, btn(oneTextbox.bold ? '#eef2ff' : '#fff', '#334155', oneTextbox.bold ? '#c7d2fe' : '#e3e7ee'), { fontWeight:700 })}>B</button>
+                        style={Object.assign({}, btn(oneTextbox.bold ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', oneTextbox.bold ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))'), { fontWeight:700 })}>B</button>
                       <button type="button" aria-pressed={oneTextbox.italic} onClick={() => editTextbox({ italic: !oneTextbox.italic })}
-                        style={Object.assign({}, btn(oneTextbox.italic ? '#eef2ff' : '#fff', '#334155', oneTextbox.italic ? '#c7d2fe' : '#e3e7ee'), { fontStyle:'italic' })}>I</button>
+                        style={Object.assign({}, btn(oneTextbox.italic ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', oneTextbox.italic ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))'), { fontStyle:'italic' })}>I</button>
                       <div role="group" aria-label="Text colour" style={{ display:'flex', gap:'5px', marginLeft:'auto' }}>
                         {INK_COLORS.map(c => (
                           <button key={c} type="button" onClick={() => editTextbox({ color: c })}
                             aria-label={'Text colour ' + c} aria-pressed={oneTextbox.color === c} title={c}
                             style={{ width:'20px', height:'20px', borderRadius:'6px', background:c, cursor:'pointer',
-                              border:'2px solid ' + (oneTextbox.color === c ? '#0f172a' : '#fff'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }} />
+                              border:'2px solid ' + (oneTextbox.color === c ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-bg-surface))'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }} />
                         ))}
                       </div>
                     </div>
@@ -2096,7 +2096,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                         <button key={c} type="button" onClick={() => editDrawing({ color: c })}
                           aria-label={'Ink colour ' + c} aria-pressed={oneDrawing.color === c} title={c}
                           style={{ width:'22px', height:'22px', borderRadius:'7px', background:c, cursor:'pointer',
-                            border:'2px solid ' + (oneDrawing.color === c ? '#0f172a' : '#fff'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }} />
+                            border:'2px solid ' + (oneDrawing.color === c ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-bg-surface))'), boxShadow:'0 0 0 1px ' + BORDER_STRONG }} />
                       ))}
                     </div>
                     <label style={lbl}>Stroke width — {oneDrawing.stroke}pt
@@ -2106,8 +2106,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   </>
                 ) : null}
                 {onePayment ? (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6',
-                    borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid hsl(var(--color-border-hairline))',
+                    borderRadius:'11px', padding:'10px', background:'hsl(var(--color-bg-subtle))' }}>
                     <div style={railHead}>Payment</div>
                     <label style={lbl}>Amount
                       <select value={onePayment.amount_mode}
@@ -2169,7 +2169,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   </label>
                 </div>
                 {!oneIsAnn ? (
-                <div style={{ display:'flex', flexDirection:'column', gap:'7px', border:'1px solid #eef1f6', borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:'7px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'11px', padding:'10px', background:'hsl(var(--color-bg-subtle))' }}>
                   <button type="button" role="switch" aria-checked={!!one.required} onClick={() => editOne({ required: !one.required })} style={rowBtn}>
                     <span style={{ fontSize:'.78125rem' }}>Required</span><span style={reqSwitch}><span style={reqKnob}></span></span>
                   </button>
@@ -2192,8 +2192,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 {!oneIsAnn && !oneRadio && !onePayment ? <div style={regexBox}>{REGEX_MAP[impliedValidation || one.validation]}</div> : null}
 
                 {wantsChoices ? (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6',
-                    borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid hsl(var(--color-border-hairline))',
+                    borderRadius:'11px', padding:'10px', background:'hsl(var(--color-bg-subtle))' }}>
                     <div style={railHead}>Choices</div>
                     <div style={{ fontSize:'.71875rem', lineHeight:1.5, color:TEXT_MUTED }}>
                       One row per choice, in the order the recipient sees them. They pick one.
@@ -2223,15 +2223,15 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                             aria-label={'Remove ' + (choice || 'choice ' + (i + 1))}
                             title="Remove this choice"
                             style={{ width:'30px', height:'30px', flex:'0 0 30px', borderRadius:'8px', cursor:'pointer',
-                              border:'1px solid #e3e7ee', background:'#fff', color:'#dc2626', fontSize:'.8125rem',
+                              border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', color:'hsl(var(--color-fg-danger))', fontSize:'.8125rem',
                               display:'grid', placeItems:'center' }}
                           ><Icon name="trash" size={12} /></button>
                         </div>
                       ))}
                     </div>
-                    <button type="button" onClick={addChoice} style={Object.assign({}, btn('#fff', '#334155', '#e3e7ee'),
+                    <button type="button" onClick={addChoice} style={Object.assign({}, btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'),
                       { width:'100%', justifyContent:'center' } as CSSProperties)}><Icon name="plus" size={13} />Add option</button>
-                    <div style={{ fontSize:'.71875rem', lineHeight:1.5, color: oneChoices.length ? '#047857' : '#b45309' }}>
+                    <div style={{ fontSize:'.71875rem', lineHeight:1.5, color: oneChoices.length ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-warning))' }}>
                       {oneChoices.length
                         ? oneChoices.length + (oneChoices.length === 1 ? ' choice' : ' choices') + ' — the recipient picks one'
                         : 'No choices yet — the recipient is shown nothing to pick from until you add some.'}
@@ -2260,10 +2260,10 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               </div>
 
               {!oneIsAnn ? (
-              <div style={{ borderTop:'1px solid #eef1f6', paddingTop:'14px', display:'flex', flexDirection:'column', gap:'10px' }}>
+              <div style={{ borderTop:'1px solid hsl(var(--color-border-hairline))', paddingTop:'14px', display:'flex', flexDirection:'column', gap:'10px' }}>
                 <div style={railHead}>Conditional logic</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid #eef1f6', borderRadius:'11px', padding:'10px', background:'#fbfcfd' }}>
-                  <div style={{ fontSize:'.71875rem', color:'#64748b' }}>Show this field only if</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:'8px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'11px', padding:'10px', background:'hsl(var(--color-bg-subtle))' }}>
+                  <div style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))' }}>Show this field only if</div>
                   <select value={cond.field} onChange={e => editOne({ cond: e.target.value ? { field: e.target.value, op: cond.op, value: cond.value } : null })} style={input} aria-label="Trigger field">
                     <option value="">— always show —</option>
                     {condOptions.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -2285,7 +2285,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
           ) : null}
           {!one ? (
             <div style={{ padding:'30px 20px', display:'flex', flexDirection:'column', gap:'9px', textAlign:'center', color:TEXT_MUTED }}>
-              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#475569' }}>No field selected</span>
+              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'hsl(var(--color-fg-subtle))' }}>No field selected</span>
               <span style={{ fontSize:'.75rem', lineHeight:1.5 }}>Select a field on the page — or lasso several — to configure labels, validation and conditional logic.</span>
             </div>
           ) : null}
@@ -2293,12 +2293,12 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       </div>
 
       {s.wizardStep === 2 ? (
-        <div data-sf-scroll="1" style={{ flex:1, minHeight:0, overflow:'auto', padding:'22px', display:'grid', gridTemplateColumns:'minmax(0,1.5fr) minmax(0,1fr)', gap:'16px', alignItems:'start', background:'#eceff4' }}>
+        <div data-sf-scroll="1" style={{ flex:1, minHeight:0, overflow:'auto', padding:'22px', display:'grid', gridTemplateColumns:'minmax(0,1.5fr) minmax(0,1fr)', gap:'16px', alignItems:'start', background:'hsl(var(--color-bg-muted))' }}>
           <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'14px' }}>
+            <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'14px' }}>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }}>
                 <div style={railHead}>Recipients &amp; signing order</div>
-                <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px' }}>
+                <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'10px' }}>
                   <button type="button" onClick={() => changeRouting({ routing: 'sequential' })} style={seqStyle}>Sequential</button>
                   <button type="button" onClick={() => changeRouting({ routing: 'parallel' })} style={parStyle}>Parallel</button>
                 </div>
@@ -2309,7 +2309,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                     <span style={r.orderStyle}>{r.order}</span>
                     <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0, flex:1 }}>
                       <span style={{ fontSize:'.8125rem', fontWeight:600 }}>{r.name}</span>
-                      <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{r.email}</span>
+                      <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{r.email}</span>
                     </div>
                     <select value={r.role} onChange={r.onRole} aria-label="Role" style={r.selectStyle}>
                       <option value="sign">Needs to sign</option>
@@ -2321,7 +2321,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                       <button type="button" aria-label="Move up" onClick={r.onUp} style={iconBtn}><Icon name="arrowUp" size={13} /></button>
                       <button type="button" aria-label="Move down" onClick={r.onDown} style={iconBtn}><Icon name="arrowDown" size={13} /></button>
                       <button type="button" aria-label={'Remove ' + r.name} title={'Remove ' + r.name} onClick={r.onRemove}
-                        style={Object.assign({}, iconBtn, { color:'#b91c1c' })}><Icon name="close" size={13} /></button>
+                        style={Object.assign({}, iconBtn, { color:'hsl(var(--color-fg-danger))' })}><Icon name="close" size={13} /></button>
                     </div>
                   </div>
                 ))}
@@ -2335,7 +2335,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               <div style={routeNoteStyle}>{routeNote}</div>
             </div>
 
-            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
+            <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
               <div style={railHead}>Invite email</div>
               <label style={lbl}>Subject
                 <input type="text" value={subject} onChange={e => changeRouting({ subject: e.target.value })} placeholder={docTitle + ': signature request'} style={input} />
@@ -2345,14 +2345,14 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               </label>
             </div>
 
-            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
+            <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
               <div style={railHead}>Payment request</div>
 
               {paymentNoStripe ? (
-                <div role="alert" style={{ fontSize:'.75rem', lineHeight:1.6, color:'#7c2d12', background:'#fff7ed',
-                  border:'1px solid #fed7aa', borderRadius:'10px', padding:'9px 10px', display:'flex', flexDirection:'column', gap:'4px' }}>
+                <div role="alert" style={{ fontSize:'.75rem', lineHeight:1.6, color:'hsl(var(--color-fg-warning))', background:'hsl(var(--color-bg-warning-subtle))',
+                  border:'1px solid hsl(var(--color-border-warning))', borderRadius:'10px', padding:'9px 10px', display:'flex', flexDirection:'column', gap:'4px' }}>
                   <span><strong>This envelope cannot be sent for payment yet.</strong> Connect a Stripe account with charges enabled first.</span>
-                  <Link href="/account/payments" style={{ color:'#7c2d12', textDecoration:'underline', fontWeight:600 }}>Go to Payments</Link>
+                  <Link href="/account/payments" style={{ color:'hsl(var(--color-fg-warning))', textDecoration:'underline', fontWeight:600 }}>Go to Payments</Link>
                 </div>
               ) : null}
 
@@ -2374,14 +2374,14 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                   placeholder="Shown on the signer’s card statement and your Stripe dashboard" style={input} />
               </label>
 
-              <div role="group" aria-label="Split" style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px' }}>
+              <div role="group" aria-label="Split" style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'10px' }}>
                 {(['single', 'equal', 'custom'] as PaymentSplitMode[]).map(mode => (
                   <button key={mode} type="button" onClick={() => setPaymentSplitMode(mode)}
                     aria-pressed={paymentDraft.splitMode === mode}
                     style={{ flex:1, height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem',
                       fontWeight: paymentDraft.splitMode === mode ? 600 : 500,
-                      background: paymentDraft.splitMode === mode ? '#fff' : 'transparent',
-                      color: paymentDraft.splitMode === mode ? '#0f172a' : '#64748b',
+                      background: paymentDraft.splitMode === mode ? 'hsl(var(--color-bg-surface))' : 'transparent',
+                      color: paymentDraft.splitMode === mode ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
                       boxShadow: paymentDraft.splitMode === mode ? '0 1px 2px rgba(15,23,42,.12)' : 'none' }}>
                     {mode === 'single' ? 'Single payer' : mode === 'equal' ? 'Split equally' : 'Custom split'}
                   </button>
@@ -2407,12 +2407,12 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                       <span style={{ fontSize:'.78125rem', flex:1 }}>{r.name}</span>
                       {!hasField ? (
                         <button type="button" onClick={() => placePaymentField(r.id)}
-                          style={{ fontSize:'.65625rem', color:'#b45309', background:'none', border:'1px solid #fcd34d', borderRadius:'6px', padding:'3px 7px', cursor:'pointer' }}>
+                          style={{ fontSize:'.65625rem', color:'hsl(var(--color-fg-warning))', background:'none', border:'1px solid hsl(var(--color-border-warning))', borderRadius:'6px', padding:'3px 7px', cursor:'pointer' }}>
                           No payment field placed · place one
                         </button>
                       ) : null}
                       {paymentDraft.splitMode === 'equal' && checked ? (
-                        <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+                        <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>
                           {paymentDraft.currency} {amountInputFromCents(equalAmount)}
                         </span>
                       ) : null}
@@ -2431,7 +2431,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               </div>
 
               {paymentDraft.splitMode === 'custom' ? (
-                <div style={{ fontSize:'.71875rem', color: paymentAllocations().reduce((t, a) => t + a.amount_cents, 0) === paymentTotalCents ? '#047857' : '#b45309' }}>
+                <div style={{ fontSize:'.71875rem', color: paymentAllocations().reduce((t, a) => t + a.amount_cents, 0) === paymentTotalCents ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-warning))' }}>
                   {amountInputFromCents(paymentAllocations().reduce((t, a) => t + a.amount_cents, 0))} of {amountInputFromCents(paymentTotalCents)} allocated
                 </div>
               ) : null}
@@ -2439,18 +2439,18 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
               {paymentValidation.length ? (
                 <ul style={{ margin:0, paddingLeft:'18px', display:'flex', flexDirection:'column', gap:'3px' }}>
                   {paymentValidation.map((msg, i) => (
-                    <li key={i} style={{ fontSize:'.71875rem', color:'#b91c1c' }}>{msg}</li>
+                    <li key={i} style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-danger))' }}>{msg}</li>
                   ))}
                 </ul>
               ) : null}
 
               <button type="button" onClick={savePaymentRequest} disabled={paymentSaving || paymentValidation.length > 0}
-                style={Object.assign({}, btn(A, '#fff', A), { justifyContent:'center',
+                style={Object.assign({}, btn(A, 'hsl(var(--color-fg-on-solid))', A), { justifyContent:'center',
                   opacity: paymentSaving || paymentValidation.length > 0 ? .6 : 1 } as CSSProperties)}>
                 {paymentSaving ? 'Saving…' : 'Save payment request'}
               </button>
               {paymentRequest ? (
-                <div style={{ fontSize:'.71875rem', color:'#64748b' }}>
+                <div style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))' }}>
                   {paymentRequest.paid_count} of {paymentRequest.allocation_count} paid so far —
                   {' '}{amountInputFromCents(paymentRequest.collected_cents)} {paymentRequest.currency} collected.
                 </div>
@@ -2459,7 +2459,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
           </div>
 
           <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
+            <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
               <div style={railHead}>Reminders &amp; expiration</div>
               <div style={{ display:'flex', gap:'6px', flexWrap:'wrap' }}>
                 {cadences.map(c => (
@@ -2475,14 +2475,14 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
                 </select>
               </label>
             </div>
-            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
+            <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
               <div style={railHead}>Before you send</div>
               {sendChecks.map(c => (
-                <div key={c.label} style={{ display:'flex', alignItems:'flex-start', gap:'9px', padding:'7px 0', borderTop:'1px solid #f2f4f8' }}>
+                <div key={c.label} style={{ display:'flex', alignItems:'flex-start', gap:'9px', padding:'7px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
                   <span style={c.dot}></span>
                   <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
                     <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{c.label}</span>
-                    <span style={{ fontSize:'.6875rem', color:'#64748b', lineHeight:1.5 }}>{c.meta}</span>
+                    <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>{c.meta}</span>
                   </div>
                 </div>
               ))}

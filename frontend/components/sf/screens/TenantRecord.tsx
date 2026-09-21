@@ -50,15 +50,15 @@ export type TenantRecordProps = {
 const PAGE_CAP = 25;
 
 const sectionStyle: CSSProperties = {
-  background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', overflow: 'hidden',
+  background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', overflow: 'hidden',
 };
 const sectionHead: CSSProperties = {
-  padding: '12px 15px', borderBottom: '1px solid #eef1f6', display: 'flex',
+  padding: '12px 15px', borderBottom: '1px solid hsl(var(--color-border-hairline))', display: 'flex',
   justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
 };
 const rowStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: '12px', padding: '11px 15px',
-  borderTop: '1px solid #f2f4f8', flexWrap: 'wrap',
+  borderTop: '1px solid hsl(var(--color-border-faint))', flexWrap: 'wrap',
 };
 const metaStyle: CSSProperties = {
   fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)',
@@ -192,7 +192,7 @@ export default function TenantRecord({ profile, tab, flags }: TenantRecordProps)
     <div style={{ padding: '22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* ── header ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '13px', flexWrap: 'wrap' }}>
-        <span style={{ width: '44px', height: '44px', borderRadius: '13px', background: '#0f172a', color: '#f8fafc', display: 'grid', placeItems: 'center', fontSize: '.875rem', fontWeight: 700 }}>
+        <span style={{ width: '44px', height: '44px', borderRadius: '13px', background: 'hsl(var(--color-bg-panel-dark))', color: 'hsl(var(--color-fg-on-solid))', display: 'grid', placeItems: 'center', fontSize: '.875rem', fontWeight: 700 }}>
           {initials(t.name)}
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
@@ -203,24 +203,24 @@ export default function TenantRecord({ profile, tab, flags }: TenantRecordProps)
           <span style={metaStyle}>{t.slug} · owner {t.owner_email || EMPTY} · tenant since {formatRelative(t.created_at)}</span>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
-          <Link href="/platform/tenants" style={{ ...btn('#fff', '#475569', '#e3e7ee'), textDecoration: 'none' }}>All tenants</Link>
+          <Link href="/platform/tenants" style={{ ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), textDecoration: 'none' }}>All tenants</Link>
           {suspended ? (
-            <button type="button" onClick={reinstate} style={btn('#fff', '#047857', '#a7f3d0')}><Icon name="check" size={13} />Reinstate</button>
+            <button type="button" onClick={reinstate} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-success))', 'hsl(var(--color-border-success))')}><Icon name="check" size={13} />Reinstate</button>
           ) : (
-            <button type="button" onClick={() => { void suspend(); }} style={btn('#fff', '#b91c1c', '#fecaca')}><Icon name="pause" size={13} />Suspend…</button>
+            <button type="button" onClick={() => { void suspend(); }} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}><Icon name="pause" size={13} />Suspend…</button>
           )}
         </div>
       </div>
 
       {suspended ? (
-        <div style={{ padding: '11px 14px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '.78125rem' }}>
+        <div style={{ padding: '11px 14px', borderRadius: '12px', background: 'hsl(var(--color-bg-danger-subtle))', border: '1px solid hsl(var(--color-border-danger))', color: 'hsl(var(--color-fg-danger))', fontSize: '.78125rem' }}>
           Suspended {formatRelative(t.suspended_at)} — every envelope is frozen.
           {t.suspension_reason ? ' Reason: ' + t.suspension_reason : ''}
         </div>
       ) : null}
 
       {/* ── tabs ───────────────────────────────────────────────────────── */}
-      <div role="tablist" aria-label="Tenant record sections" style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', background: '#f1f4f9', padding: '4px', borderRadius: '11px', alignSelf: 'flex-start' }}>
+      <div role="tablist" aria-label="Tenant record sections" style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', background: 'hsl(var(--color-bg-muted))', padding: '4px', borderRadius: '11px', alignSelf: 'flex-start' }}>
         {TENANT_RECORD_TABS.map(([id, text]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id}
             onClick={() => setTab(id)} style={tabBtn(tab === id)}>{text}</button>
@@ -232,7 +232,7 @@ export default function TenantRecord({ profile, tab, flags }: TenantRecordProps)
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))', gap: '11px' }}>
             {tiles.map(([k, v, sub]) => (
-              <div key={k} style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '14px', padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <div key={k} style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '14px', padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <span style={railHead}>{k}</span>
                 <span style={{ fontSize: '1.0625rem', fontWeight: 700 }}>{v}</span>
                 {sub ? <span style={metaStyle}>{sub}</span> : null}
@@ -244,8 +244,8 @@ export default function TenantRecord({ profile, tab, flags }: TenantRecordProps)
             <Section title="Account">
               <div style={{ padding: '4px 15px 13px' }}>
                 {facts.map(([k, v]) => (
-                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '.78125rem', padding: '7px 0', borderTop: '1px solid #f2f4f8' }}>
-                    <span style={{ color: '#64748b' }}>{k}</span>
+                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '.78125rem', padding: '7px 0', borderTop: '1px solid hsl(var(--color-border-faint))' }}>
+                    <span style={{ color: 'hsl(var(--color-fg-muted))' }}>{k}</span>
                     <span style={{ fontWeight: 500, textAlign: 'right', wordBreak: 'break-word' }}>{v}</span>
                   </div>
                 ))}
@@ -295,7 +295,7 @@ export default function TenantRecord({ profile, tab, flags }: TenantRecordProps)
         <Section title="Members" note={cap(profile.users.length, counts.users)}>
           {profile.users.length ? profile.users.map(u => (
             <div key={u.id} style={rowStyle}>
-              <span style={{ width: '30px', height: '30px', borderRadius: '9px', background: '#eef2ff', color: '#3730a3', display: 'grid', placeItems: 'center', fontSize: '.6875rem', fontWeight: 700 }}>
+              <span style={{ width: '30px', height: '30px', borderRadius: '9px', background: 'hsl(var(--color-accent-subtle))', color: 'hsl(var(--color-accent-fg))', display: 'grid', placeItems: 'center', fontSize: '.6875rem', fontWeight: 700 }}>
                 {initials(u.name || u.email)}
               </span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, flex: '1 1 200px' }}>
@@ -361,8 +361,8 @@ export default function TenantRecord({ profile, tab, flags }: TenantRecordProps)
                     ['Cancels at period end', profile.subscription.cancel_at_period_end ? 'yes' : 'no'],
                     ['Provider', profile.subscription.provider || 'none'],
                   ] as Array<[string, string]>).map(([k, v]) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '.78125rem', padding: '7px 0', borderTop: '1px solid #f2f4f8' }}>
-                      <span style={{ color: '#64748b' }}>{k}</span>
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '.78125rem', padding: '7px 0', borderTop: '1px solid hsl(var(--color-border-faint))' }}>
+                      <span style={{ color: 'hsl(var(--color-fg-muted))' }}>{k}</span>
                       <span style={{ fontWeight: 500 }}>{v}</span>
                     </div>
                   ))}

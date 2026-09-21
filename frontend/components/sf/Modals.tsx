@@ -25,6 +25,7 @@ import {
 } from '@/lib/api/resources';
 import {
   EMPTY,
+  declineFields,
   declineNotice,
   defaultPaymentMethodLabel,
   formatCents,
@@ -93,15 +94,15 @@ function clampSeats(raw: string): number {
 }
 
 const textareaStyle: CSSProperties = {
-  border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem',
-  resize: 'vertical', outline: 'none', width: '100%', color: '#0f172a'
+  border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem',
+  resize: 'vertical', outline: 'none', width: '100%', color: 'hsl(var(--color-fg-default))'
 };
 const monoInput: CSSProperties = Object.assign({}, inputStyle, {
   fontFamily: 'var(--font-sans)', fontSize: '.71875rem'
 });
 const iconBtn: CSSProperties = {
-  width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
-  background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '.8125rem', lineHeight: 1
+  width: '28px', height: '28px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-subtle))',
+  background: 'hsl(var(--color-bg-surface))', cursor: 'pointer', color: 'hsl(var(--color-fg-subtle))', fontSize: '.8125rem', lineHeight: 1
 };
 
 export default function Modals() {
@@ -135,8 +136,8 @@ export default function Modals() {
     autosaveFields: false,
   });
 
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const primaryBtn = btn(A, '#fff', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
 
   /* `GET /api/me/signatures` — loaded when the adopt-signature modal opens. */
   const [savedSignatures, setSavedSignatures] = useState<SavedSignatureResponse[] | null>(null);
@@ -180,10 +181,10 @@ export default function Modals() {
     : (payTitle ? payTitle[1] : (mk ? mk[1] : ''));
   const modalBody = mk ? mk[2] : '';
   const modalCta = mk ? mk[3] : '';
-  const modalCtaStyle = s.modal === 'decline' ? btn('#b91c1c', '#fff', '#b91c1c') : btn(A, '#fff', A);
+  const modalCtaStyle = s.modal === 'decline' ? btn('hsl(var(--color-bg-danger-solid))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-fg-danger))') : btn(A, 'hsl(var(--color-fg-on-solid))', A);
   const modalCard: CSSProperties = {
     width: s.modal === 'signature' ? '680px' : (payTitle ? '560px' : '520px'),
-    maxWidth: '100%', maxHeight: '88vh', overflow: 'auto', background: '#fff', borderRadius: '16px',
+    maxWidth: '100%', maxHeight: '88vh', overflow: 'auto', background: 'hsl(var(--color-bg-surface))', borderRadius: '16px',
     boxShadow: '0 40px 90px -30px rgba(15,23,42,.6)', animation: 'sfIn .16s ease'
   };
 
@@ -285,7 +286,7 @@ export default function Modals() {
       onClick: () => set({ payTab: id }),
       style: {
         flex: '1', height: '28px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '.78125rem',
-        fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
+        fontWeight: on ? 600 : 500, background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
         boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none'
       } as CSSProperties
     };
@@ -435,8 +436,8 @@ export default function Modals() {
     style: {
       display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start', padding: '11px',
       borderRadius: '11px', cursor: 'pointer',
-      border: '1px solid ' + (s.checkoutPlan === plan.name ? A : '#e3e7ee'),
-      background: s.checkoutPlan === plan.name ? '#eef2ff' : '#fbfcfd'
+      border: '1px solid ' + (s.checkoutPlan === plan.name ? A : 'hsl(var(--color-border-subtle))'),
+      background: s.checkoutPlan === plan.name ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-subtle))'
     } as CSSProperties
   }));
 
@@ -469,12 +470,12 @@ export default function Modals() {
     style: {
       fontFamily: 'var(--font-sans)',
       fontWeight: i === arr.length - 1 ? 700 : 500,
-      color: '#0f172a'
+      color: 'hsl(var(--color-fg-default))'
     } as CSSProperties
   }));
   const payMethodChip: CSSProperties = {
-    padding: '5px 10px', borderRadius: '8px', border: '1px solid #e3e7ee', background: '#fbfcfd',
-    fontSize: '.71875rem', fontFamily: 'var(--font-sans)', color: '#475569'
+    padding: '5px 10px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-subtle))', background: 'hsl(var(--color-bg-subtle))',
+    fontSize: '.71875rem', fontFamily: 'var(--font-sans)', color: 'hsl(var(--color-fg-subtle))'
   };
   const payMethodLabel = defaultPaymentMethodLabel(billingPms);
   /* A plan change the organization is over the capacity of has no coherent
@@ -494,10 +495,16 @@ export default function Modals() {
         ? 'Schedule switch'
         : 'Switch plan';
 
-  /* A 402 carries `decline_code` and the dunning state in its body, which
-     `ApiError` does not keep — so the failed charge and the invoice are re-read
-     and reported. A decline must never surface as a success toast. */
-  const reportDecline = (row: InvoiceRow) => {
+  /* A 402 carries `decline_code` and the dunning state on its structured
+     `detail`; the failed charge and the invoice are re-read only when that body
+     told us nothing. A decline must never surface as a success toast. */
+  const reportDecline = (row: InvoiceRow, detail?: Record<string, unknown>) => {
+    const fields = declineFields(detail);
+    if (fields.declineCode || fields.invoiceStatus) {
+      flash(declineNotice(row.number, fields.declineCode, fields.invoiceStatus));
+      router.refresh();
+      return;
+    }
     void Promise.all([
       billingApi.charges(apiCall, { limit: 5 }),
       invoicesApi.get(apiCall, row.id),
@@ -536,7 +543,10 @@ export default function Modals() {
       flash('Charging ' + row.number + ' · ' + formatCents(row.amountDueCents, row.currency));
       void invoicesApi.pay(apiCall, row.id, defaultPm ? defaultPm.id : undefined).then(res => {
         if (!res.ok) {
-          if (res.status === 402) { reportDecline(row); return; }
+          if (res.status === 402) {
+            reportDecline(row, res.error.kind === 'client' ? res.error.detail : undefined);
+            return;
+          }
           flash('Could not pay ' + row.number + ' · ' + res.error.message);
           return;
         }
@@ -619,10 +629,10 @@ export default function Modals() {
       style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(15,23,42,.55)', display: 'grid', placeItems: 'center', padding: '24px' }}
     >
       <div style={modalCard}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px', padding: '16px 18px', borderBottom: '1px solid #eef1f6' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px', padding: '16px 18px', borderBottom: '1px solid hsl(var(--color-border-hairline))' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
             <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>{modalTitle}</span>
-            <span style={{ fontSize: '.75rem', color: '#64748b' }}>{modalSub}</span>
+            <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))' }}>{modalSub}</span>
           </div>
           <button type="button" aria-label="Close" onClick={closeModal} style={iconBtn}><Icon name="close" size={13} /></button>
         </div>
@@ -636,7 +646,7 @@ export default function Modals() {
               onPickSaved={(row) => set({ typeFace: row.type_face || row.face || 'Caveat', typedName: row.signature_text || stateRef.current.typedName, sigTab: 'saved' })}
             />
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid #eef1f6', paddingTop: '13px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid hsl(var(--color-border-hairline))', paddingTop: '13px' }}>
               <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, lineHeight: 1.5, maxWidth: '420px' }}>
                 By selecting Adopt and sign, I agree this signature and initials are the electronic representation of my signature for all purposes.
               </span>
@@ -676,7 +686,7 @@ export default function Modals() {
                 {CONTACT_GROUPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid hsl(var(--color-border-hairline))', paddingTop: '12px' }}>
               <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, maxWidth: '280px', lineHeight: 1.5 }}>
                 Contacts created here are returned by GET /v1/contacts and can be injected into an embed session.
               </span>
@@ -711,7 +721,7 @@ export default function Modals() {
             <label style={lblStyle}>Description
               <textarea rows={5} value={s.newTicket.body} onChange={(e) => { const v = e.target.value; set(st => ({ newTicket: Object.assign({}, st.newTicket, { body: v }) })); }} placeholder="What happened, what you expected, and any error text…" style={textareaStyle} />
             </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid hsl(var(--color-border-hairline))', paddingTop: '12px' }}>
               <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, lineHeight: 1.5, maxWidth: '300px' }}>{ntSlaNote}</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
                 <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
@@ -723,7 +733,7 @@ export default function Modals() {
 
         {isCardModal ? (
           <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '13px' }}>
-            <div style={{ display: 'flex', gap: '4px', background: '#f5f6f8', padding: '4px', borderRadius: '10px' }}>
+            <div style={{ display: 'flex', gap: '4px', background: 'hsl(var(--color-bg-canvas))', padding: '4px', borderRadius: '10px' }}>
               {payTabs.map(t => (
                 <button key={t.id} type="button" onClick={t.onClick} aria-pressed={t.selected} style={t.style}>{t.label}</button>
               ))}
@@ -744,12 +754,12 @@ export default function Modals() {
                 <label style={lblStyle}>Purchase order number
                   <input type="text" value={s.poNumber} onChange={(e) => set({ poNumber: e.target.value })} placeholder="PO-2026-0142" style={monoInput} />
                 </label>
-                <div style={{ fontSize: '.71875rem', color: '#64748b', lineHeight: 1.55 }}>
+                <div style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))', lineHeight: 1.55 }}>
                   Invoice-based billing is available on Enterprise. Net 30 terms, remittance by wire or ACH credit.
                 </div>
               </div>
             ) : null}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderTop: '1px solid hsl(var(--color-border-hairline))', paddingTop: '12px' }}>
               <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
                 {s.payTab === 'card'
                   ? 'Card details are entered in Stripe\u2019s frame \u00b7 they never reach SignerPro'
@@ -777,7 +787,7 @@ export default function Modals() {
               error={stripeError}
               livemode={stripeSession ? stripeSession.livemode : undefined}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid hsl(var(--color-border-hairline))', paddingTop: '12px' }}>
               <button type="button" onClick={closeModal} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
             </div>
           </div>
@@ -790,7 +800,7 @@ export default function Modals() {
                 {planChoices.map(p => (
                   <button key={p.name} type="button" onClick={p.onClick} aria-pressed={p.selected} style={p.style}>
                     <span style={{ fontSize: '.8125rem', fontWeight: 700 }}>{p.name}</span>
-                    <span style={{ fontSize: '.71875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{p.price}</span>
+                    <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>{p.price}</span>
                   </button>
                 ))}
               </div>
@@ -808,7 +818,7 @@ export default function Modals() {
                     value={String(s.addSeats)}
                     onChange={(e) => set({ addSeats: clampSeats(e.target.value) })}
                     aria-label="Additional seats"
-                    style={{ width: '100%', accentColor: '#4f46e5' }}
+                    style={{ width: '100%', accentColor: 'hsl(var(--color-accent-solid))' }}
                   />
                   <input
                     id="seat-count"
@@ -819,7 +829,7 @@ export default function Modals() {
                   />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.78125rem' }}>
-                  <span style={{ color: '#64748b' }}>{s.addSeats === 1 ? '1 seat added' : String(s.addSeats) + ' seats added'}</span>
+                  <span style={{ color: 'hsl(var(--color-fg-muted))' }}>{s.addSeats === 1 ? '1 seat added' : String(s.addSeats) + ' seats added'}</span>
                   <span style={{ fontFamily: 'var(--font-sans)', fontWeight: 600 }}>{formatCents(seatCostCents)}</span>
                 </div>
               </div>
@@ -828,26 +838,26 @@ export default function Modals() {
               <div
                 key={issue.code}
                 role="alert"
-                style={{ display: 'flex', flexDirection: 'column', gap: '3px', border: '1px solid #fecaca', borderRadius: '12px', padding: '12px', background: '#fef2f2' }}
+                style={{ display: 'flex', flexDirection: 'column', gap: '3px', border: '1px solid hsl(var(--color-border-danger))', borderRadius: '12px', padding: '12px', background: 'hsl(var(--color-bg-danger-subtle))' }}
               >
-                <span style={{ fontSize: '.78125rem', fontWeight: 700, color: '#991b1b' }}>{issue.message}</span>
+                <span style={{ fontSize: '.78125rem', fontWeight: 700, color: 'hsl(var(--color-fg-danger))' }}>{issue.message}</span>
                 {issue.remedy ? (
-                  <span style={{ fontSize: '.71875rem', color: '#b91c1c' }}>{issue.remedy}</span>
+                  <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-danger))' }}>{issue.remedy}</span>
                 ) : null}
               </div>
             ))}
             {planWarnings.map(issue => (
               <div
                 key={issue.code}
-                style={{ display: 'flex', flexDirection: 'column', gap: '3px', border: '1px solid #fde68a', borderRadius: '12px', padding: '12px', background: '#fffbeb' }}
+                style={{ display: 'flex', flexDirection: 'column', gap: '3px', border: '1px solid hsl(var(--color-border-warning))', borderRadius: '12px', padding: '12px', background: 'hsl(var(--color-bg-warning-subtle))' }}
               >
-                <span style={{ fontSize: '.78125rem', color: '#92400e' }}>{issue.message}</span>
+                <span style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-warning))' }}>{issue.message}</span>
               </div>
             ))}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', border: '1px solid #eef1f6', borderRadius: '12px', padding: '12px', background: '#fbfcfd' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '12px', padding: '12px', background: 'hsl(var(--color-bg-subtle))' }}>
               {checkoutLines.map(l => (
                 <div key={l.k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.78125rem' }}>
-                  <span style={{ color: '#64748b' }}>{l.k}</span><span style={l.style}>{l.v}</span>
+                  <span style={{ color: 'hsl(var(--color-fg-muted))' }}>{l.k}</span><span style={l.style}>{l.v}</span>
                 </div>
               ))}
             </div>
@@ -872,7 +882,7 @@ export default function Modals() {
 
         {isTextModal ? (
           <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '13px' }}>
-            <div style={{ fontSize: '.78125rem', color: '#475569', lineHeight: 1.65, maxHeight: '240px', overflow: 'auto' }}>{modalBody}</div>
+            <div style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.65, maxHeight: '240px', overflow: 'auto' }}>{modalBody}</div>
             {s.modal === 'decline' ? (
               <textarea
                 rows={3}

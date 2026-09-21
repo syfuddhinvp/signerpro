@@ -9,14 +9,14 @@ import { SF_FONT } from '@/lib/sf/fallback';
  * fallback.
  */
 const card: CSSProperties = {
-  maxWidth: '420px', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px',
+  maxWidth: '420px', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px',
   padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'center',
 };
-const titleStyle: CSSProperties = { fontSize: '.84375rem', fontWeight: 600, color: '#0f172a' };
-const bodyStyle: CSSProperties = { fontSize: '.75rem', lineHeight: 1.6, color: '#64748b' };
+const titleStyle: CSSProperties = { fontSize: '.84375rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' };
+const bodyStyle: CSSProperties = { fontSize: '.75rem', lineHeight: 1.6, color: 'hsl(var(--color-fg-muted))' };
 const linkStyle: CSSProperties = {
-  height: '32px', padding: '0 13px', borderRadius: '9px', border: '1px solid #4f46e5',
-  background: '#4f46e5', color: '#fff', fontSize: '.78125rem', fontWeight: 600,
+  height: '32px', padding: '0 13px', borderRadius: '9px', border: '1px solid hsl(var(--color-accent-solid))',
+  background: 'hsl(var(--color-accent-solid))', color: 'hsl(var(--color-fg-on-solid))', fontSize: '.78125rem', fontWeight: 600,
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none',
 };
 

@@ -47,12 +47,12 @@ export default function Sandbox() {
      the warning describes, not in one the backend might not honour. */
   const inSandbox: boolean = st.sbSandbox === true;
 
-  const primaryBtn = btn(A, '#fff', A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 };
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', cursor:'pointer', color:'hsl(var(--color-fg-subtle))', fontSize:'.8125rem', lineHeight:1 };
   const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:'var(--font-sans)', fontSize:'.71875rem' });
-  const codeArea: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'10px', padding:'10px 11px', fontSize:'.71875rem', lineHeight:1.7,
-    fontFamily:'var(--font-sans)', resize:'vertical', outline:'none', width:'100%', color:'#0f172a', background:'#fbfcfd' };
+  const codeArea: CSSProperties = { border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'10px', padding:'10px 11px', fontSize:'.71875rem', lineHeight:1.7,
+    fontFamily:'var(--font-sans)', resize:'vertical', outline:'none', width:'100%', color:'hsl(var(--color-fg-default))', background:'hsl(var(--color-bg-subtle))' };
 
   /* The request the Send button will actually issue — the snippets are generated
      from exactly these values, so what a developer copies is what just ran. */
@@ -94,7 +94,7 @@ export default function Sandbox() {
     const on = st.sbLang === id;
     return { id, label, selected: on ? 'true' : 'false', onClick: () => set({ sbLang: id } as any),
       style: { height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500,
-        background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
+        background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
   });
   const sbPathOptions = SB_PATH_OPTIONS.map(p => ({ id: p, label: p }));
   const sbParams = st.sbParams.map((p: any, i: number) => ({
@@ -107,7 +107,7 @@ export default function Sandbox() {
     key: i, label: h.method + ' ' + h.path, meta: h.status + ' · ' + h.ms + 'ms',
     onClick: () => set({ sbMethod: h.method, sbResponse: { status: h.status, ms: h.ms, body: h.body } } as any),
     pill: pill(h.status < 300 ? TONE_GOOD : TONE_BAD),
-    style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'9px 10px', borderRadius:'10px', border:'1px solid #eef1f6', background:'#fbfcfd', cursor:'pointer', textAlign:'left' } as CSSProperties
+    style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'9px 10px', borderRadius:'10px', border:'1px solid hsl(var(--color-border-hairline))', background:'hsl(var(--color-bg-subtle))', cursor:'pointer', textAlign:'left' } as CSSProperties
   }));
 
   const sbBodyVisible = st.sbMethod !== 'GET';
@@ -187,7 +187,7 @@ export default function Sandbox() {
     return { id, label, selected: on ? 'true' : 'false',
       onClick: () => set({ sbSandbox: id === 'test', sbResponse: null } as any),
       style: { height:'26px', padding:'0 12px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem',
-        fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
+        fontWeight: on ? 600 : 500, background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
         boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
   });
 
@@ -209,20 +209,20 @@ export default function Sandbox() {
 
   return (
     <section data-screen-label="API console" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.15fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
-      <div style={{ gridColumn:'1 / -1', background: inSandbox ? '#ecfdf5' : '#fef2f2', border:'1px solid ' + (inSandbox ? '#a7f3d0' : '#fecaca'), borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'14px', flexWrap:'wrap' }}>
+      <div style={{ gridColumn:'1 / -1', background: inSandbox ? 'hsl(var(--color-bg-success-subtle))' : 'hsl(var(--color-bg-danger-subtle))', border:'1px solid ' + (inSandbox ? 'hsl(var(--color-border-success))' : 'hsl(var(--color-border-danger))'), borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'14px', flexWrap:'wrap' }}>
         <div style={{ display:'flex', flexDirection:'column', gap:'4px', flex:'1 1 380px', minWidth:0 }}>
           {inSandbox ? (
             <>
-              <span style={{ fontSize:'.8125rem', fontWeight:700, color:'#047857' }}>Sandbox — a separate organization</span>
-              <span style={{ fontSize:'.75rem', color:'#065f46', lineHeight:1.6 }}>
+              <span style={{ fontSize:'.8125rem', fontWeight:700, color:'hsl(var(--color-fg-success))' }}>Sandbox — a separate organization</span>
+              <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-success))', lineHeight:1.6 }}>
                 Requests resolve to your sandbox tenant. Nothing here can read or change live records, and outbound
                 email, SMS and payment collection are suppressed. Seed it with sample data, or clear it, at any time.
               </span>
             </>
           ) : (
             <>
-              <span style={{ fontSize:'.8125rem', fontWeight:700, color:'#b91c1c' }}>Live workspace</span>
-              <span style={{ fontSize:'.75rem', color:'#991b1b', lineHeight:1.6 }}>
+              <span style={{ fontSize:'.8125rem', fontWeight:700, color:'hsl(var(--color-fg-danger))' }}>Live workspace</span>
+              <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-danger))', lineHeight:1.6 }}>
                 Requests are sent with your own session against your organization&rsquo;s real data. A POST, PATCH or
                 DELETE here creates, changes or deletes real documents, contacts and templates — permanently.
                 Switch to Test to send them to your sandbox instead.
@@ -231,7 +231,7 @@ export default function Sandbox() {
           )}
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
-          <div role="group" aria-label="Environment" style={{ display:'flex', gap:'4px', background: inSandbox ? '#d1fae5' : '#fee2e2', padding:'4px', borderRadius:'10px' }}>
+          <div role="group" aria-label="Environment" style={{ display:'flex', gap:'4px', background: inSandbox ? 'hsl(var(--color-bg-success-subtle))' : 'hsl(var(--color-bg-danger-subtle))', padding:'4px', borderRadius:'10px' }}>
             {modeTabs.map(m => (
               <button key={m.id} type="button" onClick={m.onClick} aria-pressed={m.selected as any} style={m.style}>{m.label}</button>
             ))}
@@ -245,19 +245,19 @@ export default function Sandbox() {
         </div>
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'13px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'13px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
             <div style={railHead}>Request</div>
           </div>
 
           <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
-            <select value={st.sbMethod} onChange={(e) => set({ sbMethod: e.target.value, sbResponse: null } as any)} aria-label="Method" style={{ height:'34px', width:'104px', flex:'0 0 104px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', background:'#fff', color:'#0f172a', outline:'none' }}>
+            <select value={st.sbMethod} onChange={(e) => set({ sbMethod: e.target.value, sbResponse: null } as any)} aria-label="Method" style={{ height:'34px', width:'104px', flex:'0 0 104px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', background:'hsl(var(--color-bg-surface))', color:'hsl(var(--color-fg-default))', outline:'none' }}>
               <option value="GET">GET</option>
               <option value="POST">POST</option>
               <option value="PATCH">PATCH</option>
               <option value="DELETE">DELETE</option>
             </select>
-            <select value={sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', fontFamily:'var(--font-sans)', background:'#fff', color:'#0f172a', outline:'none' }}>
+            <select value={sbPath} onChange={(e) => set({ sbPath: e.target.value, sbResponse: null } as any)} aria-label="Endpoint" style={{ height:'34px', flex:'1 1 200px', minWidth:'180px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 9px', fontSize:'.78125rem', fontFamily:'var(--font-sans)', background:'hsl(var(--color-bg-surface))', color:'hsl(var(--color-fg-default))', outline:'none' }}>
               {sbPathOptions.map(o => (<option key={o.id} value={o.id}>{o.label}</option>))}
             </select>
             <button type="button" onClick={sbSend} style={primaryBtn}><Icon name="play" size={13} />{sbSendLabel}</button>
@@ -284,11 +284,11 @@ export default function Sandbox() {
           ) : null}
         </div>
 
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
             <div style={railHead}>Code snippet</div>
             <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-              <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px' }}>
+              <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'10px' }}>
                 {sbLangTabs.map(l => (
                   <button key={l.id} type="button" onClick={l.onClick} aria-pressed={l.selected as any} style={l.style}>{l.label}</button>
                 ))}
@@ -301,35 +301,35 @@ export default function Sandbox() {
       </div>
 
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
             <div style={railHead}>Response</div>
             {hasSbResponse ? (
               <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
                 <span style={sbStatusPill}>{sbStatus}</span>
-                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{sbLatency}</span>
+                <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{sbLatency}</span>
               </div>
             ) : null}
           </div>
           {hasSbResponse ? (
             <div style={{ display:'flex', flexDirection:'column', gap:'11px' }}>
               <pre style={jsonBoxStyle}>{sbResponseBody}</pre>
-              <div style={{ display:'flex', flexDirection:'column', gap:'5px', borderTop:'1px solid #f2f4f8', paddingTop:'10px' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'5px', borderTop:'1px solid hsl(var(--color-border-faint))', paddingTop:'10px' }}>
                 <span style={railHead}>Headers</span>
                 {sbHeaders.map(h => (
                   <div key={h.k} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.6875rem', fontFamily:'var(--font-sans)' }}>
-                    <span style={{ color:'#64748b' }}>{h.k}</span><span style={{ color:'#0f172a', wordBreak:'break-all' }}>{h.v}</span>
+                    <span style={{ color:'hsl(var(--color-fg-muted))' }}>{h.k}</span><span style={{ color:'hsl(var(--color-fg-default))', wordBreak:'break-all' }}>{h.v}</span>
                   </div>
                 ))}
               </div>
             </div>
           ) : null}
           {sbEmpty ? (
-            <div style={{ border:'1px dashed #8492a6', borderRadius:'12px', padding:'22px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 }}>{sbEmptyNote}</div>
+            <div style={{ border:'1px dashed hsl(var(--color-border-strong))', borderRadius:'12px', padding:'22px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 }}>{sbEmptyNote}</div>
           ) : null}
         </div>
 
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
             <div style={railHead}>Recent calls</div>
             <button type="button" onClick={() => set({ sbResponse: null, sbHistory: [] } as any)} style={linkBtn(A)}><Icon name="trash" size={11} />Clear</button>
@@ -337,10 +337,10 @@ export default function Sandbox() {
           {sbHistory.map((h: any) => (
             <button key={h.key} type="button" onClick={h.onClick} style={h.style}>
               <span style={h.pill}>{h.label}</span>
-              <span style={{ marginLeft:'auto', fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{h.meta}</span>
+              <span style={{ marginLeft:'auto', fontSize:'.65625rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{h.meta}</span>
             </button>
           ))}
-          <span style={{ fontSize:'.71875rem', color:'#b91c1c', lineHeight:1.5 }}>These calls run against your live workspace with your own session. There is no test tenant, nothing is sandboxed, and writes are permanent.</span>
+          <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-danger))', lineHeight:1.5 }}>These calls run against your live workspace with your own session. There is no test tenant, nothing is sandboxed, and writes are permanent.</span>
         </div>
       </div>
     </section>

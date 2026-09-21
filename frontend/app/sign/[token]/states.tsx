@@ -26,9 +26,9 @@ const chip = (bg: string, fg: string, bd: string): CSSProperties => ({
 });
 
 const TONE: Record<string, CSSProperties> = {
-  good: chip('#ecfdf5', '#047857', '#a7f3d0'),
-  warn: chip('#fff7ed', '#c2410c', '#fed7aa'),
-  bad: chip('#fef2f2', '#b91c1c', '#fecaca'),
+  good: chip('#ecfdf5', '#047857', 'hsl(var(--color-border-success))'),
+  warn: chip('#fff7ed', '#c2410c', 'hsl(var(--color-border-warning))'),
+  bad: chip('#fef2f2', '#b91c1c', 'hsl(var(--color-border-danger))'),
   info: chip('#eef2ff', '#4338ca', '#c7d2fe'),
 };
 
@@ -50,7 +50,7 @@ function Mark({ brand }: { brand?: SignerBranding | null }) {
     );
   }
   const style: CSSProperties = brand?.primary_color
-    ? { ...fallbackMark, background: brand.primary_color, color: brand.primary_text_color ?? '#fff' }
+    ? { ...fallbackMark, background: brand.primary_color, color: brand.primary_text_color ?? 'hsl(var(--color-fg-on-solid))' }
     : fallbackMark;
   return <div style={style}>{name ? brandInitials(name) : 'SF'}</div>;
 }

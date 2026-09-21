@@ -56,26 +56,26 @@ const overlay: CSSProperties = {
   display: 'grid', placeItems: 'center', padding: '24px',
 };
 const card = (width: string): CSSProperties => ({
-  width, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff',
-  border: '1px solid #e3e7ee', borderRadius: '16px', boxShadow: '0 30px 70px -30px rgba(15,23,42,.5)',
+  width, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: 'hsl(var(--color-bg-surface))',
+  border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', boxShadow: '0 30px 70px -30px rgba(15,23,42,.5)',
 });
 const cardHead: CSSProperties = {
   display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px',
-  padding: '16px 18px', borderBottom: '1px solid #eef1f6',
+  padding: '16px 18px', borderBottom: '1px solid hsl(var(--color-border-hairline))',
 };
 const cardBody: CSSProperties = { padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px' };
 const textareaStyle: CSSProperties = {
-  border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem',
-  resize: 'vertical', outline: 'none', width: '100%', color: '#0f172a',
+  border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem',
+  resize: 'vertical', outline: 'none', width: '100%', color: 'hsl(var(--color-fg-default))',
 };
 const iconBtn: CSSProperties = {
-  width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
-  background: '#fff', color: '#64748b', cursor: 'pointer', fontSize: '.75rem',
+  width: '28px', height: '28px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-subtle))',
+  background: 'hsl(var(--color-bg-surface))', color: 'hsl(var(--color-fg-muted))', cursor: 'pointer', fontSize: '.75rem',
 };
 const tab = (on: boolean): CSSProperties => ({
   height: '30px', padding: '0 13px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-  fontSize: '.78125rem', fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent',
-  color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
+  fontSize: '.78125rem', fontWeight: on ? 600 : 500, background: on ? 'hsl(var(--color-bg-surface))' : 'transparent',
+  color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
 });
 
 export default function SignSurface(props: SignSurfaceProps) {
@@ -258,9 +258,9 @@ export default function SignSurface(props: SignSurfaceProps) {
     apply(() => reassignSigning(token, reassign));
   };
 
-  const primaryBtn = btn('#4f46e5', '#fff', '#4f46e5');
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const dangerBtn = btn('#b91c1c', '#fff', '#b91c1c');
+  const primaryBtn = btn('hsl(var(--color-accent-solid))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-accent-solid))');
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const dangerBtn = btn('hsl(var(--color-bg-danger-solid))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-fg-danger))');
 
   return (
     <>
@@ -305,12 +305,12 @@ export default function SignSurface(props: SignSurfaceProps) {
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Adopt your signature</span>
-                <span style={{ fontSize: '.75rem', color: '#64748b' }}>Draw or type — it is bound to this envelope with a SHA-256 hash</span>
+                <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))' }}>Draw or type — it is bound to this envelope with a SHA-256 hash</span>
               </div>
               <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
             <div style={cardBody}>
-              <div role="tablist" aria-label="Signature method" style={{ display: 'flex', gap: '4px', background: '#f5f6f8', padding: '4px', borderRadius: '11px' }}>
+              <div role="tablist" aria-label="Signature method" style={{ display: 'flex', gap: '4px', background: 'hsl(var(--color-bg-canvas))', padding: '4px', borderRadius: '11px' }}>
                 <button type="button" role="tab" aria-selected={sigTab === 'draw'} onClick={() => setSigTab('draw')} style={tab(sigTab === 'draw')}>Draw</button>
                 <button type="button" role="tab" aria-selected={sigTab === 'type'} onClick={() => setSigTab('type')} style={tab(sigTab === 'type')}>Type</button>
               </div>
@@ -325,7 +325,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
                     onPointerLeave={onPointerUp}
-                    style={{ width: '100%', height: '200px', touchAction: 'none', background: '#fbfcfd', border: '1px dashed #8492a6', borderRadius: '12px', cursor: 'crosshair' }}
+                    style={{ width: '100%', height: '200px', touchAction: 'none', background: 'hsl(var(--color-bg-subtle))', border: '1px dashed hsl(var(--color-border-strong))', borderRadius: '12px', cursor: 'crosshair' }}
                   />
                   <button type="button" onClick={clearCanvas} style={ghostBtn}><Icon name="trash" size={13} />Clear</button>
                 </div>
@@ -345,7 +345,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                         type="button"
                         onClick={() => setTypeFace(face)}
                         aria-pressed={typeFace === face}
-                        style={{ flex: '1 1 160px', minHeight: '58px', border: '1px solid ' + (typeFace === face ? '#4f46e5' : '#e3e7ee'), borderRadius: '12px', background: '#fff', cursor: 'pointer', fontFamily: typeFaceStack(face), fontSize: '1.5rem', color: '#0f172a' }}
+                        style={{ flex: '1 1 160px', minHeight: '58px', border: '1px solid ' + (typeFace === face ? 'hsl(var(--color-accent-solid))' : 'hsl(var(--color-border-subtle))'), borderRadius: '12px', background: 'hsl(var(--color-bg-surface))', cursor: 'pointer', fontFamily: typeFaceStack(face), fontSize: '1.5rem', color: 'hsl(var(--color-fg-default))' }}
                       >
                         {typedName || signerName}
                       </button>
@@ -353,7 +353,7 @@ export default function SignSurface(props: SignSurfaceProps) {
                   </div>
                 </div>
               )}
-              <div style={{ fontSize: '.71875rem', color: '#64748b', lineHeight: 1.6 }}>
+              <div style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))', lineHeight: 1.6 }}>
                 By selecting Adopt and sign, I agree this signature and initials are the electronic representation of my signature for all purposes.
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -371,12 +371,12 @@ export default function SignSurface(props: SignSurfaceProps) {
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Electronic Record and Signature Disclosure</span>
-                <span style={{ fontSize: '.75rem', color: '#64748b' }}>{'Consent v' + consentVersion + ' · accepted for ' + documentTitle}</span>
+                <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))' }}>{'Consent v' + consentVersion + ' · accepted for ' + documentTitle}</span>
               </div>
               <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
             <div style={cardBody}>
-              <div style={{ fontSize: '.78125rem', color: '#475569', lineHeight: 1.65, maxHeight: '240px', overflow: 'auto' }}>
+              <div style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.65, maxHeight: '240px', overflow: 'auto' }}>
                 You have already consented to transact business electronically for this envelope. Your electronic signature has the same legal effect as a handwritten one, and every action you take is recorded in a tamper-evident audit trail with its own SHA-256 checksum. You may request a paper copy from the sender at any time, and you may withdraw consent for future envelopes by contacting them directly.
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -393,12 +393,12 @@ export default function SignSurface(props: SignSurfaceProps) {
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Decline to sign</span>
-                <span style={{ fontSize: '.75rem', color: '#64748b' }}>The sender is notified and the envelope closes for everyone</span>
+                <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))' }}>The sender is notified and the envelope closes for everyone</span>
               </div>
               <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
             <div style={cardBody}>
-              <div style={{ fontSize: '.78125rem', color: '#475569', lineHeight: 1.65 }}>
+              <div style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.65 }}>
                 Declining stops this envelope permanently. Your reason is recorded in the audit trail and shared with the sender.
               </div>
               <textarea
@@ -424,7 +424,7 @@ export default function SignSurface(props: SignSurfaceProps) {
             <div style={cardHead}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>Reassign this envelope</span>
-                <span style={{ fontSize: '.75rem', color: '#64748b' }}>Your link is retired and a new invitation is emailed</span>
+                <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))' }}>Your link is retired and a new invitation is emailed</span>
               </div>
               <button type="button" aria-label="Close" onClick={() => setModal(null)} style={iconBtn}><Icon name="close" size={13} /></button>
             </div>
@@ -461,7 +461,7 @@ export default function SignSurface(props: SignSurfaceProps) {
       ) : null}
 
       {s.toast ? (
-        <div role="status" style={{ position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 90, background: '#0f172a', color: '#f1f5f9', padding: '11px 16px', borderRadius: '11px', fontSize: '.78125rem', boxShadow: '0 18px 40px -18px rgba(15,23,42,.6)', animation: 'sfIn .16s ease' }}>{s.toast}</div>
+        <div role="status" style={{ position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 90, background: 'hsl(var(--color-bg-panel-dark))', color: 'hsl(var(--color-fg-on-solid))', padding: '11px 16px', borderRadius: '11px', fontSize: '.78125rem', boxShadow: '0 18px 40px -18px rgba(15,23,42,.6)', animation: 'sfIn .16s ease' }}>{s.toast}</div>
       ) : null}
     </>
   );

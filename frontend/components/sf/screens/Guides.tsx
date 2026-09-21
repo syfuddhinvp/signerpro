@@ -9,7 +9,7 @@ import Icon from '@/components/sf/Icon';
 export default function Guides() {
   const { s, set, accent } = useSF();
   const A = accent();
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   const docPage = (DOCS_PAGES as any)[s.docsPage] || (DOCS_PAGES as any).quickstart;
   const docNav = DOC_NAV.map(([id, label, group], i) => {
@@ -17,7 +17,7 @@ export default function Guides() {
     return { id, label, group, newGroup: i === 0 || DOC_NAV[i - 1][2] !== group,
       onClick: () => set({ screen: 'guides', docsPage: id } as any),
       style: { display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'8px 10px', borderRadius:'9px', border:'none', cursor:'pointer', textAlign:'left',
-        background: on ? '#eef2ff' : 'transparent', color: on ? '#0f172a' : '#475569', fontSize:'.78125rem', fontWeight: on ? 600 : 500 } as CSSProperties,
+        background: on ? 'hsl(var(--color-accent-subtle))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-subtle))', fontSize:'.78125rem', fontWeight: on ? 600 : 500 } as CSSProperties,
       dot: { width:'7px', height:'7px', borderRadius:'99px', background: on ? A : BORDER_STRONG, flex:'0 0 7px' } as CSSProperties };
   });
   const docIndex = DOC_NAV.findIndex(([id]) => id === s.docsPage);
@@ -32,7 +32,7 @@ export default function Guides() {
 
   return (
     <section data-screen-label="Guides" style={{ display:'flex', height:'100%', minHeight:0, alignItems:'stretch', overflow:'hidden' }}>
-      <div data-sf-scroll="1" style={{ width:'216px', flex:'0 0 216px', borderRight:'1px solid #e3e7ee', background:'#fff', padding:'16px 13px', display:'flex', flexDirection:'column', gap:'10px', overflow:'auto' }}>
+      <div data-sf-scroll="1" style={{ width:'216px', flex:'0 0 216px', borderRight:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', padding:'16px 13px', display:'flex', flexDirection:'column', gap:'10px', overflow:'auto' }}>
         <span style={railHead}>Guides &amp; docs</span>
         <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
           {docNav.map(n => (
@@ -46,7 +46,7 @@ export default function Guides() {
             </div>
           ))}
         </div>
-        <div style={{ marginTop:'auto', borderTop:'1px solid #eef1f6', paddingTop:'12px', display:'flex', flexDirection:'column', gap:'7px' }}>
+        <div style={{ marginTop:'auto', borderTop:'1px solid hsl(var(--color-border-hairline))', paddingTop:'12px', display:'flex', flexDirection:'column', gap:'7px' }}>
           <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, lineHeight:1.5 }}>Prefer to be shown? The tour walks the same steps in your own workspace.</span>
           <button type="button" onClick={() => set({ tourStep: 0 } as any)} style={ghostBtn}><Icon name="play" size={13} />Start product tour</button>
           <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, lineHeight:1.5 }}>Developers: run any call without leaving the app — against your live workspace, not a test tenant.</span>
@@ -58,20 +58,20 @@ export default function Guides() {
         <div style={{ maxWidth:'720px', display:'flex', flexDirection:'column', gap:'20px' }}>
           <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
             <h2 style={{ margin:0, fontSize:'1.4375rem', fontWeight:700, letterSpacing:'-.6px' }}>{docPage.title}</h2>
-            <p style={{ margin:0, fontSize:'.84375rem', color:'#475569', lineHeight:1.7, textWrap:'pretty' } as CSSProperties}>{docPage.lede}</p>
+            <p style={{ margin:0, fontSize:'.84375rem', color:'hsl(var(--color-fg-subtle))', lineHeight:1.7, textWrap:'pretty' } as CSSProperties}>{docPage.lede}</p>
           </div>
           {docSections.map((sec: any, i: number) => (
-            <div key={i} style={{ display:'flex', flexDirection:'column', gap:'10px', borderTop:'1px solid #e3e7ee', paddingTop:'18px' }}>
+            <div key={i} style={{ display:'flex', flexDirection:'column', gap:'10px', borderTop:'1px solid hsl(var(--color-border-subtle))', paddingTop:'18px' }}>
               <h3 style={{ margin:0, fontSize:'.90625rem', fontWeight:600, letterSpacing:'-.2px' }}>{sec.h}</h3>
               {sec.hasP ? (
-                <p style={{ margin:0, fontSize:'.78125rem', color:'#475569', lineHeight:1.75, textWrap:'pretty' } as CSSProperties}>{sec.p}</p>
+                <p style={{ margin:0, fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))', lineHeight:1.75, textWrap:'pretty' } as CSSProperties}>{sec.p}</p>
               ) : null}
               {sec.hasItems ? (
                 <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
                   {sec.items.map((it: any, j: number) => (
                     <div key={j} style={{ display:'flex', gap:'9px', alignItems:'flex-start' }}>
                       <span style={{ width:'6px', height:'6px', borderRadius:'99px', background:BORDER_STRONG, marginTop:'7px', flex:'0 0 6px' }}></span>
-                      <span style={{ fontSize:'.78125rem', color:'#334155', lineHeight:1.65 }}>{it.text}</span>
+                      <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))', lineHeight:1.65 }}>{it.text}</span>
                     </div>
                   ))}
                 </div>
@@ -79,7 +79,7 @@ export default function Guides() {
               {sec.hasCode ? (<pre style={jsonBoxStyle}>{sec.code}</pre>) : null}
             </div>
           ))}
-          <nav aria-label="Guide pages" style={{ display:'flex', gap:'10px', borderTop:'1px solid #e3e7ee', paddingTop:'18px' }}>
+          <nav aria-label="Guide pages" style={{ display:'flex', gap:'10px', borderTop:'1px solid hsl(var(--color-border-subtle))', paddingTop:'18px' }}>
             {docPrev ? (
               <button type="button" onClick={() => set({ docsPage: docPrev[0] } as any)} style={ghostBtn}><Icon name="arrowLeft" size={13} />{docPrev[1]}</button>
             ) : null}

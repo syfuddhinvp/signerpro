@@ -121,23 +121,23 @@ export default function NotificationBell({ initial = EMPTY_FEED }: { initial?: N
 
   const buttonStyle: CSSProperties = {
     position:'relative', width:'32px', height:'32px', borderRadius:'9px',
-    border:'1px solid #e3e7ee', background: open ? '#eef2ff' : '#fff', cursor:'pointer',
-    color:'#475569', display:'grid', placeItems:'center', padding:0, lineHeight:1,
+    border:'1px solid hsl(var(--color-border-subtle))', background: open ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))', cursor:'pointer',
+    color:'hsl(var(--color-fg-subtle))', display:'grid', placeItems:'center', padding:0, lineHeight:1,
   };
   const badgeStyle: CSSProperties = {
     position:'absolute', top:'-4px', right:'-4px', minWidth:'16px', height:'16px', padding:'0 4px',
-    borderRadius:'99px', background:'#f43f5e', color:'#fff', fontSize:'.625rem', fontWeight:700,
-    display:'grid', placeItems:'center', border:'1.5px solid #fff',
+    borderRadius:'99px', background:'hsl(var(--color-bg-danger-solid))', color:'hsl(var(--color-fg-on-solid))', fontSize:'.625rem', fontWeight:700,
+    display:'grid', placeItems:'center', border:'1.5px solid hsl(var(--color-bg-surface))',
     fontFamily:'var(--font-sans)',
   };
   const trayStyle: CSSProperties = {
-    position:'absolute', right:0, top:'40px', width:'320px', background:'#fff',
-    border:'1px solid #e3e7ee', borderRadius:'13px', boxShadow:'0 22px 50px -20px rgba(15,23,42,.4)',
+    position:'absolute', right:0, top:'40px', width:'320px', background:'hsl(var(--color-bg-surface))',
+    border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'13px', boxShadow:'0 22px 50px -20px rgba(15,23,42,.4)',
     zIndex:40, animation:'sfIn .12s ease', overflow:'hidden',
   };
   const headStyle: CSSProperties = {
     display:'flex', alignItems:'center', gap:'8px', padding:'10px 12px',
-    borderBottom:'1px solid #eef1f6',
+    borderBottom:'1px solid hsl(var(--color-border-hairline))',
   };
   const listStyle: CSSProperties = { maxHeight:'340px', overflowY:'auto', padding:'6px' };
   const rowStyle = (read: boolean): CSSProperties => ({
@@ -168,7 +168,7 @@ export default function NotificationBell({ initial = EMPTY_FEED }: { initial?: N
               <button
                 type="button"
                 onClick={markAllRead}
-                style={{ marginLeft:'auto', border:'none', background:'transparent', cursor:'pointer', fontSize:'.71875rem', color:'#4f46e5', padding:0,
+                style={{ marginLeft:'auto', border:'none', background:'transparent', cursor:'pointer', fontSize:'.71875rem', color:'hsl(var(--color-accent-solid))', padding:0,
                   display:'inline-flex', alignItems:'center', gap:'4px' }}
               ><Icon name="check" size={11} />Mark all read</button>
             ) : null}
@@ -190,9 +190,9 @@ export default function NotificationBell({ initial = EMPTY_FEED }: { initial?: N
                 <button key={row.id} type="button" onClick={() => openRow(row)} style={rowStyle(!!row.read_at)}>
                   <span style={{ width:'7px', height:'7px', borderRadius:'99px', marginTop:'5px', flex:'0 0 7px', background: TONE_COLOR[row.tone] ?? TONE_COLOR.info }}></span>
                   <span style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
-                    <span style={{ fontSize:'.78125rem', fontWeight: row.read_at ? 500 : 600, color:'#0f172a' }}>{row.title}</span>
+                    <span style={{ fontSize:'.78125rem', fontWeight: row.read_at ? 500 : 600, color:'hsl(var(--color-fg-default))' }}>{row.title}</span>
                     {row.detail ? (
-                      <span style={{ fontSize:'.71875rem', color:'#475569', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.detail}</span>
+                      <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-subtle))', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.detail}</span>
                     ) : null}
                     <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{formatRelative(row.created_at)}</span>
                   </span>
@@ -203,11 +203,11 @@ export default function NotificationBell({ initial = EMPTY_FEED }: { initial?: N
 
           {/* The tray is a peek at the newest rows; the page is the record,
               with the filters and bulk actions a long list needs. */}
-          <div style={{ borderTop:'1px solid #eef1f6', padding:'8px 12px' }}>
+          <div style={{ borderTop:'1px solid hsl(var(--color-border-hairline))', padding:'8px 12px' }}>
             <Link
               href={pathFor('notifications')}
               onClick={() => setOpen(false)}
-              style={{ fontSize:'.71875rem', color:'#4f46e5', textDecoration:'none' }}
+              style={{ fontSize:'.71875rem', color:'hsl(var(--color-accent-solid))', textDecoration:'none' }}
             >{feed.total > feed.items.length ? `See all ${feed.total} notifications` : 'See all notifications'}</Link>
           </div>
         </div>

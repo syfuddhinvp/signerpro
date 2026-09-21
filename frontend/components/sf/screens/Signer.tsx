@@ -313,14 +313,14 @@ export default function Signer({
     go('audit'); flash('Envelope completed · certificate sealed');
   };
 
-  const primaryBtn = btn(A, '#fff', A);
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
   /* Finish is the sender's colour like every other primary action here: a
      stock green beside a branded "Start signing" read as two products. */
-  const successBtn = btn(A, '#fff', A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const successBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
-  const signPctStyle: CSSProperties = { fontSize: '.71875rem', fontWeight: 700, fontFamily: 'var(--font-sans)', color: pct === 100 ? '#047857' : A };
-  const signBarStyle: CSSProperties = { width: pct + '%', height: '100%', borderRadius: '99px', background: pct === 100 ? '#10b981' : A, transition: 'width .25s ease' };
+  const signPctStyle: CSSProperties = { fontSize: '.71875rem', fontWeight: 700, fontFamily: 'var(--font-sans)', color: pct === 100 ? 'hsl(var(--color-fg-success))' : A };
+  const signBarStyle: CSSProperties = { width: pct + '%', height: '100%', borderRadius: '99px', background: pct === 100 ? 'hsl(var(--color-highlight-solid))' : A, transition: 'width .25s ease' };
   const nextFieldLabel = done === 0 ? 'Start signing' : (pct === 100 ? 'All fields complete' : 'Next required field');
   /**
    * One field, laid out on a page drawn at `scale` CSS pixels per PDF point.
@@ -352,14 +352,14 @@ export default function Signer({
       page: f.page || 1,
       box: {
         position: 'absolute', left: (f.x * scale) + 'px', top: (f.y * scale) + 'px', width: (f.w * scale) + 'px', height: (f.h * scale) + 'px',
-        border: '1.5px solid ' + (problem ? '#dc2626' : (filled ? '#10b981' : r.color)), borderRadius: '6px',
-        background: problem ? '#fef2f2' : (filled ? '#ecfdf5' : r.color + '14'),
+        border: '1.5px solid ' + (problem ? 'hsl(var(--color-fg-danger))' : (filled ? 'hsl(var(--color-highlight-solid))' : r.color)), borderRadius: '6px',
+        background: problem ? 'hsl(var(--color-bg-danger-subtle))' : (filled ? 'hsl(var(--color-bg-success-subtle))' : r.color + '14'),
         boxShadow: active ? '0 0 0 4px ' + r.color + '40' : (isNext ? '0 0 0 3px ' + r.color + '2e' : 'none'),
         display: 'flex', alignItems: 'center', padding: '2px'
       } as CSSProperties,
       tag: {
         position: 'absolute', top: '-9px', left: '-1px', height: '17px', padding: '0 6px', borderRadius: '5px',
-        background: problem ? '#dc2626' : (filled ? '#10b981' : r.color), color: '#fff', fontSize: '.59375rem', fontWeight: 700, display: 'flex', alignItems: 'center', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap'
+        background: problem ? 'hsl(var(--color-bg-danger-solid))' : (filled ? 'hsl(var(--color-highlight-solid))' : r.color), color: 'hsl(var(--color-fg-on-solid))', fontSize: '.59375rem', fontWeight: 700, display: 'flex', alignItems: 'center', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap'
       } as CSSProperties,
       /* The tag's state mark is an SVG, not a glyph: '✓'/'➜' rendered at
          whatever weight the fallback font supplied, and at 9.5px that read as
@@ -376,7 +376,7 @@ export default function Signer({
       nextStyle: {
         position: 'absolute', left: '50%', top: '100%', transform: 'translateX(-50%)', marginTop: '7px',
         display: 'inline-flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap', pointerEvents: 'none',
-        height: '22px', padding: '0 9px', borderRadius: '99px', background: A, color: '#fff',
+        height: '22px', padding: '0 9px', borderRadius: '99px', background: A, color: 'hsl(var(--color-fg-on-solid))',
         fontSize: '.65625rem', fontWeight: 700, fontFamily: 'var(--font-sans)',
         boxShadow: '0 8px 18px -10px rgba(15,23,42,.7)',
       } as CSSProperties,
@@ -468,13 +468,13 @@ export default function Signer({
       imgStyle: { maxHeight: Math.max(8, f.h * scale - 12) + 'px', maxWidth: '100%', objectFit: 'contain' } as CSSProperties,
       hasTyped: !!typed,
       typedText: typed ? typed.slice(2).join(':') : '',
-      typedStyle: { fontFamily: typeFaceStack(typed ? typed[1] : null), fontSize: Math.max(10, Math.min(30, f.h * scale - 18)) + 'px', color: '#0f172a', lineHeight: 1 } as CSSProperties,
+      typedStyle: { fontFamily: typeFaceStack(typed ? typed[1] : null), fontSize: Math.max(10, Math.min(30, f.h * scale - 18)) + 'px', color: 'hsl(var(--color-fg-default))', lineHeight: 1 } as CSSProperties,
       sigBtn: { width: '100%', height: '100%', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center' } as CSSProperties,
       onSign: () => openSig(f.id),
       /** Real dropdown choices when the field was authored with them. */
       options,
       checked: v === true,
-      checkStyle: { width: '100%', height: '100%', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1rem', color: '#047857', fontWeight: 700 } as CSSProperties,
+      checkStyle: { width: '100%', height: '100%', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1rem', color: 'hsl(var(--color-fg-success))', fontWeight: 700 } as CSSProperties,
       onCheck: () => {
         if (readOnly) { flash('This envelope is complete · no further edits'); return; }
         const next = s.signValues[f.id] === true ? false : true;
@@ -499,7 +499,7 @@ export default function Signer({
       } as CSSProperties,
       radioRow: {
         display: 'flex', alignItems: 'center', gap: '5px', fontSize: '.71875rem',
-        color: '#0f172a', cursor: readOnly ? 'default' : 'pointer', whiteSpace: 'nowrap',
+        color: 'hsl(var(--color-fg-default))', cursor: readOnly ? 'default' : 'pointer', whiteSpace: 'nowrap',
       } as CSSProperties,
       /** A picker commits on change — there is no "half-typed" date. */
       onPickerChange: (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -539,7 +539,7 @@ export default function Signer({
         if (f.type === 'stamp') setStampUrl(f.id, URL.createObjectURL(file));
         onUploadAttachment(f, file);
       },
-      inputStyle: { width: '100%', height: '100%', border: 'none', background: 'transparent', outline: 'none', fontSize: '.78125rem', padding: '0 7px', color: '#0f172a' } as CSSProperties
+      inputStyle: { width: '100%', height: '100%', border: 'none', background: 'transparent', outline: 'none', fontSize: '.78125rem', padding: '0 7px', color: 'hsl(var(--color-fg-default))' } as CSSProperties
     };
   };
 
@@ -765,7 +765,7 @@ export default function Signer({
             style={{
               position: 'absolute', left: (p.x * scale) + 'px', top: (p.y * scale) + 'px',
               width: (p.width * scale) + 'px', height: (p.height * scale) + 'px',
-              border: '1px dashed #8492a6', borderRadius: '6px', background: 'rgba(148,163,184,.12)',
+              border: '1px dashed hsl(var(--color-border-strong))', borderRadius: '6px', background: 'rgba(148,163,184,.12)',
               pointerEvents: 'none',
             }}
           ></div>
@@ -781,7 +781,7 @@ export default function Signer({
                 </span>
               ) : null}
               {f.hasTyped ? (<span style={f.typedStyle}>{f.typedText}</span>) : null}
-              {f.empty ? (<span style={{ fontSize: '.75rem', fontWeight: 600, color: '#475569' }}>{f.cta}</span>) : null}
+              {f.empty ? (<span style={{ fontSize: '.75rem', fontWeight: 600, color: 'hsl(var(--color-fg-subtle))' }}>{f.cta}</span>) : null}
             </button>
           ) : null}
           {f.isCheck ? (
@@ -800,7 +800,7 @@ export default function Signer({
                 {f.options.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             ) : (
-              <span role="note" style={{ fontSize: '.6875rem', color: '#b45309', padding: '0 7px', lineHeight: 1.3 }}>
+              <span role="note" style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-warning))', padding: '0 7px', lineHeight: 1.3 }}>
                 No choices were set for this field — ask the sender to add them.
               </span>
             )
@@ -838,7 +838,7 @@ export default function Signer({
                 ))}
               </div>
             ) : (
-              <span role="note" style={{ fontSize: '.6875rem', color: '#b45309', padding: '0 7px', lineHeight: 1.3 }}>
+              <span role="note" style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-warning))', padding: '0 7px', lineHeight: 1.3 }}>
                 No choices were set for this field — ask the sender to add them.
               </span>
             )
@@ -848,7 +848,7 @@ export default function Signer({
               {f.stampSrc ? (
                 <img src={f.stampSrc} alt={'Stamp for ' + f.aria} style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
               ) : (
-                <span style={{ fontSize:'.6875rem', fontWeight:600, color:'#475569', textAlign:'center', lineHeight:1.3 }}>
+                <span style={{ fontSize:'.6875rem', fontWeight:600, color:'hsl(var(--color-fg-subtle))', textAlign:'center', lineHeight:1.3 }}>
                   Upload stamp image
                 </span>
               )}
@@ -864,7 +864,7 @@ export default function Signer({
             </label>
           ) : null}
           {f.isAttachment ? (
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', height: '100%', padding: '0 7px', cursor: readOnly ? 'default' : 'pointer', fontSize: '.71875rem', color: '#334155', overflow: 'hidden' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', height: '100%', padding: '0 7px', cursor: readOnly ? 'default' : 'pointer', fontSize: '.71875rem', color: 'hsl(var(--color-fg-subtle))', overflow: 'hidden' }}>
               <span style={{ fontWeight: 600, whiteSpace: 'nowrap', display:'inline-flex', alignItems:'center', gap:'4px' }}>{f.value ? <><Icon name="check" size={11} />{f.value}</> : 'Choose file'}</span>
               <input
                 type="file"
@@ -892,7 +892,7 @@ export default function Signer({
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', width: '100%', height: '100%', padding: '2px 6px', textAlign: 'center', overflow: 'hidden' }}>
                 {paid ? (
                   <>
-                    <span style={{ fontSize: '.71875rem', fontWeight: 700, color: '#047857', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ fontSize: '.71875rem', fontWeight: 700, color: 'hsl(var(--color-fg-success))', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                       <Icon name="check" size={12} />{'Paid ' + formatPayCents(status!.amount_cents, status!.currency)}
                     </span>
                     {status?.receipt_url ? (
@@ -902,7 +902,7 @@ export default function Signer({
                     ) : null}
                   </>
                 ) : processing ? (
-                  <span role="status" style={{ fontSize: '.6875rem', fontWeight: 600, color: '#b45309' }}>Confirming your payment…</span>
+                  <span role="status" style={{ fontSize: '.6875rem', fontWeight: 600, color: 'hsl(var(--color-fg-warning))' }}>Confirming your payment…</span>
                 ) : (
                   <button
                     type="button"
@@ -915,10 +915,10 @@ export default function Signer({
                       alignItems: 'center', justifyContent: 'center',
                     }}
                   >
-                    <span style={{ fontSize: '.75rem', fontWeight: 700, color: !onPay ? TEXT_MUTED : '#0f172a' }}>{'Pay ' + amountLabel}</span>
-                    {memo ? <span style={{ fontSize: '.625rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{memo}</span> : null}
+                    <span style={{ fontSize: '.75rem', fontWeight: 700, color: !onPay ? TEXT_MUTED : 'hsl(var(--color-fg-default))' }}>{'Pay ' + amountLabel}</span>
+                    {memo ? <span style={{ fontSize: '.625rem', color: 'hsl(var(--color-fg-muted))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{memo}</span> : null}
                     {!onPay ? <span style={{ fontSize: '.5625rem', color: TEXT_MUTED }}>Preview only · no charge</span> : null}
-                    {failed ? <span style={{ fontSize: '.5625rem', color: '#b91c1c' }}>Card declined · try again</span> : null}
+                    {failed ? <span style={{ fontSize: '.5625rem', color: 'hsl(var(--color-fg-danger))' }}>Card declined · try again</span> : null}
                   </button>
                 )}
               </div>
@@ -952,8 +952,8 @@ export default function Signer({
               role="alert"
               style={{
                 position: 'absolute', left: 0, top: '100%', marginTop: '3px', maxWidth: '260px',
-                fontSize: '.65625rem', lineHeight: 1.4, color: '#b91c1c', background: '#fff',
-                border: '1px solid #fecaca', borderRadius: '6px', padding: '3px 6px', whiteSpace: 'normal',
+                fontSize: '.65625rem', lineHeight: 1.4, color: 'hsl(var(--color-fg-danger))', background: 'hsl(var(--color-bg-surface))',
+                border: '1px solid hsl(var(--color-border-danger))', borderRadius: '6px', padding: '3px 6px', whiteSpace: 'normal',
               }}
             >
               {f.problem}
@@ -975,7 +975,7 @@ export default function Signer({
   ) : (
     /* No PDF URL: the sender's in-app preview of an envelope whose file is not
        reachable from this route. Say so rather than paint invented prose. */
-    <div role="status" style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '14px', padding: '22px 20px', fontSize: '.78125rem', color: '#475569', lineHeight: 1.6 }}>
+    <div role="status" style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '14px', padding: '22px 20px', fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.6 }}>
       The document itself is not available on this screen. Field positions below are the ones that will be applied to the uploaded PDF.
     </div>
   );
@@ -983,11 +983,11 @@ export default function Signer({
   if (viewOnly) {
     /* A `copy` (CC) recipient. They receive the document, not a ceremony. */
     return (
-      <section data-screen-label="Signing" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: '#eceff4' }}>
-        <div style={{ flex: '0 0 auto', background: '#fff', borderBottom: '1px solid #e3e7ee', padding: '11px 16px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+      <section data-screen-label="Signing" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: 'hsl(var(--color-bg-muted))' }}>
+        <div style={{ flex: '0 0 auto', background: 'hsl(var(--color-bg-surface))', borderBottom: '1px solid hsl(var(--color-border-subtle))', padding: '11px 16px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minWidth: '200px' }}>
             <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>You have been copied on this envelope</span>
-            <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Nothing is required of you — there is no signature to apply and no field to complete.</span>
+            <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))' }}>Nothing is required of you — there is no signature to apply and no field to complete.</span>
           </div>
           <button type="button" onClick={() => { if (onDownload) onDownload(); else go('audit'); }} style={ghostBtn}><Icon name="download" size={13} />Download a copy</button>
         </div>
@@ -999,21 +999,21 @@ export default function Signer({
   }
 
   return (
-    <section data-screen-label="Signing" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: '#eceff4' }}>
-      <div style={{ flex: '0 0 auto', background: '#fff', borderBottom: '1px solid #e3e7ee', padding: '11px 14px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 5 }}>
+    <section data-screen-label="Signing" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: 'hsl(var(--color-bg-muted))' }}>
+      <div style={{ flex: '0 0 auto', background: 'hsl(var(--color-bg-surface))', borderBottom: '1px solid hsl(var(--color-border-subtle))', padding: '11px 14px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 5 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', minWidth: '180px', flex: '1 1 200px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>{done + ' of ' + req.length + ' required fields completed'}</span>
             <span style={signPctStyle}>{String(pct)}%</span>
           </div>
-          <div style={{ height: '6px', borderRadius: '99px', background: '#eef1f6', overflow: 'hidden', maxWidth: '420px' }}>
+          <div style={{ height: '6px', borderRadius: '99px', background: 'hsl(var(--color-bg-muted))', overflow: 'hidden', maxWidth: '420px' }}>
             <div style={signBarStyle}></div>
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
           <button type="button" onClick={nextField} style={primaryBtn}><Icon name="arrowDown" size={13} />{nextFieldLabel}</button>
           {/* Named and located, so the button is a destination rather than a leap. */}
-          <span aria-live="polite" style={{ fontSize: '.6875rem', color: '#64748b', maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <span aria-live="polite" style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {guideLabel ? 'Next: ' + guideLabel : 'Nothing left to complete'}
           </span>
         </div>
@@ -1040,7 +1040,7 @@ export default function Signer({
             position: 'fixed', zIndex: 40, left: '14px', bottom: '16px',
             display: 'flex', alignItems: 'center', gap: '7px', maxWidth: 'calc(100vw - 28px)',
             height: '34px', padding: '0 14px', borderRadius: '99px', cursor: 'pointer',
-            border: '1px solid ' + A, background: A, color: '#fff',
+            border: '1px solid ' + A, background: A, color: 'hsl(var(--color-fg-on-solid))',
             fontSize: '.75rem', fontWeight: 600, fontFamily: 'var(--font-sans)',
             boxShadow: '0 10px 24px -10px rgba(15,23,42,.55)',
           }}
@@ -1054,8 +1054,8 @@ export default function Signer({
       <div data-sf-scroll="1" ref={attachScroll} style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '18px 14px' }}>
         <div style={{ maxWidth: '816px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           {paper}
-          <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '14px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
-            <div style={{ fontSize: '.75rem', color: '#64748b', maxWidth: '520px', lineHeight: 1.5 }}>Adopting a signature is your electronic representation. Once applied, it is bound to this envelope with a SHA-256 hash and a tamper-evident audit trail.</div>
+          <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '14px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))', maxWidth: '520px', lineHeight: 1.5 }}>Adopting a signature is your electronic representation. Once applied, it is bound to this envelope with a SHA-256 hash and a tamper-evident audit trail.</div>
             <button type="button" onClick={() => { if (onDownload) onDownload(); else go('audit'); }} style={ghostBtn}><Icon name="download" size={13} />Download unsigned PDF</button>
           </div>
         </div>

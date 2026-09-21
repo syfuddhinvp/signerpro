@@ -20,8 +20,8 @@ import {
   ListFilter, LogIn, LogOut, Mail, Maximize, Minus, Move, MoveHorizontal,
   PanelLeft, Pause, PenLine, Pencil, Play, Plus, Printer, RefreshCw, Redo2,
   Rocket, Save, Search, Send, Settings, Share2, Shield, SlidersHorizontal,
-  Monitor, Smartphone,
-  Stamp, Star, Trash2, Undo2, Upload, UserPlus, Users, Wallet, X, Zap,
+  Monitor, Moon, Smartphone,
+  Stamp, Star, Sun, Trash2, Undo2, Upload, UserPlus, Users, Wallet, X, Zap,
 } from 'lucide-react';
 
 export const ICONS = {
@@ -45,6 +45,8 @@ export const ICONS = {
   refresh: RefreshCw, link: Link2, share: Share2, mail: Mail, key: Key,
   shield: Shield, wallet: Wallet, card: CreditCard, clock: Clock,
   calendar: Calendar, inbox: Inbox, file: File, image: Image, eye: Eye,
+  /* theme picker (components/sf/parts/AppearancePanel.tsx) */
+  sun: Sun, moon: Moon,
   sign: PenLine, addUser: UserPlus, play: Play, pause: Pause, cancel: Ban,
   publish: Rocket, test: Zap, desktop: Monitor, mobile: Smartphone,
 } satisfies Record<string, LucideIcon>;

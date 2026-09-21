@@ -62,7 +62,7 @@ type Draft = {
 /** What the invitation email falls back to with nothing filled in. Kept in
  *  step with `SignFlowEmailService.invitation_body`. */
 const STOCK_HEADLINE = 'You were invited to review and sign a document';
-const DEFAULT_BUTTON = '#4f46e5';
+const DEFAULT_BUTTON = 'hsl(var(--color-accent-solid))';
 const DEFAULT_BUTTON_TEXT = '#ffffff';
 
 function toDraft(theme: BrandingThemeResponse): Draft {
@@ -109,31 +109,31 @@ const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
 const layout: CSSProperties = { padding: '22px', display: 'grid', gridTemplateColumns: 'minmax(0,1.35fr) minmax(0,1fr)', gap: '16px', alignItems: 'start' };
 const stack: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '16px' };
-const themeRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 11px', border: '1px solid #eef1f6', borderRadius: '12px', background: '#fbfcfd', textAlign: 'left', width: '100%', cursor: 'pointer' };
-const themeRowActive: CSSProperties = { borderColor: '#c7d2fe', background: '#eef2ff' };
-const textareaStyle: CSSProperties = { border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem', resize: 'vertical', outline: 'none', width: '100%', color: '#0f172a', fontFamily: 'inherit' };
-const swatchStyle: CSSProperties = { width: '32px', height: '32px', padding: 0, border: '1px solid #e3e7ee', borderRadius: '9px', background: '#fff', cursor: 'pointer', flex: '0 0 32px' };
+const themeRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 11px', border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '12px', background: 'hsl(var(--color-bg-subtle))', textAlign: 'left', width: '100%', cursor: 'pointer' };
+const themeRowActive: CSSProperties = { borderColor: 'hsl(var(--color-accent-border))', background: 'hsl(var(--color-accent-subtle))' };
+const textareaStyle: CSSProperties = { border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem', resize: 'vertical', outline: 'none', width: '100%', color: 'hsl(var(--color-fg-default))', fontFamily: 'inherit' };
+const swatchStyle: CSSProperties = { width: '32px', height: '32px', padding: 0, border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', background: 'hsl(var(--color-bg-surface))', cursor: 'pointer', flex: '0 0 32px' };
 const noteStyle: CSSProperties = { fontSize: '.75rem', color: TEXT_SUBTLE, lineHeight: 1.6 };
 const emptyBox: CSSProperties = { border: '1px dashed ' + BORDER_STRONG, borderRadius: '12px', padding: '18px', textAlign: 'center', fontSize: '.75rem', color: TEXT_MUTED, lineHeight: 1.6 };
-const previewShell: CSSProperties = { border: '1px solid #e3e7ee', borderRadius: '12px', overflow: 'hidden', background: '#f5f6f8' };
-const previewBody: CSSProperties = { background: '#fff', padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: '11px' };
+const previewShell: CSSProperties = { border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '12px', overflow: 'hidden', background: 'hsl(var(--color-bg-canvas))' };
+const previewBody: CSSProperties = { background: 'hsl(var(--color-bg-surface))', padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: '11px' };
 const logoWellStyle: CSSProperties = {
   width: '108px', height: '56px', flex: '0 0 108px', display: 'grid', placeItems: 'center',
-  border: '1px solid #e3e7ee', borderRadius: '10px', background: '#fbfcfd', padding: '6px',
+  border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '10px', background: 'hsl(var(--color-bg-subtle))', padding: '6px',
   overflow: 'hidden',
 };
 const errorBannerStyle: CSSProperties = {
-  padding: '11px 13px', borderRadius: '11px', border: '1px solid #fecaca',
-  background: '#fef2f2', color: '#7f1d1d', fontSize: '.78125rem', lineHeight: 1.5,
+  padding: '11px 13px', borderRadius: '11px', border: '1px solid hsl(var(--color-border-danger))',
+  background: 'hsl(var(--color-bg-danger-subtle))', color: 'hsl(var(--color-fg-danger))', fontSize: '.78125rem', lineHeight: 1.5,
 };
 const upgradeStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
-  padding: '11px 13px', borderRadius: '11px', border: '1px solid #fcd34d',
-  background: '#fffbeb', color: '#92400e', fontSize: '.78125rem', lineHeight: 1.5,
+  padding: '11px 13px', borderRadius: '11px', border: '1px solid hsl(var(--color-border-warning))',
+  background: 'hsl(var(--color-bg-warning-subtle))', color: 'hsl(var(--color-fg-warning))', fontSize: '.78125rem', lineHeight: 1.5,
 };
 const upgradeLinkStyle: CSSProperties = {
-  height: '30px', padding: '0 12px', borderRadius: '9px', border: '1px solid #fcd34d',
-  background: '#fff', color: '#92400e', fontSize: '.75rem', fontWeight: 600,
+  height: '30px', padding: '0 12px', borderRadius: '9px', border: '1px solid hsl(var(--color-border-warning))',
+  background: 'hsl(var(--color-bg-surface))', color: 'hsl(var(--color-fg-warning))', fontSize: '.75rem', fontWeight: 600,
   display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap', flex: '0 0 auto',
   textDecoration: 'none',
 };
@@ -315,7 +315,7 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
             <div style={railHead}>Themes</div>
             {canEdit ? (
-              <button type="button" onClick={createTheme} disabled={busy} style={btn('#fff', '#334155', '#e3e7ee')}>
+              <button type="button" onClick={createTheme} disabled={busy} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}>
                 <Icon name="plus" size={13} /> New theme
               </button>
             ) : null}
@@ -346,11 +346,11 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                   aria-hidden
                   style={{
                     width: '26px', height: '26px', borderRadius: '8px', flex: '0 0 26px',
-                    background: theme.primary_color || DEFAULT_BUTTON, border: '1px solid #e3e7ee',
+                    background: theme.primary_color || DEFAULT_BUTTON, border: '1px solid hsl(var(--color-border-subtle))',
                   }}
                 />
                 <span style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, flex: 1 }}>
-                  <span style={{ fontSize: '.8125rem', fontWeight: 600, color: '#0f172a' }}>{theme.name}</span>
+                  <span style={{ fontSize: '.8125rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>{theme.name}</span>
                   <span style={{ fontSize: '.71875rem', color: TEXT_MUTED }}>
                     {theme.document_count
                       ? theme.document_count + (theme.document_count === 1 ? ' envelope' : ' envelopes')
@@ -405,12 +405,12 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                       type="button"
                       onClick={() => fileRef.current?.click()}
                       disabled={busy}
-                      style={btn('#fff', '#334155', '#e3e7ee')}
+                      style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}
                     >
                       <Icon name="upload" size={13} /> {selected.logo_url ? 'Replace logo' : 'Upload logo'}
                     </button>
                     {selected.logo_uploaded ? (
-                      <button type="button" onClick={removeLogo} disabled={busy} style={btn('#fff', '#b91c1c', '#fecaca')}>
+                      <button type="button" onClick={removeLogo} disabled={busy} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}>
                         <Icon name="trash" size={13} />Remove
                       </button>
                     ) : null}
@@ -530,7 +530,7 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                   type="button"
                   onClick={makeDefault}
                   disabled={busy || selected.is_default}
-                  style={{ ...btn('#fff', '#334155', '#e3e7ee'), opacity: selected.is_default ? 0.55 : 1 }}
+                  style={{ ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), opacity: selected.is_default ? 0.55 : 1 }}
                 >
                   <Icon name="star" size={13} />Make default
                 </button>
@@ -538,7 +538,7 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                   type="button"
                   onClick={remove}
                   disabled={busy}
-                  style={btn('#fff', '#b91c1c', '#fecaca')}
+                  style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}
                 >
                   <Icon name="trash" size={13} />Delete theme
                 </button>
@@ -576,15 +576,15 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: '.84375rem', fontWeight: 700, color: '#0f172a', lineHeight: 1.45 }}>
+                  <div style={{ fontSize: '.84375rem', fontWeight: 700, color: 'hsl(var(--color-fg-default))', lineHeight: 1.45 }}>
                     {draft.headline.trim() || STOCK_HEADLINE}
                   </div>
                   {draft.message.trim() ? (
-                    <div style={{ fontSize: '.78125rem', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                    <div style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
                       {draft.message.trim()}
                     </div>
                   ) : null}
-                  <div style={{ fontSize: '.78125rem', color: '#334155', lineHeight: 1.6 }}>
+                  <div style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.6 }}>
                     You have been invited to sign “Mutual NDA”.
                   </div>
                   <span
@@ -604,7 +604,7 @@ export default function Brand({ themes, loadError, entitled = true, planName }: 
                     </div>
                   ) : null}
                   {draft.footer_signature.trim() ? (
-                    <div style={{ fontSize: '.71875rem', color: TEXT_MUTED, lineHeight: 1.6, whiteSpace: 'pre-wrap', borderTop: '1px solid #f2f4f8', paddingTop: '9px' }}>
+                    <div style={{ fontSize: '.71875rem', color: TEXT_MUTED, lineHeight: 1.6, whiteSpace: 'pre-wrap', borderTop: '1px solid hsl(var(--color-border-faint))', paddingTop: '9px' }}>
                       {draft.footer_signature.trim()}
                     </div>
                   ) : null}

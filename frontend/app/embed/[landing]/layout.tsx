@@ -20,7 +20,7 @@ export const metadata: Metadata = { title: 'Embedded session · SignerPro', robo
 
 export default function EmbedLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#f5f6f8', fontFamily: SF_FONT, color: '#0f172a' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'hsl(var(--color-bg-canvas))', fontFamily: SF_FONT, color: 'hsl(var(--color-fg-default))' }}>
       <main style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{children}</main>
     </div>
   );

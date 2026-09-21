@@ -63,7 +63,9 @@ export type ValidationIssue = {
  * - `not_found` — also what the backend returns for cross-tenant ids.
  * - `validation` — 422 with FastAPI's `detail[]` parsed into `issues`.
  * - `conflict` — 409 (e.g. demoting the last org admin).
- * - `client` — any other 4xx.
+ * - `client` — any other 4xx. Billing answers a decline with a structured
+ *   `detail` object (`decline_code`, `invoice_status`, `next_attempt_at`, …),
+ *   which is kept on `detail` so screens can report it without a re-read.
  * - `server` — 5xx.
  * - `network` — fetch threw: backend down, DNS, abort.
  */
@@ -73,7 +75,7 @@ export type ApiError =
   | { kind: 'not_found'; status: 404; message: string }
   | { kind: 'validation'; status: 422; message: string; issues: ValidationIssue[] }
   | { kind: 'conflict'; status: 409; message: string }
-  | { kind: 'client'; status: number; message: string }
+  | { kind: 'client'; status: number; message: string; detail?: Record<string, unknown> }
   | { kind: 'server'; status: number; message: string }
   | { kind: 'network'; status: 0; message: string };
 
@@ -127,6 +129,14 @@ export function detailMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+/** FastAPI's `{detail: {...}}` object envelope, when the detail is structured. */
+export function detailObject(payload: unknown): Record<string, unknown> | undefined {
+  if (!payload || typeof payload !== 'object' || !('detail' in payload)) return undefined;
+  const detail = (payload as { detail: unknown }).detail;
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined;
+  return detail as Record<string, unknown>;
+}
+
 function validationIssues(payload: unknown): ValidationIssue[] {
   if (!payload || typeof payload !== 'object' || !('detail' in payload)) return [];
   const detail = (payload as { detail: unknown }).detail;
@@ -155,7 +165,13 @@ export function errorForStatus(status: number, payload: unknown): ApiError {
     };
   }
   if (status >= 500) return { kind: 'server', status, message: detailMessage(payload, 'The SignerPro API returned an error.') };
-  return { kind: 'client', status, message: detailMessage(payload, 'The request could not be completed.') };
+  const detail = detailObject(payload);
+  return {
+    kind: 'client',
+    status,
+    message: detailMessage(payload, 'The request could not be completed.'),
+    ...(detail ? { detail } : {}),
+  };
 }
 
 /**

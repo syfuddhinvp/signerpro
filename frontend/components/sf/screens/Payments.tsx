@@ -33,17 +33,17 @@ export type PaymentsProps = {
   loadError?: string | null;
 };
 
-const noteStyle: CSSProperties = { fontSize: '.78125rem', color: '#475569', lineHeight: 1.6 };
-const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '9px 0', borderTop: '1px solid #f2f4f8' };
-const labelStyle: CSSProperties = { fontSize: '.78125rem', color: '#334155' };
+const noteStyle: CSSProperties = { fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.6 };
+const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '9px 0', borderTop: '1px solid hsl(var(--color-border-faint))' };
+const labelStyle: CSSProperties = { fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))' };
 const testModeStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', borderRadius: '10px',
-  border: '1px solid #fcd34d', background: '#fffbeb', color: '#92400e', fontSize: '.78125rem', fontWeight: 600,
+  border: '1px solid hsl(var(--color-border-warning))', background: 'hsl(var(--color-bg-warning-subtle))', color: 'hsl(var(--color-fg-warning))', fontSize: '.78125rem', fontWeight: 600,
 };
-const fieldLabelStyle: CSSProperties = { fontSize: '.75rem', color: '#334155', fontWeight: 600 };
+const fieldLabelStyle: CSSProperties = { fontSize: '.75rem', color: 'hsl(var(--color-fg-subtle))', fontWeight: 600 };
 const selectStyle: CSSProperties = {
-  padding: '7px 10px', borderRadius: '8px', border: '1px solid #dbe1ea', fontSize: '.8125rem', color: '#1f2937',
-  background: '#fff',
+  padding: '7px 10px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-default))', fontSize: '.8125rem', color: '#1f2937',
+  background: 'hsl(var(--color-bg-surface))',
 };
 
 /**
@@ -101,9 +101,9 @@ export default function Payments({ account, loadError = null }: PaymentsProps) {
   const [country, setCountry] = useState('');
   const [entityType, setEntityType] = useState('company');
 
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const primaryBtn = btn('#635bff', '#fff', '#635bff');
-  const dangerBtn = btn('#fff', '#b91c1c', '#fecaca');
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const primaryBtn = btn('#635bff', 'hsl(var(--color-fg-on-solid))', '#635bff');
+  const dangerBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))');
 
   const connect = () => {
     if (!account && (!country || !entityType)) return;
@@ -151,7 +151,7 @@ export default function Payments({ account, loadError = null }: PaymentsProps) {
     <section data-screen-label="Payments" style={{ padding: '22px 22px 40px', maxWidth: '760px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {loadError ? <ApiUnavailable what="Your payment account" detail={loadError} /> : null}
       {actionError ? (
-        <div role="alert" style={{ ...cardStyle, borderColor: '#fecaca', background: '#fef2f2', color: '#7f1d1d' }}>
+        <div role="alert" style={{ ...cardStyle, borderColor: 'hsl(var(--color-border-danger))', background: 'hsl(var(--color-bg-danger-subtle))', color: 'hsl(var(--color-fg-danger))' }}>
           {actionError}
         </div>
       ) : null}
@@ -255,9 +255,9 @@ export default function Payments({ account, loadError = null }: PaymentsProps) {
           </div>
 
           {account.disabled_reason ? (
-            <div style={{ ...cardStyle, borderColor: '#fecaca', background: '#fef2f2', padding: '10px 12px', gap: '3px' }}>
+            <div style={{ ...cardStyle, borderColor: 'hsl(var(--color-border-danger))', background: 'hsl(var(--color-bg-danger-subtle))', padding: '10px 12px', gap: '3px' }}>
               <span style={{ ...pill(TONE_BAD), alignSelf: 'flex-start' }}>Restricted</span>
-              <span style={{ fontSize: '.75rem', color: '#7f1d1d' }}>{account.disabled_reason}</span>
+              <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-danger))' }}>{account.disabled_reason}</span>
             </div>
           ) : null}
 

@@ -23,6 +23,14 @@
   --color-bg-muted: 220 16% 96%;
   --color-bg-inverse: 222 47% 11%;         /* #0f172a */
   --color-bg-overlay: 222 47% 11%;
+  /* The app's deliberately dark panels (rails, log table, auth hero, JSON
+     boxes). Unlike `inverse`, this stays dark in the dark theme too, so the
+     `TEXT_ON_DARK` pair in lib/sf/ui.ts keeps its contrast in both. */
+  --color-bg-panel-dark: 222 47% 11%;
+  --color-bg-panel-dark-raised: 222 45% 14%;  /* #111c33 */
+  /* Hairlines between table rows, one step lighter than `border-subtle`. */
+  --color-border-hairline: 216 29% 95%;     /* #eef1f6 */
+  --color-border-faint: 220 30% 96%;        /* #f2f4f8 */
 
   /* ── foreground ─────────────────────────────────────────────────────── */
   --color-fg-default: 222 47% 11%;         /* #0f172a — 16.8:1 on white */
@@ -127,11 +135,10 @@
 }
 
 /**
- * Dark theme. Declared so the token layer is complete and `darkMode: ["class",
- * '[data-theme="dark"]']` resolves, but nothing opts in yet: the app's 1,103
- * inline styles still hard-code light colours, so flipping this on before the
- * Tailwind migration would produce a half-dark page. Set `data-theme="dark"`
- * on <html> only once a surface has been migrated.
+ * Dark theme. `lib/theme/ThemeProvider.tsx` sets `data-theme="dark"` on
+ * <html> from the user's saved appearance (or the OS preference). The inline
+ * style objects across the app reference these tokens through
+ * `hsl(var(--…))` strings, so this block is what turns the whole page.
  */
 :root[data-theme='dark'] {
   color-scheme: dark;
@@ -141,6 +148,9 @@
   --color-bg-subtle: 222 44% 16%;
   --color-bg-muted: 222 40% 20%;
   --color-bg-inverse: 210 40% 96%;
+  --color-bg-overlay: 222 47% 4%;
+  --color-bg-panel-dark: 222 47% 6%;
+  --color-bg-panel-dark-raised: 222 45% 10%;
   --color-fg-default: 210 40% 96%;
   --color-fg-muted: 215 20% 72%;
   --color-fg-subtle: 215 18% 80%;
@@ -152,7 +162,31 @@
   --color-border-subtle: 220 26% 22%;
   --color-border-default: 219 22% 30%;
   --color-border-strong: 215 18% 50%;
+  --color-border-hairline: 221 28% 19%;
+  --color-border-faint: 222 30% 17%;
+  --color-border-danger: 0 50% 34%;
+  --color-border-success: 160 45% 28%;
+  --color-border-warning: 32 60% 32%;
+  --color-border-info: 236 40% 36%;
+  --color-accent-solid: 239 84% 67%;        /* #6366f1 — lifted for dark canvases */
+  --color-accent-solid-hover: 234 89% 74%;
+  --color-accent-solid-active: 243 75% 59%;
   --color-accent-fg: 226 100% 84%;
   --color-accent-subtle: 244 40% 20%;
+  --color-accent-muted: 244 30% 34%;
+  --color-accent-border: 244 30% 34%;
+  --color-highlight-subtle: 162 50% 16%;
+  --color-highlight-fg: 152 76% 70%;
+  --color-highlight-border: 161 45% 28%;
+  --color-bg-danger-subtle: 0 45% 18%;
+  --color-bg-success-subtle: 162 50% 16%;
+  --color-bg-warning-subtle: 32 55% 17%;
+  --color-bg-info-subtle: 236 40% 20%;
+  --color-field-surface: 244 40% 20%;
+  --color-signature-ink: 210 40% 96%;
   --color-focus-ring: 234 89% 74%;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / .4);
+  --shadow-2: 0 2px 6px rgb(0 0 0 / .45);
+  --shadow-3: 0 12px 28px -12px rgb(0 0 0 / .7);
+  --shadow-4: 0 40px 90px -30px rgb(0 0 0 / .9);
 }

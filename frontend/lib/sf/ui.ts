@@ -18,16 +18,20 @@ import type { Tone } from './data';
  * literals: same visual weight, AA-compliant. `test/a11y-tokens.test.ts`
  * asserts the raw literals are gone from screen source so this cannot regress.
  */
-/** Primary body text — #0f172a, 16.8:1 on white. */
-export const TEXT_DEFAULT = '#0f172a';
-/** Secondary/meta text — #5b6675, 5.6:1 on white. Replaces `#94a3b8`. */
-export const TEXT_MUTED = '#5b6675';
-/** Tertiary text that must still be readable — #4a5462, 7.7:1 on white. */
-export const TEXT_SUBTLE = '#4a5462';
-/** Lines and control tracks — #8492a6, 3.4:1 on white (WCAG 1.4.11). */
-export const BORDER_STRONG = '#8492a6';
-/** The focus ring colour `globals.css` paints; exported for canvas drawing. */
-export const FOCUS_RING = '#4f46e5';
+/* These are token references, not literals, so the same constant reads
+ * correctly in the light and the dark theme (app/tokens.css owns the values;
+ * `test/a11y-tokens.test.ts` measures the light values behind them). */
+/** Primary body text — light: #0f172a, 16.8:1 on white. */
+export const TEXT_DEFAULT = 'hsl(var(--color-fg-default))';
+/** Secondary/meta text — light: #5b6675, 5.6:1 on white. Replaces `#94a3b8`. */
+export const TEXT_MUTED = 'hsl(var(--color-fg-muted))';
+/** Tertiary text that must still be readable — light: #4a5462, 7.7:1 on white. */
+export const TEXT_SUBTLE = 'hsl(var(--color-fg-subtle))';
+/** Lines and control tracks — light: #8492a6, 3.4:1 on white (WCAG 1.4.11). */
+export const BORDER_STRONG = 'hsl(var(--color-border-strong))';
+/** The focus ring colour `globals.css` paints in the default palette; a hex
+ *  because it is exported for canvas drawing, where CSS variables do not resolve. */
+export const FOCUS_RING = 'hsl(var(--color-accent-solid))';
 
 /* ── dark-surface text ──────────────────────────────────────────────────
  * The app has a handful of deliberately dark panels (`#0f172a` rails, banners,
@@ -52,13 +56,13 @@ export function pill(s: Tone): CSSProperties {
 }
 
 /* ── shared inline styles from renderVals() ── */
-export const inputStyle: CSSProperties = { height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'.78125rem', background:'#fff', outline:'none', width:'100%', color:'#0f172a' };
-export const lbl: CSSProperties = { display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' };
-export const railHead: CSSProperties = { fontSize:'.6875rem', letterSpacing:'.08em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)', fontWeight:500 };
+export const inputStyle: CSSProperties = { height:'32px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 10px', fontSize:'.78125rem', background:'hsl(var(--color-bg-surface))', outline:'none', width:'100%', color:'hsl(var(--color-fg-default))' };
+export const lbl: CSSProperties = { display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' };
+export const railHead: CSSProperties = { fontSize:'.6875rem', letterSpacing:'.08em', textTransform:'uppercase', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', fontWeight:500 };
 
-export const authInput: CSSProperties = { height:'40px', border:'1px solid #dfe4ec', borderRadius:'10px', padding:'0 12px', fontSize:'.8125rem', background:'#fbfcfd', outline:'none', width:'100%', color:'#0f172a' };
+export const authInput: CSSProperties = { height:'40px', border:'1px solid hsl(var(--color-border-default))', borderRadius:'10px', padding:'0 12px', fontSize:'.8125rem', background:'hsl(var(--color-bg-subtle))', outline:'none', width:'100%', color:'hsl(var(--color-fg-default))' };
 export function authPrimary(A: string): CSSProperties {
-  return { height:'44px', width:'100%', borderRadius:'10px', border:'1px solid ' + A, background: A, color:'#fff', fontSize:'.84375rem', fontWeight:600, cursor:'pointer',
+  return { height:'44px', width:'100%', borderRadius:'10px', border:'1px solid ' + A, background: A, color:'hsl(var(--color-fg-on-solid))', fontSize:'.84375rem', fontWeight:600, cursor:'pointer',
     display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'7px' };
 }
 export function linkBtn(A: string): CSSProperties {
@@ -66,28 +70,28 @@ export function linkBtn(A: string): CSSProperties {
     display:'inline-flex', alignItems:'center', gap:'5px' };
 }
 
-export const jsonBoxStyle: CSSProperties = { margin:0, padding:'12px 13px', borderRadius:'11px', background:'#0f172a', color:'#a5b4fc',
+export const jsonBoxStyle: CSSProperties = { margin:0, padding:'12px 13px', borderRadius:'11px', background:'hsl(var(--color-bg-panel-dark))', color:'#a5b4fc',
   fontFamily:'var(--font-sans)', fontSize:'.6875rem', lineHeight:1.7, whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', maxHeight:'260px' };
 
 /* recurring card / panel / table atoms */
-export const cardStyle: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' };
-export const panelStyle: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' };
+export const cardStyle: CSSProperties = { background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' };
+export const panelStyle: CSSProperties = { background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' };
 export const monoStyle: CSSProperties = { fontFamily:'var(--font-sans)' };
-export const rowDivider: CSSProperties = { borderTop:'1px solid #eef1f6' };
-export const rowDividerLight: CSSProperties = { borderTop:'1px solid #f2f4f8' };
-export const selectStyle: CSSProperties = { height:'30px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 9px', fontSize:'.75rem', background:'#fff', color:'#334155', outline:'none' };
+export const rowDivider: CSSProperties = { borderTop:'1px solid hsl(var(--color-border-hairline))' };
+export const rowDividerLight: CSSProperties = { borderTop:'1px solid hsl(var(--color-border-faint))' };
+export const selectStyle: CSSProperties = { height:'30px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 9px', fontSize:'.75rem', background:'hsl(var(--color-bg-surface))', color:'hsl(var(--color-fg-subtle))', outline:'none' };
 
 /* tab-strip button (the recurring "segmented control" item) */
 export function tabBtn(on: boolean, height = '30px', padding = '0 13px', fontSize = '.78125rem'): CSSProperties {
   return { height, padding, borderRadius:'8px', border:'none', cursor:'pointer', fontSize, fontWeight: on ? 600 : 500,
-    background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
+    background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
 }
 /* toggle switch + knob (feature flags, security, notification prefs) */
 export function switchStyle(on: boolean): CSSProperties {
-  return { width:'38px', height:'21px', borderRadius:'99px', border:'none', cursor:'pointer', background: on ? '#10b981' : BORDER_STRONG, position:'relative', flex:'0 0 38px' };
+  return { width:'38px', height:'21px', borderRadius:'99px', border:'none', cursor:'pointer', background: on ? 'hsl(var(--color-highlight-solid))' : BORDER_STRONG, position:'relative', flex:'0 0 38px' };
 }
 export function knobStyle(on: boolean): CSSProperties {
-  return { position:'absolute', top:'3px', left: on ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
+  return { position:'absolute', top:'3px', left: on ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))', transition:'left .15s' };
 }
 /* small round dot used in timelines / nav / status lists */
 export function dotStyle(color: string, size = '8px'): CSSProperties {
@@ -125,11 +129,11 @@ export function TITLES(fieldCount: number, isPlat: boolean): { [k: string]: [str
 /* ── status → colour maps (re-exported from data for convenience) ── */
 export { STATUS, STATUS_TONE, PLAN_TONE, INV_STATUS_TONE, INV_STATUS_LABEL, LEVEL_TONE, SRC_TONE, TK_STATUS_TONE, TK_STATUS_LABEL, TK_PRIO_TONE, TK_PRIO_LABEL, FLAG_ENV_TONE } from './data';
 
-export const TONE_GOOD: Tone = { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' };
-export const TONE_INFO: Tone = { bg:'#eef2ff', fg:'#4338ca', bd:'#c7d2fe' };
-export const TONE_INDIGO: Tone = { bg:'#eef2ff', fg:'#3730a3', bd:'#c7d2fe' };
-export const TONE_WARN: Tone = { bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' };
-export const TONE_BAD: Tone = { bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' };
-export const TONE_NEUTRAL: Tone = { bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' };
-export const TONE_MUTED: Tone = { bg:'#f5f6f8', fg:'#64748b', bd:'#e3e7ee' };
-export const TONE_AMBER: Tone = { bg:'#fef3c7', fg:'#92400e', bd:'#fde68a' };
+export const TONE_GOOD: Tone = { bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' };
+export const TONE_INFO: Tone = { bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-fg-info))', bd:'hsl(var(--color-accent-border))' };
+export const TONE_INDIGO: Tone = { bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-accent-fg))', bd:'hsl(var(--color-accent-border))' };
+export const TONE_WARN: Tone = { bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' };
+export const TONE_BAD: Tone = { bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' };
+export const TONE_NEUTRAL: Tone = { bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-subtle))', bd:'hsl(var(--color-border-subtle))' };
+export const TONE_MUTED: Tone = { bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-muted))', bd:'hsl(var(--color-border-subtle))' };
+export const TONE_AMBER: Tone = { bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' };

@@ -36,19 +36,19 @@ type VerificationResponse = {
 };
 
 const PAGE: React.CSSProperties = {
-  minHeight: '100vh', background: '#f5f6f8', display: 'grid', placeItems: 'start center',
+  minHeight: '100vh', background: 'hsl(var(--color-bg-canvas))', display: 'grid', placeItems: 'start center',
   padding: '48px 20px', fontFamily: 'var(--font-sans)',
 };
 const CARD: React.CSSProperties = {
-  width: '100%', maxWidth: '560px', background: '#fff', border: '1px solid #e3e7ee',
+  width: '100%', maxWidth: '560px', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))',
   borderRadius: '14px', padding: '28px', boxShadow: '0 1px 2px rgba(15,23,42,.04)',
 };
 const ROW: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', gap: '16px',
-  padding: '11px 0', borderTop: '1px solid #eef1f6', fontSize: '.8125rem',
+  padding: '11px 0', borderTop: '1px solid hsl(var(--color-border-hairline))', fontSize: '.8125rem',
 };
-const LABEL: React.CSSProperties = { color: '#64748b' };
-const VALUE: React.CSSProperties = { color: '#0f172a', fontWeight: 600, textAlign: 'right', wordBreak: 'break-all' };
+const LABEL: React.CSSProperties = { color: 'hsl(var(--color-fg-muted))' };
+const VALUE: React.CSSProperties = { color: 'hsl(var(--color-fg-default))', fontWeight: 600, textAlign: 'right', wordBreak: 'break-all' };
 
 function Banner({ ok, title, body }: { ok: boolean; title: string; body: string }) {
   return (
@@ -57,14 +57,14 @@ function Banner({ ok, title, body }: { ok: boolean; title: string; body: string 
       style={{
         display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '14px 16px',
         borderRadius: '10px', marginBottom: '20px',
-        background: ok ? '#ecfdf5' : '#fef2f2',
-        border: `1px solid ${ok ? '#a7f3d0' : '#fecaca'}`,
+        background: ok ? 'hsl(var(--color-bg-success-subtle))' : 'hsl(var(--color-bg-danger-subtle))',
+        border: `1px solid ${ok ? 'hsl(var(--color-border-success))' : 'hsl(var(--color-border-danger))'}`,
       }}
     >
-      <span aria-hidden style={{ lineHeight: 1.3, color: ok ? '#047857' : '#b91c1c', paddingTop: '2px' }}><Icon name={ok ? 'check' : 'alert'} size={15} /></span>
+      <span aria-hidden style={{ lineHeight: 1.3, color: ok ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-danger))', paddingTop: '2px' }}><Icon name={ok ? 'check' : 'alert'} size={15} /></span>
       <span>
-        <strong style={{ display: 'block', color: ok ? '#065f46' : '#991b1b', fontSize: '.875rem' }}>{title}</strong>
-        <span style={{ color: ok ? '#047857' : '#b91c1c', fontSize: '.8125rem' }}>{body}</span>
+        <strong style={{ display: 'block', color: ok ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-danger))', fontSize: '.875rem' }}>{title}</strong>
+        <span style={{ color: ok ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-danger))', fontSize: '.8125rem' }}>{body}</span>
       </span>
     </div>
   );
@@ -104,8 +104,8 @@ export default async function Page({
   return (
     <main style={PAGE}>
       <div style={CARD}>
-        <h1 style={{ fontSize: '1.0625rem', margin: '0 0 4px', color: '#0f172a' }}>Document verification</h1>
-        <p style={{ fontSize: '.8125rem', color: '#64748b', margin: '0 0 20px' }}>
+        <h1 style={{ fontSize: '1.0625rem', margin: '0 0 4px', color: 'hsl(var(--color-fg-default))' }}>Document verification</h1>
+        <p style={{ fontSize: '.8125rem', color: 'hsl(var(--color-fg-muted))', margin: '0 0 20px' }}>
           Checks a sealed document against its audit trail and the bytes on file. No account required.
         </p>
 

@@ -183,14 +183,14 @@ export default function Tour() {
   if (!tour) return null;
 
   const linkBtn = linkBtnOf(A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const primaryBtn = btn(A, '#fff', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
 
   const tourStepLabel = 'Step ' + (s.tourStep + 1) + ' of ' + steps.length;
   const tourDots = steps.map((_x, i) => ({
     style: {
       width: i === s.tourStep ? '18px' : '6px', height: '6px', borderRadius: '99px',
-      background: i === s.tourStep ? A : (i < s.tourStep ? '#c7d2fe' : '#e3e7ee'), transition: 'width .18s',
+      background: i === s.tourStep ? A : (i < s.tourStep ? 'hsl(var(--color-accent-muted))' : 'hsl(var(--color-border-subtle))'), transition: 'width .18s',
     } as CSSProperties,
   }));
 
@@ -211,7 +211,7 @@ export default function Tour() {
 
   const tourCardStyle: CSSProperties = {
     position: 'fixed', ...placeCard(spot),
-    background: '#fff', borderRadius: '15px', padding: '16px', boxShadow: '0 28px 60px -22px rgba(15,23,42,.55)', zIndex: 121,
+    background: 'hsl(var(--color-bg-surface))', borderRadius: '15px', padding: '16px', boxShadow: '0 28px 60px -22px rgba(15,23,42,.55)', zIndex: 121,
     display: 'flex', flexDirection: 'column', gap: '12px', animation: 'sfIn .16s ease',
   };
   const tourNextLabel = s.tourStep === steps.length - 1 ? 'Finish' : 'Next';
@@ -241,7 +241,7 @@ export default function Tour() {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
           <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.3px' }}>{tour.title}</span>
-          <span style={{ fontSize: '.78125rem', color: '#475569', lineHeight: 1.65, textWrap: 'pretty' } as CSSProperties}>{tour.body}</span>
+          <span style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.65, textWrap: 'pretty' } as CSSProperties}>{tour.body}</span>
           {arrived ? null : (
             /* Said out loud rather than left as a blank pause: the step's copy
                describes a screen that is not on screen yet. */
@@ -250,7 +250,7 @@ export default function Tour() {
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderTop: '1px solid hsl(var(--color-border-hairline))', paddingTop: '12px' }}>
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
             {tourDots.map((d, i) => (<span key={i} style={d.style}></span>))}
           </div>

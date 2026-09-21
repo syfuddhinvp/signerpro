@@ -23,11 +23,11 @@ export default function NewEnvelope({ draftId }: { draftId: string | null }) {
   const A = useSF().accent();
 
   const cardStyle: CSSProperties = {
-    background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px',
+    background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px',
     padding: '30px 26px', display: 'flex', flexDirection: 'column',
     alignItems: 'center', gap: '10px', textAlign: 'center',
   };
-  const linkStyle: CSSProperties = { ...btn('#fff', '#475569', '#e3e7ee'), textDecoration: 'none' };
+  const linkStyle: CSSProperties = { ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), textDecoration: 'none' };
 
   return (
     <section data-screen-label="New envelope" style={{ padding: '22px 22px 40px', display: 'flex', flexDirection: 'column', gap: '16px' }}>

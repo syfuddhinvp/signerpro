@@ -16,7 +16,7 @@ import type { PdfPagesProps } from './PdfPages';
 const PdfPages = dynamic(() => import('./PdfPages'), {
   ssr: false,
   loading: () => (
-    <div role="status" aria-live="polite" style={{ padding: '22px', fontSize: '.78125rem', color: '#64748b', textAlign: 'center' }}>
+    <div role="status" aria-live="polite" style={{ padding: '22px', fontSize: '.78125rem', color: 'hsl(var(--color-fg-muted))', textAlign: 'center' }}>
       Loading the document…
     </div>
   ),

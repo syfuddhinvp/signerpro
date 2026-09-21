@@ -79,8 +79,8 @@ export default function Reports({
   const pathname = usePathname() || '/reports';
   const A = accent();
 
-  const primaryBtn = btn(A, '#fff', A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   /* The dashboard on screen is the URL, owned by the sidebar — so a report
      view can be linked and shared instead of living in client state. */
@@ -140,7 +140,7 @@ export default function Reports({
   }));
 
   const withDividers = (rows: ReportTableRow[]) => rows.map((r, i) => ({
-    ...r, rowStyle: { borderTop: i ? '1px solid #f2f4f8' : 'none' } as CSSProperties,
+    ...r, rowStyle: { borderTop: i ? '1px solid hsl(var(--color-border-faint))' : 'none' } as CSSProperties,
   }));
   const recipientTableRows = useMemo(() => withDividers(recipientRows), [recipientRows]);
   const docTableRows = useMemo(() => withDividers(docRows), [docRows]);
@@ -151,7 +151,7 @@ export default function Reports({
     label: card.label, meta: card.meta,
     onClick: () => { void downloadCsv(card.key); },
     style: { display:'flex', flexDirection:'column', gap:'5px', alignItems:'flex-start', textAlign:'left', padding:'14px', borderRadius:'13px',
-      border:'1px solid #e3e7ee', background:'#fbfcfd', cursor:'pointer' } as CSSProperties
+      border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-subtle))', cursor:'pointer' } as CSSProperties
   }));
 
   /* ── custom report builder ─────────────────────────────────────────────
@@ -224,7 +224,7 @@ export default function Reports({
       field,
       label: reportFieldLabel(field),
       prefix: on ? '−' : '+',
-      style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? '#f5f7ff' : '#fff', fontSize:'.71875rem', color: on ? A : '#475569', cursor:'pointer' } as CSSProperties,
+      style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + (on ? A : 'hsl(var(--color-border-subtle))'), background: on ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))', fontSize:'.71875rem', color: on ? A : 'hsl(var(--color-fg-subtle))', cursor:'pointer' } as CSSProperties,
       onClick: () => togglePicked(field),
     };
   });
@@ -240,7 +240,7 @@ export default function Reports({
     <div data-sf-scroll="1" style={{ overflowX:'auto' }}>
       <table style={{ width:'100%', minWidth:'900px', borderCollapse:'collapse', fontSize:'.78125rem' }}>
         <thead>
-          <tr style={{ textAlign:'left', color:'#64748b' }}>
+          <tr style={{ textAlign:'left', color:'hsl(var(--color-fg-muted))' }}>
             <th scope="col" style={th}>Recipient</th>
             <th scope="col" style={th}>Created</th>
             <th scope="col" style={th}>Sent</th>
@@ -272,14 +272,14 @@ export default function Reports({
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
           <div style={{ display:'flex', flexDirection:'column', gap:'4px', minWidth:0 }}>
             <h2 style={{ margin:0, fontSize:'1.1875rem', fontWeight:700, letterSpacing:'-.4px' }}>{REPORT_TITLES[sec]}</h2>
-            <span style={{ fontSize:'.78125rem', color:'#64748b', lineHeight:1.5, maxWidth:'560px' }}>{REPORT_SUBS[sec]}</span>
+            <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5, maxWidth:'560px' }}>{REPORT_SUBS[sec]}</span>
           </div>
           <div style={{ display:'flex', gap:'7px', flex:'0 0 auto', alignItems:'center' }}>
             <select
               value={range}
               onChange={onReportRange}
               aria-label="Date range"
-              style={{ height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 10px', fontSize:'.78125rem', background:'#fff', color:'#334155', outline:'none' }}
+              style={{ height:'32px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 10px', fontSize:'.78125rem', background:'hsl(var(--color-bg-surface))', color:'hsl(var(--color-fg-subtle))', outline:'none' }}
             >
               {REPORT_RANGES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
@@ -290,16 +290,16 @@ export default function Reports({
 
         {rpAnalytics ? (
           <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
-            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'12px' }}>
+            <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'12px' }}>
               <span style={railHead}>Total sent invites</span>
               <span style={{ fontSize:'2.125rem', fontWeight:700, letterSpacing:'-1.4px', lineHeight:1 }}>{String(inviteTotal)}</span>
-              <div style={{ display:'flex', height:'8px', borderRadius:'99px', overflow:'hidden', background:'#eef1f6' }}>
+              <div style={{ display:'flex', height:'8px', borderRadius:'99px', overflow:'hidden', background:'hsl(var(--color-bg-muted))' }}>
                 {inviteBar.map(b => <span key={b.label} style={b.style} />)}
               </div>
               <div style={{ display:'flex', gap:'16px', flexWrap:'wrap' }}>
                 {inviteLegend.map(l => (
-                  <span key={l.label} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'.75rem', color:'#475569' }}>
-                    <span style={l.dot} />{l.label} <strong style={{ color:'#0f172a' }}>{l.value}</strong>
+                  <span key={l.label} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'.75rem', color:'hsl(var(--color-fg-subtle))' }}>
+                    <span style={l.dot} />{l.label} <strong style={{ color:'hsl(var(--color-fg-default))' }}>{l.value}</strong>
                   </span>
                 ))}
               </div>
@@ -307,18 +307,18 @@ export default function Reports({
 
             <div style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0,1fr))', gap:'12px' }}>
               {tiles.map(t => (
-                <div key={t.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'6px' }}>
-                  <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{t.label}</span>
+                <div key={t.label} style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'6px' }}>
+                  <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{t.label}</span>
                   <span style={{ fontSize:'1.3125rem', fontWeight:700, letterSpacing:'-.7px' }}>{t.value}</span>
                   <span style={{ fontSize:'.6875rem', color:TEXT_MUTED }}>{t.meta}</span>
                 </div>
               ))}
             </div>
 
-            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-              <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
+            <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+              <div style={{ padding:'12px 15px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
                 <span style={{ fontSize:'.84375rem', fontWeight:600 }}>Recipients who received invites</span>
-                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{recipientTotal} recipients</span>
+                <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{recipientTotal} recipients</span>
               </div>
               {recipientTable}
             </div>
@@ -329,19 +329,19 @@ export default function Reports({
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'12px' }}>
             {allReportCards.map(c => (
               <button key={c.label} type="button" onClick={c.onClick} style={c.style}>
-                <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a' }}>{c.label}</span>
-                <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{c.meta}</span>
+                <span style={{ fontSize:'.8125rem', fontWeight:600, color:'hsl(var(--color-fg-default))' }}>{c.label}</span>
+                <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>{c.meta}</span>
               </button>
             ))}
           </div>
         ) : null}
 
         {rpDocuments ? (
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
             <div data-sf-scroll="1" style={{ overflowX:'auto' }}>
               <table style={{ width:'100%', minWidth:'760px', borderCollapse:'collapse', fontSize:'.78125rem' }}>
                 <thead>
-                  <tr style={{ textAlign:'left', color:'#64748b' }}>
+                  <tr style={{ textAlign:'left', color:'hsl(var(--color-fg-muted))' }}>
                     <th scope="col" style={th}>Document</th>
                     <th scope="col" style={th}>Recipients</th>
                     <th scope="col" style={th}>Signed</th>
@@ -371,11 +371,11 @@ export default function Reports({
         ) : null}
 
         {rpTemplates ? (
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
             <div data-sf-scroll="1" style={{ overflowX:'auto' }}>
               <table style={{ width:'100%', minWidth:'660px', borderCollapse:'collapse', fontSize:'.78125rem' }}>
                 <thead>
-                  <tr style={{ textAlign:'left', color:'#64748b' }}>
+                  <tr style={{ textAlign:'left', color:'hsl(var(--color-fg-muted))' }}>
                     <th scope="col" style={th}>Template</th>
                     <th scope="col" style={th}>Uses</th>
                     <th scope="col" style={th}>Fields</th>
@@ -404,13 +404,13 @@ export default function Reports({
         ) : null}
 
         {rpRecipients ? (
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
             {recipientTable}
           </div>
         ) : null}
 
         {rpCustom ? (
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'14px' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'14px' }}>
             <span style={railHead}>Available dimensions</span>
             <div style={{ display:'flex', gap:'7px', flexWrap:'wrap' }}>
               {customFieldChips.map(f => (
@@ -418,13 +418,13 @@ export default function Reports({
               ))}
             </div>
             {picked.length === 0 ? (
-              <div style={{ border:'1px dashed #8492a6', borderRadius:'13px', padding:'28px', textAlign:'center', color:TEXT_MUTED, fontSize:'.78125rem', lineHeight:1.6 }}>
+              <div style={{ border:'1px dashed hsl(var(--color-border-strong))', borderRadius:'13px', padding:'28px', textAlign:'center', color:TEXT_MUTED, fontSize:'.78125rem', lineHeight:1.6 }}>
                 Drop dimensions here to compose a report.<br />Group by any field, then save the definition or schedule a recurring export.
               </div>
             ) : (
-              <div style={{ border:'1px dashed #8492a6', borderRadius:'13px', padding:'14px', display:'flex', gap:'7px', flexWrap:'wrap' }}>
+              <div style={{ border:'1px dashed hsl(var(--color-border-strong))', borderRadius:'13px', padding:'14px', display:'flex', gap:'7px', flexWrap:'wrap' }}>
                 {picked.map(field => (
-                  <span key={field} style={{ padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + A, background:'#f5f7ff', fontSize:'.71875rem', color:A }}>{reportFieldLabel(field)}</span>
+                  <span key={field} style={{ padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + A, background:'hsl(var(--color-accent-subtle))', fontSize:'.71875rem', color:A }}>{reportFieldLabel(field)}</span>
                 ))}
               </div>
             )}
@@ -435,10 +435,10 @@ export default function Reports({
             </div>
 
             {runFields.length ? (
-              <div data-sf-scroll="1" style={{ overflowX:'auto', border:'1px solid #eef1f6', borderRadius:'13px' }}>
+              <div data-sf-scroll="1" style={{ overflowX:'auto', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'13px' }}>
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'.78125rem' }}>
                   <thead>
-                    <tr style={{ textAlign:'left', color:'#64748b' }}>
+                    <tr style={{ textAlign:'left', color:'hsl(var(--color-fg-muted))' }}>
                       {runFields.map(field => <th key={field} scope="col" style={th}>{reportFieldLabel(field)}</th>)}
                     </tr>
                   </thead>
@@ -446,7 +446,7 @@ export default function Reports({
                     {runRows.length === 0 ? (
                       <tr><td colSpan={runFields.length} style={emptyCell}>No rows matched this definition.</td></tr>
                     ) : runRows.map((row, ri) => (
-                      <tr key={ri} style={{ borderTop: ri ? '1px solid #f2f4f8' : '1px solid #eef1f6' }}>
+                      <tr key={ri} style={{ borderTop: ri ? '1px solid hsl(var(--color-border-faint))' : '1px solid hsl(var(--color-border-hairline))' }}>
                         {toCustomReportCells(row, runFields).map((cell, ci) => <td key={ci} style={td}>{cell}</td>)}
                       </tr>
                     ))}

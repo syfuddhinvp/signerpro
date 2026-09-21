@@ -135,11 +135,11 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
     void supportApi.ticket(apiCall, id).then(res => { if (res.ok) setOpenDetail(res.data); });
   }, []);
 
-  const primaryBtn = btn(A, '#fff', A);
-  const successBtn = btn('#059669', '#fff', '#059669');
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const dangerStyle = btn('#fff', '#b91c1c', '#fecaca');
-  const textareaStyle: CSSProperties = { border:'1px solid #e3e7ee', borderRadius:'9px', padding:'8px 10px', fontSize:'.78125rem', resize:'vertical', outline:'none', width:'100%', color:'#0f172a' };
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const successBtn = btn('#059669', 'hsl(var(--color-fg-on-solid))', '#059669');
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const dangerStyle = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))');
+  const textareaStyle: CSSProperties = { border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'8px 10px', fontSize:'.78125rem', resize:'vertical', outline:'none', width:'100%', color:'hsl(var(--color-fg-default))' };
   /* Every control that writes goes through `mutate`, so they all dim together
      while one write is in flight rather than inviting a second. */
   const whileBusy = (style: CSSProperties): CSSProperties =>
@@ -168,8 +168,8 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
       id, label, count: String(tkCounts[id] ?? 0), selected: (on ? 'true' : 'false') as 'true' | 'false',
       onClick: () => set({ ticketFilter: id }),
       style: { height:'26px', padding:'0 9px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500, display:'inline-flex', alignItems:'center', gap:'5px',
-        background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties,
-      badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: on ? '#64748b' : TEXT_MUTED } as CSSProperties
+        background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties,
+      badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: on ? 'hsl(var(--color-fg-muted))' : TEXT_MUTED } as CSSProperties
     };
   });
 
@@ -177,15 +177,15 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const attentionChip = (on: boolean, tone: { bg: string; fg: string; bd: string }): CSSProperties =>
     ({ display:'inline-flex', alignItems:'center', gap:'5px', padding:'4px 9px', borderRadius:'99px', cursor:'pointer',
       fontSize:'.6875rem', fontWeight:600, fontFamily:'var(--font-sans)',
-      background: on ? tone.fg : tone.bg, color: on ? '#fff' : tone.fg, border:'1px solid ' + (on ? tone.fg : tone.bd) });
+      background: on ? tone.fg : tone.bg, color: on ? 'hsl(var(--color-fg-on-solid))' : tone.fg, border:'1px solid ' + (on ? tone.fg : tone.bd) });
 
   const attention = [
-    { id:'breached', label:'Breached', count: facets.breached, on: narrowing.breached, tone: { bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' },
+    { id:'breached', label:'Breached', count: facets.breached, on: narrowing.breached, tone: { bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' },
       onClick: () => setNarrowing(n => ({ ...n, breached: !n.breached })) },
     { id:'unassigned', label:'Unassigned', count: facets.unassigned, on: narrowing.unassigned || assigneeFilter === UNASSIGNED,
-      tone: { bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' },
+      tone: { bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' },
       onClick: () => setNarrowing(n => ({ ...n, unassigned: !n.unassigned })) },
-    { id:'urgent', label:'P1 open', count: facets.urgent, on: priorityFilter === 'urgent', tone: { bg:'#eef2ff', fg:'#4338ca', bd:'#c7d2fe' },
+    { id:'urgent', label:'P1 open', count: facets.urgent, on: priorityFilter === 'urgent', tone: { bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-fg-info))', bd:'hsl(var(--color-accent-border))' },
       onClick: () => setPriorityFilter(p => (p === 'urgent' ? '' : 'urgent')) },
   ];
 
@@ -255,12 +255,12 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
         + (t.messageCount ? ' · ' + t.messageCount + (t.messageCount === 1 ? ' message' : ' messages') : ''),
       statusLabel: TK_STATUS_LABEL[t.status] ?? t.status, priorityLabel: TK_PRIO_LABEL[t.priority] ?? t.priority, sla: t.sla,
       statusPill: pill(TK_STATUS_TONE[t.status] ?? TK_STATUS_TONE.open), priorityPill: pill(TK_PRIO_TONE[t.priority] ?? TK_PRIO_TONE.normal),
-      slaPill: pill(t.status === 'resolved' ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : (overdue ? { bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' } : { bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' })),
+      slaPill: pill(t.status === 'resolved' ? { bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' } : (overdue ? { bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' } : { bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-subtle))', bd:'hsl(var(--color-border-subtle))' })),
       priorityBar: { width:'3px', alignSelf:'stretch', borderRadius:'99px', background: (TK_PRIO_TONE[t.priority] ?? TK_PRIO_TONE.normal).c, flex:'0 0 3px' } as CSSProperties,
       current: (on ? 'true' : undefined) as 'true' | undefined,
       onOpen: () => openTicketRow(t.ticketId),
-      rowStyle: { display:'flex', gap:'10px', alignItems:'stretch', width:'100%', padding:'11px 13px', borderTop: i ? '1px solid #f2f4f8' : 'none',
-        background: on ? '#f8faff' : 'transparent', border:'none', borderLeft:'3px solid ' + (on ? A : 'transparent'), cursor:'pointer' } as CSSProperties
+      rowStyle: { display:'flex', gap:'10px', alignItems:'stretch', width:'100%', padding:'11px 13px', borderTop: i ? '1px solid hsl(var(--color-border-faint))' : 'none',
+        background: on ? 'hsl(var(--color-bg-subtle))' : 'transparent', border:'none', borderLeft:'3px solid ' + (on ? A : 'transparent'), cursor:'pointer' } as CSSProperties
     };
   });
 
@@ -330,11 +330,11 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const tkMessages = tkVisibleMsgs.map(m => ({
     author: m.author, role: m.role, ts: m.ts, body: m.body, internal: m.internal, initials: initials(m.author),
     wrapStyle: { display:'flex', flexDirection:'column', gap:'7px', padding:'12px 13px', borderRadius:'12px',
-      border:'1px solid ' + (m.internal ? '#fde68a' : '#eef1f6'),
-      background: m.internal ? '#fffbeb' : (m.side === 'agent' ? '#f8faff' : '#fbfcfd') } as CSSProperties,
+      border:'1px solid ' + (m.internal ? 'hsl(var(--color-border-warning))' : 'hsl(var(--color-border-hairline))'),
+      background: m.internal ? 'hsl(var(--color-bg-warning-subtle))' : (m.side === 'agent' ? 'hsl(var(--color-bg-subtle))' : 'hsl(var(--color-bg-subtle))') } as CSSProperties,
     chip: { width:'26px', height:'26px', borderRadius:'99px', display:'grid', placeItems:'center', fontSize:'.625rem', fontWeight:700, flex:'0 0 26px',
-      background: m.side === 'agent' ? A : '#0f172a', color:'#fff' } as CSSProperties,
-    internalPill: Object.assign(pill({ bg:'#fef3c7', fg:'#92400e', bd:'#fde68a' }), { marginLeft:'auto' }) as CSSProperties
+      background: m.side === 'agent' ? A : 'hsl(var(--color-bg-panel-dark))', color:'hsl(var(--color-fg-on-solid))' } as CSSProperties,
+    internalPill: Object.assign(pill({ bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' }), { marginLeft:'auto' }) as CSSProperties
   }));
 
   /* A long thread opens on its newest message, not its oldest. */
@@ -364,31 +364,31 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
 
   const ticketStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta, good: x.good,
-    metaStyle: { fontSize:'.65625rem', fontFamily:'var(--font-sans)', color: x.good ? '#047857' : '#c2410c' } as CSSProperties
+    metaStyle: { fontSize:'.65625rem', fontFamily:'var(--font-sans)', color: x.good ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-warning))' } as CSSProperties
   }));
 
   const openNewTicket = () => set({ modal: 'ticket' });
 
   const slaBoxStyle: CSSProperties = { height:'32px', display:'flex', alignItems:'center', padding:'0 10px', borderRadius:'9px', fontSize:'.75rem', fontFamily:'var(--font-sans)',
-    border:'1px solid ' + (tk && tk.status === 'resolved' ? '#a7f3d0' : '#fed7aa'), background: tk && tk.status === 'resolved' ? '#ecfdf5' : '#fff7ed',
-    color: tk && tk.status === 'resolved' ? '#047857' : '#c2410c' };
+    border:'1px solid ' + (tk && tk.status === 'resolved' ? 'hsl(var(--color-border-success))' : 'hsl(var(--color-border-warning))'), background: tk && tk.status === 'resolved' ? 'hsl(var(--color-bg-success-subtle))' : 'hsl(var(--color-bg-warning-subtle))',
+    color: tk && tk.status === 'resolved' ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-warning))' };
 
   const tkTags = tk ? tk.tags.concat([tk.category]).map(label => ({
     label,
-    style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.65625rem', color:'#475569', fontFamily:'var(--font-sans)' } as CSSProperties
+    style: { padding:'4px 9px', borderRadius:'99px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-subtle))', fontSize:'.65625rem', color:'hsl(var(--color-fg-subtle))', fontFamily:'var(--font-sans)' } as CSSProperties
   })) : [];
-  const tkEnvelopeStyle: CSSProperties = { padding:'4px 9px', borderRadius:'99px', border:'1px solid #c7d2fe', background:'#eef2ff', fontSize:'.65625rem', color:'#3730a3', fontFamily:'var(--font-sans)', cursor:'pointer',
+  const tkEnvelopeStyle: CSSProperties = { padding:'4px 9px', borderRadius:'99px', border:'1px solid hsl(var(--color-accent-border))', background:'hsl(var(--color-accent-subtle))', fontSize:'.65625rem', color:'hsl(var(--color-accent-fg))', fontFamily:'var(--font-sans)', cursor:'pointer',
     display:'inline-flex', alignItems:'center', gap:'5px' };
 
   const internalRow: CSSProperties = { display:'inline-flex', alignItems:'center', gap:'9px', height:'30px', padding:'0 11px', borderRadius:'9px', cursor:'pointer',
-    border:'1px solid ' + (s.replyInternal ? '#fde68a' : '#e3e7ee'), background: s.replyInternal ? '#fffbeb' : '#fff' };
-  const internalSwitch: CSSProperties = { width:'32px', height:'18px', borderRadius:'99px', background: s.replyInternal ? '#f59e0b' : BORDER_STRONG, position:'relative', flex:'0 0 32px' };
-  const internalKnob: CSSProperties = { position:'absolute', top:'2px', left: s.replyInternal ? '16px' : '2px', width:'14px', height:'14px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
+    border:'1px solid ' + (s.replyInternal ? 'hsl(var(--color-border-warning))' : 'hsl(var(--color-border-subtle))'), background: s.replyInternal ? 'hsl(var(--color-bg-warning-subtle))' : 'hsl(var(--color-bg-surface))' };
+  const internalSwitch: CSSProperties = { width:'32px', height:'18px', borderRadius:'99px', background: s.replyInternal ? 'hsl(var(--color-bg-warning-solid))' : BORDER_STRONG, position:'relative', flex:'0 0 32px' };
+  const internalKnob: CSSProperties = { position:'absolute', top:'2px', left: s.replyInternal ? '16px' : '2px', width:'14px', height:'14px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))', transition:'left .15s' };
 
   const macros = quickReplies.map(([label, body]) => ({
     label,
     onClick: () => set({ replyDraft: body }),
-    style: { padding:'5px 10px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fbfcfd', fontSize:'.6875rem', color:'#475569', cursor:'pointer',
+    style: { padding:'5px 10px', borderRadius:'8px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-subtle))', fontSize:'.6875rem', color:'hsl(var(--color-fg-subtle))', cursor:'pointer',
       display:'inline-flex', alignItems:'center', gap:'5px' } as CSSProperties
   }));
 
@@ -448,41 +448,41 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
     );
   };
 
-  const emptyNoteStyle: CSSProperties = { margin:'15px 17px', border:'1px dashed #8492a6', borderRadius:'12px', padding:'22px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 };
-  const cardStyle: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px' };
+  const emptyNoteStyle: CSSProperties = { margin:'15px 17px', border:'1px dashed hsl(var(--color-border-strong))', borderRadius:'12px', padding:'22px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 };
+  const cardStyle: CSSProperties = { background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px' };
   const thStyle: CSSProperties = { padding:'11px 14px', fontSize:'.625rem', fontWeight:600, letterSpacing:'.06em', textTransform:'uppercase',
-    color:'#64748b', fontFamily:'var(--font-sans)', textAlign:'left', whiteSpace:'nowrap' };
+    color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', textAlign:'left', whiteSpace:'nowrap' };
   const tdStyle: CSSProperties = { padding:'12px 14px', verticalAlign:'top' };
   const pagerBtn = (on: boolean, disabled = false): CSSProperties => ({
     minWidth:'30px', height:'28px', padding:'0 9px', borderRadius:'8px', cursor: disabled ? 'default' : 'pointer',
     fontSize:'.71875rem', fontWeight: on ? 600 : 500, fontFamily:'var(--font-sans)',
-    border:'1px solid ' + (on ? '#c7d2fe' : '#e3e7ee'), background: on ? '#eef2ff' : '#fff',
-    color: on ? A : '#475569', opacity: disabled ? .45 : 1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'4px' });
+    border:'1px solid ' + (on ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))'), background: on ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))',
+    color: on ? A : 'hsl(var(--color-fg-subtle))', opacity: disabled ? .45 : 1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'4px' });
   const iconChip = (good: boolean): CSSProperties => ({ width:'38px', height:'38px', borderRadius:'11px', display:'grid', placeItems:'center', flex:'0 0 38px',
-    background: good ? '#eef2ff' : '#fff7ed', color: good ? A : '#c2410c' });
+    background: good ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-warning-subtle))', color: good ? A : 'hsl(var(--color-fg-warning))' });
   const avatarChip: CSSProperties = { width:'24px', height:'24px', borderRadius:'99px', display:'grid', placeItems:'center', flex:'0 0 24px',
-    background:'#f1f5f9', color:'#475569', fontSize:'.5625rem', fontWeight:700, fontFamily:'var(--font-sans)' };
+    background:'#f1f5f9', color:'hsl(var(--color-fg-subtle))', fontSize:'.5625rem', fontWeight:700, fontFamily:'var(--font-sans)' };
   const kebabStyle: CSSProperties = { border:'1px solid transparent', background:'none', borderRadius:'7px', padding:'3px', cursor:'pointer', color:TEXT_MUTED, display:'inline-flex' };
-  const menuStyle: CSSProperties = { position:'absolute', top:'100%', right:0, zIndex:5, minWidth:'168px', background:'#fff',
-    border:'1px solid #e3e7ee', borderRadius:'11px', boxShadow:'0 8px 24px rgba(15,23,42,.14)', padding:'5px', display:'flex', flexDirection:'column' };
-  const menuItem: CSSProperties = { border:'none', background:'none', textAlign:'left', padding:'7px 9px', borderRadius:'7px', fontSize:'.71875rem', color:'#334155', cursor:'pointer',
+  const menuStyle: CSSProperties = { position:'absolute', top:'100%', right:0, zIndex:5, minWidth:'168px', background:'hsl(var(--color-bg-surface))',
+    border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'11px', boxShadow:'0 8px 24px rgba(15,23,42,.14)', padding:'5px', display:'flex', flexDirection:'column' };
+  const menuItem: CSSProperties = { border:'none', background:'none', textAlign:'left', padding:'7px 9px', borderRadius:'7px', fontSize:'.71875rem', color:'hsl(var(--color-fg-subtle))', cursor:'pointer',
     display:'inline-flex', alignItems:'center', gap:'6px' };
   const searchWrapStyle: CSSProperties = { position:'relative', flex:'1 1 260px', minWidth:'200px', maxWidth:'380px' };
-  const searchInputStyle: CSSProperties = { width:'100%', height:'34px', display:'block', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 11px 0 31px',
-    fontSize:'.78125rem', outline:'none', background:'#fbfcfd', color:'#0f172a' };
+  const searchInputStyle: CSSProperties = { width:'100%', height:'34px', display:'block', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 11px 0 31px',
+    fontSize:'.78125rem', outline:'none', background:'hsl(var(--color-bg-subtle))', color:'hsl(var(--color-fg-default))' };
   const searchIconStyle: CSSProperties = { position:'absolute', left:'10px', top:'50%', transform:'translateY(-50%)', color:TEXT_MUTED, pointerEvents:'none' };
   const drawerStyle: CSSProperties = { position:'fixed', top:0, right:0, bottom:0, zIndex:56, width:'min(640px, 100vw)',
-    background:'#fff', borderLeft:'1px solid #e3e7ee', boxShadow:'-24px 0 60px -30px rgba(15,23,42,.45)',
+    background:'hsl(var(--color-bg-surface))', borderLeft:'1px solid hsl(var(--color-border-subtle))', boxShadow:'-24px 0 60px -30px rgba(15,23,42,.45)',
     display:'flex', flexDirection:'column', overflow:'hidden', animation:'sfSlideIn .18s ease' };
-  const closeBtnStyle: CSSProperties = { border:'1px solid #e3e7ee', background:'#fff', borderRadius:'9px', width:'30px', height:'30px',
-    display:'grid', placeItems:'center', cursor:'pointer', color:'#475569', flex:'0 0 30px' };
+  const closeBtnStyle: CSSProperties = { border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', borderRadius:'9px', width:'30px', height:'30px',
+    display:'grid', placeItems:'center', cursor:'pointer', color:'hsl(var(--color-fg-subtle))', flex:'0 0 30px' };
 
   /** The tone of each stat tile's icon badge follows the tile's own `good`. */
   const TILE_ICONS = [Inbox, Clock, CheckCircle2];
   /* `inputStyle` is width:100% -- it is built for a stacked `<label>`. On the
      filter row the selects sit side by side, so each one sizes to itself. */
   const selectStyle: CSSProperties = Object.assign({}, inputStyle, {
-    height:'34px', fontSize:'.71875rem', background:'#fbfcfd', width:'auto', minWidth:'126px', flex:'0 1 auto', cursor:'pointer',
+    height:'34px', fontSize:'.71875rem', background:'hsl(var(--color-bg-subtle))', width:'auto', minWidth:'126px', flex:'0 1 auto', cursor:'pointer',
   });
   const linkBtn: CSSProperties = { border:'none', background:'none', padding:0, color:A, fontSize:'.65625rem', fontWeight:600, cursor:'pointer', fontFamily:'var(--font-sans)',
     display:'inline-flex', alignItems:'center', gap:'4px' };
@@ -502,7 +502,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           return (
             <div key={st.label} style={{ ...cardStyle, padding:'14px 15px', display:'flex', alignItems:'center', gap:'12px' }}>
               <div style={{ display:'flex', flexDirection:'column', gap:'3px', minWidth:0, flex:1 }}>
-                <span style={{ fontSize:'.625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{st.label}</span>
+                <span style={{ fontSize:'.625rem', letterSpacing:'.06em', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{st.label}</span>
                 <span style={{ fontSize:'1.5rem', fontWeight:700, letterSpacing:'-.8px', lineHeight:1.1 }}>{st.value}</span>
                 <span style={st.metaStyle}>{st.meta}</span>
               </div>
@@ -545,7 +545,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           </div>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
-          <div role="group" aria-label="Status" style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px', flexWrap:'wrap' }}>
+          <div role="group" aria-label="Status" style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'10px', flexWrap:'wrap' }}>
             {ticketFilters.map(f => (
               <button key={f.id} type="button" onClick={f.onClick} aria-pressed={f.selected} style={f.style}>{f.label} <span style={f.badge}>{f.count}</span></button>
             ))}
@@ -565,8 +565,8 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           and ↑/↓ all behave exactly as they did before this became a table. */}
       <div style={{ ...cardStyle, overflow:'visible' }}>
         {selected.length ? (
-          <div style={{ padding:'9px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', gap:'10px', background:'#f8faff', borderRadius:'16px 16px 0 0' }}>
-            <span style={{ fontSize:'.71875rem', color:'#334155', fontFamily:'var(--font-sans)' }}>
+          <div style={{ padding:'9px 15px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', gap:'10px', background:'hsl(var(--color-bg-subtle))', borderRadius:'16px 16px 0 0' }}>
+            <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-subtle))', fontFamily:'var(--font-sans)' }}>
               {selected.length + (selected.length === 1 ? ' ticket selected' : ' tickets selected')}
             </span>
             <div style={{ marginLeft:'auto', display:'flex', gap:'7px' }}>
@@ -582,7 +582,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           <div role="group" aria-label="Ticket queue" onKeyDown={onQueueKeyDown}>
             <table style={{ width:'100%', minWidth:'880px', borderCollapse:'collapse', textAlign:'left' }}>
               <thead>
-                <tr style={{ background:'#f8fafc', borderBottom:'1px solid #e3e7ee' }}>
+                <tr style={{ background:'hsl(var(--color-bg-subtle))', borderBottom:'1px solid hsl(var(--color-border-subtle))' }}>
                   <th scope="col" style={{ ...thStyle, width:'34px' }}>
                     <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select every ticket on this page"
                       disabled={tickets.length === 0} style={{ cursor: tickets.length ? 'pointer' : 'default' }} />
@@ -598,7 +598,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
               </thead>
               <tbody>
                 {tickets.map((t, i) => (
-                  <tr key={t.id} style={{ borderTop: i ? '1px solid #f2f4f8' : 'none', background: t.current ? '#f8faff' : 'transparent' }}>
+                  <tr key={t.id} style={{ borderTop: i ? '1px solid hsl(var(--color-border-faint))' : 'none', background: t.current ? 'hsl(var(--color-bg-subtle))' : 'transparent' }}>
                     <td style={tdStyle}>
                       <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggleRow(t.id)}
                         aria-label={'Select ' + t.reference} style={{ cursor:'pointer' }} />
@@ -611,31 +611,31 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
                       <button type="button" data-ticket-row="" onClick={t.onOpen} aria-current={t.current} ref={(el) => { rowRefs.current[t.id] = el; }}
                         style={{ border:'none', background:'none', padding:0, textAlign:'left', cursor:'pointer', display:'flex', flexDirection:'column', gap:'4px', width:'100%' }}>
                         <span style={{ display:'flex', alignItems:'center', gap:'7px', flexWrap:'wrap' }}>
-                          <span style={{ fontSize:'.75rem', fontWeight:700, color: t.current ? A : '#0f172a', fontFamily:'var(--font-sans)' }}>{t.reference}</span>
+                          <span style={{ fontSize:'.75rem', fontWeight:700, color: t.current ? A : 'hsl(var(--color-fg-default))', fontFamily:'var(--font-sans)' }}>{t.reference}</span>
                           {t.breached ? (
-                            <span style={{ ...pill({ bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' }), display:'inline-flex', alignItems:'center', gap:'4px' }}>
+                            <span style={{ ...pill({ bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' }), display:'inline-flex', alignItems:'center', gap:'4px' }}>
                               <AlertTriangle width={10} height={10} aria-hidden="true" /> SLA breached
                             </span>
                           ) : null}
                         </span>
-                        <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#334155', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'350px' }}>{t.subject}</span>
+                        <span style={{ fontSize:'.78125rem', fontWeight:600, color:'hsl(var(--color-fg-subtle))', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'350px' }}>{t.subject}</span>
                         <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{t.trail}</span>
                       </button>
                     </td>
                     <td style={tdStyle}>
                       <span style={{ display:'flex', alignItems:'center', gap:'8px' }}>
                         <span style={avatarChip} aria-hidden="true">{t.requesterInitials}</span>
-                        <span style={{ fontSize:'.75rem', color:'#475569', whiteSpace:'nowrap' }}>{t.requester}</span>
+                        <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-subtle))', whiteSpace:'nowrap' }}>{t.requester}</span>
                       </span>
                     </td>
                     <td style={tdStyle}><span style={t.statusPill}>{t.statusLabel}</span></td>
                     <td style={tdStyle}><span style={t.priorityPill}>{t.priorityLabel}</span></td>
                     <td style={tdStyle}>
-                      <span style={{ fontSize:'.75rem', color: t.unassigned ? '#c2410c' : '#475569', whiteSpace:'nowrap' }}>{t.assigneeLabel}</span>
+                      <span style={{ fontSize:'.75rem', color: t.unassigned ? 'hsl(var(--color-fg-warning))' : 'hsl(var(--color-fg-subtle))', whiteSpace:'nowrap' }}>{t.assigneeLabel}</span>
                     </td>
                     <td style={tdStyle}>
                       <span style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
-                        <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap' }}>{t.updated}</span>
+                        <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', whiteSpace:'nowrap' }}>{t.updated}</span>
                         <span style={t.slaPill}>{t.sla}</span>
                       </span>
                     </td>
@@ -673,7 +673,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
 
         {/* Pagination is server-side: `offset` on `/tickets/page`, against the
             `total` it returns. */}
-        <div style={{ padding:'11px 15px', borderTop:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
+        <div style={{ padding:'11px 15px', borderTop:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
           <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>
             {'Showing ' + firstShown + '–' + lastShown + ' of ' + tkPage.total + (isPlat ? ' · ↑↓ to walk the queue' : '')}
           </span>
@@ -699,11 +699,11 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
       {drawerOpen && tk ? (
         <>
           <div role="region" aria-label={'Ticket ' + tk.id + ' · ' + tk.subject} style={drawerStyle}>
-        <div style={{ padding:'15px 17px', borderBottom:'1px solid #eef1f6', display:'flex', flexDirection:'column', gap:'11px' }}>
+        <div style={{ padding:'15px 17px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
             <div style={{ display:'flex', flexDirection:'column', gap:'4px', minWidth:0 }}>
               <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.2px' }}>{tk.subject}</span>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>
                 {tk.id + ' · ' + tk.tenant + ' · ' + tk.requesterEmail + ' · opened ' + tk.created + ' · updated ' + tk.updated.toLowerCase()}
               </span>
             </div>
@@ -757,7 +757,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           </div>
         </div>
 
-        <div style={{ padding:'9px 17px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'9px' }}>
+        <div style={{ padding:'9px 17px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'9px' }}>
           <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>
             {tkVisibleMsgs.length + (tkVisibleMsgs.length === 1 ? ' message' : ' messages')
               + (isPlat && internalCount ? ' · ' + internalCount + ' internal' : '')}
@@ -775,12 +775,12 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
               <div style={{ display:'flex', alignItems:'center', gap:'9px' }}>
                 <span style={m.chip}>{m.initials}</span>
                 <div style={{ display:'flex', flexDirection:'column', gap:'1px', minWidth:0 }}>
-                  <span style={{ fontSize:'.75rem', fontWeight:600, color:'#0f172a' }}>{m.author}</span>
+                  <span style={{ fontSize:'.75rem', fontWeight:600, color:'hsl(var(--color-fg-default))' }}>{m.author}</span>
                   <span style={{ fontSize:'.65625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{m.role} · {m.ts}</span>
                 </div>
                 {m.internal ? (<span style={m.internalPill}>Internal note</span>) : null}
               </div>
-              <div style={{ fontSize:'.78125rem', color:'#334155', lineHeight:1.65, whiteSpace:'pre-wrap' }}>{m.body}</div>
+              <div style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))', lineHeight:1.65, whiteSpace:'pre-wrap' }}>{m.body}</div>
             </div>
           ))}
           {tkMessages.length === 0 ? (
@@ -790,14 +790,14 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
           ) : null}
         </div>
 
-        <div style={{ borderTop:'1px solid #eef1f6', padding:'13px 17px', display:'flex', flexDirection:'column', gap:'10px' }}>
+        <div style={{ borderTop:'1px solid hsl(var(--color-border-hairline))', padding:'13px 17px', display:'flex', flexDirection:'column', gap:'10px' }}>
           <textarea rows={3} value={s.replyDraft} onChange={(e) => set({ replyDraft: e.target.value })} onKeyDown={onReplyKeyDown}
             placeholder={isPlat ? 'Reply to the customer, or switch to an internal note…' : 'Add details, logs or a screenshot description…'}
             aria-label="Reply" style={textareaStyle} />
           <div style={{ display:'flex', alignItems:'center', gap:'9px', flexWrap:'wrap' }}>
             {isPlat ? (
               <button type="button" role="switch" aria-checked={s.replyInternal ? 'true' : 'false'} onClick={() => set(st => ({ replyInternal: !st.replyInternal }))} style={internalRow}>
-                <span style={{ fontSize:'.75rem', color:'#334155' }}>Internal note</span>
+                <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-subtle))' }}>Internal note</span>
                 <span style={internalSwitch}><span style={internalKnob}></span></span>
               </button>
             ) : null}

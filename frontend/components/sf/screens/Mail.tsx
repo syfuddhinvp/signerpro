@@ -84,7 +84,7 @@ function fullDate(iso: string): string {
   });
 }
 
-const CARD: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px' };
+const CARD: CSSProperties = { background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'14px' };
 /** The panes scroll inside the viewport rather than growing the page, which is
  *  what makes this read as a mailbox and not as a very long table. */
 const PANE_HEIGHT = 'calc(100vh - 210px)';
@@ -153,7 +153,7 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
   const chip = (on: boolean): CSSProperties => ({
     height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer',
     fontSize:'.75rem', fontWeight: on ? 600 : 500, whiteSpace:'nowrap',
-    background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
+    background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
     boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
   });
 
@@ -172,11 +172,11 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
 
       {/* toolbar */}
       <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
-        <button type="button" onClick={() => setComposing(true)} style={btn(A, '#fff', A)}>Compose</button>
+        <button type="button" onClick={() => setComposing(true)} style={btn(A, 'hsl(var(--color-fg-on-solid))', A)}>Compose</button>
         <input type="search" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search mail"
           placeholder="Search recipient or subject…"
           style={{ ...inputStyle, flex:1, minWidth:'180px', width:'auto' }} />
-        <div style={{ display:'flex', gap:'4px', background:'#eceff4', padding:'4px', borderRadius:'10px', overflowX:'auto' }}>
+        <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-muted))', padding:'4px', borderRadius:'10px', overflowX:'auto' }}>
           {statuses.map(([id, label]) => (
             <button key={id} type="button" aria-pressed={status === id} onClick={() => setStatus(id)} style={chip(status === id)}>{label}</button>
           ))}
@@ -186,7 +186,7 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
         </span>
       </div>
 
-      <div style={{ display:'flex', gap:'4px', background:'#eceff4', padding:'4px', borderRadius:'10px', overflowX:'auto' }}>
+      <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-muted))', padding:'4px', borderRadius:'10px', overflowX:'auto' }}>
         {categories.map(([id, label]) => (
           <button key={id} type="button" aria-pressed={category === id} onClick={() => setCategory(id)} style={chip(category === id)}>{label}</button>
         ))}
@@ -206,9 +206,9 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
               <button key={row.id} type="button" onClick={() => openRow(row)} aria-current={open ? 'true' : undefined}
                 style={{ display:'flex', gap:'10px', width:'100%', textAlign:'left', padding:'11px 13px',
                   border:'none', cursor:'pointer', alignItems:'flex-start',
-                  borderTop: i ? '1px solid #eef1f6' : 'none',
+                  borderTop: i ? '1px solid hsl(var(--color-border-hairline))' : 'none',
                   borderLeft: '3px solid ' + (open ? A : 'transparent'),
-                  background: open ? '#f4f6fb' : '#fff' }}>
+                  background: open ? 'hsl(var(--color-bg-muted))' : 'hsl(var(--color-bg-surface))' }}>
                 <span aria-hidden="true" style={{ width:'30px', height:'30px', borderRadius:'50%', flex:'0 0 auto',
                   background: tone.bg, color: tone.fg, border:'1px solid ' + tone.bd,
                   display:'flex', alignItems:'center', justifyContent:'center', fontSize:'.75rem', fontWeight:700 }}>
@@ -216,11 +216,11 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
                 </span>
                 <span style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
                   <span style={{ display:'flex', alignItems:'baseline', gap:'8px' }}>
-                    <span style={{ flex:1, minWidth:0, fontSize:'.75rem', fontWeight:600, color:'#0f172a',
+                    <span style={{ flex:1, minWidth:0, fontSize:'.75rem', fontWeight:600, color:'hsl(var(--color-fg-default))',
                       overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.to_email}</span>
                     <span style={{ flex:'0 0 auto', fontSize:'.65625rem', color:TEXT_MUTED }}>{listDate(row.created_at)}</span>
                   </span>
-                  <span style={{ fontSize:'.78125rem', color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-default))', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {row.subject}
                   </span>
                   <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
@@ -249,30 +249,30 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
         <div style={{ ...CARD, height:PANE_HEIGHT, display:'flex', flexDirection:'column', overflow:'hidden' }}>
           {!openId ? (
             <div style={{ margin:'auto', textAlign:'center', padding:'20px' }}>
-              <p style={{ margin:'0 0 4px', fontSize:'.84375rem', color:'#0f172a', fontWeight:600 }}>No message selected</p>
+              <p style={{ margin:'0 0 4px', fontSize:'.84375rem', color:'hsl(var(--color-fg-default))', fontWeight:600 }}>No message selected</p>
               <p style={{ margin:0, fontSize:'.75rem', color:TEXT_MUTED }}>Pick a message on the left to read it as it was delivered.</p>
             </div>
           ) : detailError ? (
-            <p role="alert" style={{ margin:'auto', fontSize:'.75rem', color:'#b91c1c' }}>{detailError}</p>
+            <p role="alert" style={{ margin:'auto', fontSize:'.75rem', color:'hsl(var(--color-fg-danger))' }}>{detailError}</p>
           ) : !detail ? (
             <p style={{ margin:'auto', fontSize:'.75rem', color:TEXT_MUTED }}>Loading message…</p>
           ) : (
             <>
-              <header style={{ padding:'16px 18px 12px', borderBottom:'1px solid #eef1f6', flex:'0 0 auto' }}>
+              <header style={{ padding:'16px 18px 12px', borderBottom:'1px solid hsl(var(--color-border-hairline))', flex:'0 0 auto' }}>
                 <div style={{ display:'flex', alignItems:'flex-start', gap:'10px', marginBottom:'10px' }}>
-                  <h2 style={{ margin:0, flex:1, minWidth:0, fontSize:'1rem', lineHeight:1.4, color:'#0f172a' }}>{detail.subject}</h2>
+                  <h2 style={{ margin:0, flex:1, minWidth:0, fontSize:'1rem', lineHeight:1.4, color:'hsl(var(--color-fg-default))' }}>{detail.subject}</h2>
                   <span style={{ ...pill(STATUS_TONE[detail.status as keyof typeof STATUS_TONE] ?? TONE_NEUTRAL), flex:'0 0 auto' }}>
                     {STATUS_LABEL[detail.status] ?? detail.status}
                   </span>
-                  <button type="button" onClick={() => setOpenId(null)} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Close</button>
+                  <button type="button" onClick={() => setOpenId(null)} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="close" size={13} />Close</button>
                 </div>
                 <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
                   <span aria-hidden="true" style={{ width:'34px', height:'34px', borderRadius:'50%', flex:'0 0 auto',
-                    background:'#eef2ff', color:'#3730a3', display:'flex', alignItems:'center', justifyContent:'center',
+                    background:'hsl(var(--color-accent-subtle))', color:'hsl(var(--color-accent-fg))', display:'flex', alignItems:'center', justifyContent:'center',
                     fontSize:'.8125rem', fontWeight:700 }}>
                     {detail.to_email.charAt(0).toUpperCase()}
                   </span>
-                  <div style={{ flex:1, minWidth:0, fontSize:'.71875rem', color:'#334155', lineHeight:1.6 }}>
+                  <div style={{ flex:1, minWidth:0, fontSize:'.71875rem', color:'hsl(var(--color-fg-subtle))', lineHeight:1.6 }}>
                     <div><strong style={{ fontWeight:600 }}>{detail.from_email ?? 'unknown sender'}</strong> → {detail.to_email}</div>
                     <div style={{ color:TEXT_MUTED }}>
                       {fullDate(detail.created_at)} · {CATEGORY_LABEL[detail.category] ?? detail.category} · via {detail.provider}
@@ -281,21 +281,21 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
                     </div>
                   </div>
                   {detail.body_html ? (
-                    <div style={{ display:'flex', gap:'4px', background:'#eceff4', padding:'4px', borderRadius:'10px', flex:'0 0 auto' }}>
+                    <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-muted))', padding:'4px', borderRadius:'10px', flex:'0 0 auto' }}>
                       <button type="button" aria-pressed={asHtml} onClick={() => setAsHtml(true)} style={chip(asHtml)}>HTML</button>
                       <button type="button" aria-pressed={!asHtml} onClick={() => setAsHtml(false)} style={chip(!asHtml)}>Plain text</button>
                     </div>
                   ) : null}
                 </div>
                 {detail.error ? (
-                  <p role="alert" style={{ margin:'10px 0 0', padding:'8px 10px', borderRadius:'9px', background:'#fef2f2',
-                    border:'1px solid #fecaca', color:'#b91c1c', fontSize:'.71875rem', lineHeight:1.6 }}>
+                  <p role="alert" style={{ margin:'10px 0 0', padding:'8px 10px', borderRadius:'9px', background:'hsl(var(--color-bg-danger-subtle))',
+                    border:'1px solid hsl(var(--color-border-danger))', color:'hsl(var(--color-fg-danger))', fontSize:'.71875rem', lineHeight:1.6 }}>
                     {detail.error}
                   </p>
                 ) : null}
               </header>
 
-              <div style={{ flex:1, minHeight:0, background:'#f5f6f8' }}>
+              <div style={{ flex:1, minHeight:0, background:'hsl(var(--color-bg-canvas))' }}>
                 {detail.body_html && asHtml ? (
                   /* Same-origin under its own `default-src 'none'` policy, and
                      sandboxed on top of it: no scripts, no remote images, so
@@ -303,12 +303,12 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
                   <iframe title={`Message: ${detail.subject}`} src={`/platform/mail/${detail.id}/preview`}
                     sandbox="" style={{ width:'100%', height:'100%', border:'none', display:'block' }} />
                 ) : detail.body_text ? (
-                  <pre style={{ margin:0, padding:'16px 18px', height:'100%', overflow:'auto', background:'#fff',
-                    fontSize:'.75rem', lineHeight:1.75, color:'#0f172a', whiteSpace:'pre-wrap', wordBreak:'break-word' }}>
+                  <pre style={{ margin:0, padding:'16px 18px', height:'100%', overflow:'auto', background:'hsl(var(--color-bg-surface))',
+                    fontSize:'.75rem', lineHeight:1.75, color:'hsl(var(--color-fg-default))', whiteSpace:'pre-wrap', wordBreak:'break-word' }}>
                     {detail.body_text}
                   </pre>
                 ) : (
-                  <div style={{ padding:'18px', background:'#fff', height:'100%' }}>
+                  <div style={{ padding:'18px', background:'hsl(var(--color-bg-surface))', height:'100%' }}>
                     <p style={{ margin:0, fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.7, maxWidth:'52ch' }}>
                       This message was a one-time passcode. Its body <em>is</em> the code, so none of it is stored —
                       the recipient, subject and delivery result above are the whole record.
@@ -317,7 +317,7 @@ export default function Mail({ page, sinceDays, loadError = null }: MailProps) {
                 )}
               </div>
 
-              <footer style={{ flex:'0 0 auto', padding:'9px 18px', borderTop:'1px solid #eef1f6',
+              <footer style={{ flex:'0 0 auto', padding:'9px 18px', borderTop:'1px solid hsl(var(--color-border-hairline))',
                 fontSize:'.65625rem', color:TEXT_MUTED, lineHeight:1.6 }}>
                 Signing, invitation and reset links are masked in the stored copy. The recipient received working links.
               </footer>

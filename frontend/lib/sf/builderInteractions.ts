@@ -92,13 +92,13 @@ function newAnnotationExtras(typeId: string): AnnotationExtras | null {
       apiType: 'textbox',
       options: {
         kind: 'textbox', font: DEFAULT_TEXTBOX_FONT, size: DEFAULT_TEXTBOX_SIZE,
-        bold: false, italic: false, color: '#0f172a',
+        bold: false, italic: false, color: 'hsl(var(--color-fg-default))',
       },
       defaultValue: '',
     };
   }
   if (typeId === 'drawing') {
-    return { apiType: 'drawing', options: { kind: 'drawing', color: '#0f172a', stroke: 2, strokes: [] } };
+    return { apiType: 'drawing', options: { kind: 'drawing', color: 'hsl(var(--color-fg-default))', stroke: 2, strokes: [] } };
   }
   return null;
 }

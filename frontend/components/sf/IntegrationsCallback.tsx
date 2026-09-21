@@ -25,7 +25,7 @@ import { takeOauthProvider } from '@/lib/sf/cloudOauth';
 import { SF_FONT } from '@/lib/sf/fallback';
 
 const PANEL = {
-  margin: '26px 28px', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px',
+  margin: '26px 28px', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px',
   padding: '20px', display: 'flex', flexDirection: 'column' as const, gap: '8px',
   fontFamily: SF_FONT, maxWidth: '420px',
 };
@@ -99,7 +99,7 @@ export default function IntegrationsCallback() {
   return (
     <div style={PANEL} role="status" aria-live="polite">
       <span style={{ fontSize: '.84375rem', fontWeight: 600 }}>Cloud storage</span>
-      <span style={{ fontSize: '.75rem', color: '#64748b', lineHeight: 1.6 }}>{status}</span>
+      <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))', lineHeight: 1.6 }}>{status}</span>
     </div>
   );
 }

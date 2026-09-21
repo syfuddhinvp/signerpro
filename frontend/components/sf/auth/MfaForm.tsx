@@ -26,7 +26,7 @@ export default function MfaForm() {
 
   const authPrimary = authPrimaryOf(A);
   const linkBtn = linkBtnOf(A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   const [challenge, setChallenge] = useState<MfaChallenge | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -48,7 +48,7 @@ export default function MfaForm() {
   const mfaNote = challenge?.delivery === 'totp' || !challenge?.delivery
     ? `Enter the current 6-digit code from the authenticator app registered to ${target}.`
     : `We sent a 6-digit code to ${target}.`;
-  const mfaNoteStyle: CSSProperties = { fontSize: '.71875rem', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55 };
+  const mfaNoteStyle: CSSProperties = { fontSize: '.71875rem', color: 'hsl(var(--color-accent-fg))', background: 'hsl(var(--color-accent-subtle))', border: '1px solid hsl(var(--color-accent-border))', borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55 };
   const mfaInput: CSSProperties = Object.assign({}, authInput, {
     fontFamily: 'var(--font-sans)', fontSize: '1.1875rem', letterSpacing: '.34em', textAlign: 'center' as const, height: '46px',
   });
@@ -113,7 +113,7 @@ export default function MfaForm() {
   if (!loaded || !challenge) {
     return (
       <AuthLayout mode="mfa">
-        <div style={{ fontSize: '.78125rem', color: '#64748b' }}>Checking your sign-in…</div>
+        <div style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-muted))' }}>Checking your sign-in…</div>
       </AuthLayout>
     );
   }
@@ -154,7 +154,7 @@ export default function MfaForm() {
           </button>
         </div>
 
-        <span style={{ fontSize: '.6875rem', color: '#64748b', lineHeight: 1.5 }}>
+        <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', lineHeight: 1.5 }}>
           Recovery codes work once each. Using one here leaves the rest valid.
         </span>
 

@@ -6,11 +6,11 @@ import { SF_FONT } from '@/lib/sf/fallback';
  * sidebar stay put while one envelope's data streams in.
  */
 const bar = (w: string, h = '13px'): CSSProperties => ({
-  width: w, height: h, borderRadius: '7px', background: '#e3e7ee',
+  width: w, height: h, borderRadius: '7px', background: 'hsl(var(--color-border-subtle))',
   animation: 'sfPulse 1.4s ease-in-out infinite',
 });
 const panel: CSSProperties = {
-  background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '17px',
+  background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '17px',
   display: 'flex', flexDirection: 'column', gap: '13px',
 };
 

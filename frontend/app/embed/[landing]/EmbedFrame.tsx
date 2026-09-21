@@ -39,19 +39,19 @@ export default function EmbedFrame({
 }) {
   const barStyle: CSSProperties = {
     flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '12px', padding: '9px 18px',
-    background: '#eef2ff', borderBottom: '1px solid #c7d2fe', flexWrap: 'wrap',
+    background: 'hsl(var(--color-accent-subtle))', borderBottom: '1px solid hsl(var(--color-accent-border))', flexWrap: 'wrap',
   };
   const chipStyle: CSSProperties = {
-    padding: '4px 9px', borderRadius: '7px', background: '#4f46e5', color: '#fff',
+    padding: '4px 9px', borderRadius: '7px', background: 'hsl(var(--color-accent-solid))', color: 'hsl(var(--color-fg-on-solid))',
     fontSize: '.625rem', fontWeight: 700, letterSpacing: '.06em', flex: '0 0 auto',
   };
   const contactChipStyle: CSSProperties = {
-    padding: '4px 9px', borderRadius: '99px', background: '#fff', border: '1px solid #c7d2fe',
-    fontSize: '.65625rem', color: '#3730a3', whiteSpace: 'nowrap', flex: '0 0 auto',
+    padding: '4px 9px', borderRadius: '99px', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-accent-border))',
+    fontSize: '.65625rem', color: 'hsl(var(--color-accent-fg))', whiteSpace: 'nowrap', flex: '0 0 auto',
   };
   const returnStyle: CSSProperties = {
-    marginLeft: 'auto', padding: '6px 12px', borderRadius: '8px', border: '1px solid #c7d2fe',
-    background: '#fff', color: '#3730a3', fontSize: '.71875rem', fontWeight: 600, cursor: 'pointer', flex: '0 0 auto',
+    marginLeft: 'auto', padding: '6px 12px', borderRadius: '8px', border: '1px solid hsl(var(--color-accent-border))',
+    background: 'hsl(var(--color-bg-surface))', color: 'hsl(var(--color-accent-fg))', fontSize: '.71875rem', fontWeight: 600, cursor: 'pointer', flex: '0 0 auto',
     display: 'inline-flex', alignItems: 'center', gap: '6px',
   };
 
@@ -80,7 +80,7 @@ export default function EmbedFrame({
       <div style={barStyle}>
         <span style={chipStyle}>{LANDING_LABEL[landing].toUpperCase()}</span>
         <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>{title}</span>
-        <span style={{ fontSize: '.65625rem', color: '#4338ca' }}>{meta}</span>
+        <span style={{ fontSize: '.65625rem', color: 'hsl(var(--color-fg-info))' }}>{meta}</span>
         {contacts.map(name => <span key={name} style={contactChipStyle}>{name}</span>)}
         {returnUrl ? <button type="button" style={returnStyle} onClick={goBack}><Icon name="arrowLeft" size={12} />Return to host</button> : null}
       </div>

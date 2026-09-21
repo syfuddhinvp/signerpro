@@ -22,13 +22,13 @@ import Icon from '@/components/sf/Icon';
 
 const bannerStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
-  padding: '11px 13px', borderRadius: '11px', border: '1px solid #fecaca',
-  background: '#fef2f2', color: '#7f1d1d', fontSize: '.78125rem', lineHeight: 1.5,
+  padding: '11px 13px', borderRadius: '11px', border: '1px solid hsl(var(--color-border-danger))',
+  background: 'hsl(var(--color-bg-danger-subtle))', color: 'hsl(var(--color-fg-danger))', fontSize: '.78125rem', lineHeight: 1.5,
 };
 
 const retryStyle: CSSProperties = {
   height: '30px', padding: '0 12px', borderRadius: '9px', border: '1px solid #fca5a5',
-  background: '#fff', color: '#7f1d1d', fontSize: '.75rem', fontWeight: 600,
+  background: 'hsl(var(--color-bg-surface))', color: 'hsl(var(--color-fg-danger))', fontSize: '.75rem', fontWeight: 600,
   cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto',
   display: 'inline-flex', alignItems: 'center', gap: '6px',
 };

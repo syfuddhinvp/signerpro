@@ -115,14 +115,14 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
         aria-modal="true"
         aria-labelledby="catalog-title"
         style={{
-          background: '#fff', borderRadius: '16px', border: '1px solid #e3e7ee',
+          background: 'hsl(var(--color-bg-surface))', borderRadius: '16px', border: '1px solid hsl(var(--color-border-subtle))',
           width: 'min(820px, 100%)', maxHeight: 'min(86vh, 900px)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}
       >
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid #eef1f6', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid hsl(var(--color-border-hairline))', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
-            <h2 id="catalog-title" style={{ margin: 0, fontSize: '.9375rem', fontWeight: 600, color: '#0f172a' }}>
+            <h2 id="catalog-title" style={{ margin: 0, fontSize: '.9375rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>
               Form catalog
             </h2>
             <p style={{ margin: 0, fontSize: '.75rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
@@ -130,10 +130,10 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
               templates — you assign signers before anything is sent.
             </p>
           </div>
-          <button type="button" onClick={close} aria-label="Close the form catalog" style={linkBtn('#64748b')}><Icon name="close" size={12} />Close</button>
+          <button type="button" onClick={close} aria-label="Close the form catalog" style={linkBtn('hsl(var(--color-fg-muted))')}><Icon name="close" size={12} />Close</button>
         </div>
 
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid #eef1f6', display: 'flex', gap: '9px', flexWrap: 'wrap' }}>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid hsl(var(--color-border-hairline))', display: 'flex', gap: '9px', flexWrap: 'wrap' }}>
           <label style={{ flex: '1 1 220px', minWidth: '180px' }}>
             <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
               Search the form catalog
@@ -162,9 +162,9 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
         <div style={{ overflowY: 'auto', padding: '12px 18px 18px', display: 'flex', flexDirection: 'column', gap: '9px' }}>
           {error ? (
             <div style={{ padding: '20px 12px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <span style={{ fontSize: '.8125rem', fontWeight: 600, color: '#0f172a' }}>The catalog could not be loaded</span>
+              <span style={{ fontSize: '.8125rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>The catalog could not be loaded</span>
               <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>{error}</span>
-              <div><button type="button" onClick={load} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="refresh" size={13} />Try again</button></div>
+              <div><button type="button" onClick={load} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="refresh" size={13} />Try again</button></div>
             </div>
           ) : null}
 
@@ -176,7 +176,7 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
 
           {empty && !error ? (
             <div style={{ padding: '20px 12px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <span style={{ fontSize: '.8125rem', fontWeight: 600, color: '#0f172a' }}>{heading}</span>
+              <span style={{ fontSize: '.8125rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>{heading}</span>
               <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
                 Your administrator publishes the forms that appear here.
               </span>
@@ -189,18 +189,18 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
               <div
                 key={entry.id}
                 style={{
-                  border: '1px solid #e3e7ee', borderRadius: '13px', padding: '12px 13px',
+                  border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '13px', padding: '12px 13px',
                   display: 'flex', gap: '12px', alignItems: 'flex-start',
                 }}
               >
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                  <span style={{ fontSize: '.8125rem', fontWeight: 600, color: '#0f172a' }}>{entry.title}</span>
+                  <span style={{ fontSize: '.8125rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>{entry.title}</span>
                   {entry.description ? (
                     <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
                       {entry.description}
                     </span>
                   ) : null}
-                  <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>
+                  <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>
                     {[
                       categoryLabel(entry.category),
                       entry.authority,
@@ -213,8 +213,8 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
                 {entry.imported ? (
                   <span
                     style={{
-                      fontSize: '.6875rem', fontWeight: 600, color: '#047857',
-                      background: '#ecfdf5', border: '1px solid #a7f3d0',
+                      fontSize: '.6875rem', fontWeight: 600, color: 'hsl(var(--color-fg-success))',
+                      background: 'hsl(var(--color-bg-success-subtle))', border: '1px solid hsl(var(--color-border-success))',
                       borderRadius: '999px', padding: '5px 10px', whiteSpace: 'nowrap',
                     }}
                   >In your templates</span>
@@ -223,7 +223,7 @@ export default function CatalogBrowser({ onClose }: { onClose: () => void }) {
                     type="button"
                     onClick={() => add(entry)}
                     disabled={busy}
-                    style={{ ...btn(A, '#fff', A), opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                    style={{ ...btn(A, 'hsl(var(--color-fg-on-solid))', A), opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap' }}
                   ><Icon name="plus" size={13} />{busy ? 'Adding…' : 'Add to my templates'}</button>
                 )}
               </div>

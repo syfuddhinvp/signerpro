@@ -19,8 +19,8 @@ const chip = (bg: string, fg: string, bd: string): CSSProperties => ({
 });
 
 const TONE: Record<string, CSSProperties> = {
-  warn: chip('#fff7ed', '#c2410c', '#fed7aa'),
-  bad: chip('#fef2f2', '#b91c1c', '#fecaca'),
+  warn: chip('#fff7ed', '#c2410c', 'hsl(var(--color-border-warning))'),
+  bad: chip('#fef2f2', '#b91c1c', 'hsl(var(--color-border-danger))'),
   info: chip('#eef2ff', '#4338ca', '#c7d2fe'),
 };
 

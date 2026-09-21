@@ -15,6 +15,8 @@ from app.core.database import get_db
 from app.models.user import User
 from app.schemas.account import (
     AccountAuditFeed,
+    AppearanceResponse,
+    AppearanceUpdate,
     AvatarUpdate,
     AuthorizeResponse,
     CloudExportItem,
@@ -183,6 +185,25 @@ def write_field_favorites(
     user: User = Depends(get_current_user),
 ) -> FieldFavoritesResponse:
     return account_service.update_field_favorites(db, user=user, payload=payload)
+
+
+# --- appearance (theme) ------------------------------------------------------
+
+
+@router.get("/api/me/appearance", response_model=AppearanceResponse)
+def read_appearance(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> AppearanceResponse:
+    return account_service.get_appearance(db, user=user)
+
+
+@router.put("/api/me/appearance", response_model=AppearanceResponse)
+def write_appearance(
+    payload: AppearanceUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AppearanceResponse:
+    return account_service.update_appearance(db, user=user, payload=payload)
 
 
 # --- account audit trail -----------------------------------------------------

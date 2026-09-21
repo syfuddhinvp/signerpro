@@ -192,6 +192,34 @@ def test_field_favorites_round_trip(client: TestClient) -> None:
     assert rejected.status_code == 400
 
 
+def test_appearance_round_trip(client: TestClient) -> None:
+    headers = auth_headers(client)
+    fresh = client.get("/api/me/appearance", headers=headers)
+    assert fresh.status_code == 200
+    assert fresh.json() == {"mode": "system", "palette": "indigo"}
+
+    saved = client.put(
+        "/api/me/appearance", json={"mode": "dark", "palette": "emerald"}, headers=headers
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json() == {"mode": "dark", "palette": "emerald"}
+    assert client.get("/api/me/appearance", headers=headers).json() == {
+        "mode": "dark",
+        "palette": "emerald",
+    }
+
+    # Theme choices sit beside the palette favourites on the same JSON column
+    # and must not clobber them.
+    client.put("/api/me/field-favorites", json={"types": ["stamp"]}, headers=headers)
+    client.put("/api/me/appearance", json={"mode": "light", "palette": "rose"}, headers=headers)
+    assert client.get("/api/me/field-favorites", headers=headers).json()["types"] == ["stamp"]
+    assert client.get("/api/me/appearance", headers=headers).json()["palette"] == "rose"
+
+    # Unknown values are a client bug, not a preference.
+    assert client.put("/api/me/appearance", json={"mode": "sepia", "palette": "rose"}, headers=headers).status_code == 422
+    assert client.put("/api/me/appearance", json={"mode": "dark", "palette": "neon"}, headers=headers).status_code == 422
+
+
 def test_integration_catalogue_starts_disconnected(client: TestClient) -> None:
     """Nothing is connected until a real OAuth flow completes.
 

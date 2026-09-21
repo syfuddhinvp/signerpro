@@ -73,8 +73,8 @@ export default function Library(props: LibraryProps) {
   const A = accent();
   const { askText, askChoice } = useDialogs();
 
-  const primaryBtn = btn(A, '#fff', A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   /* ── filters live in the URL ────────────────────────────────────────────
      The URL is the only copy. The selects used to write to the store and an
@@ -142,8 +142,8 @@ export default function Library(props: LibraryProps) {
   };
 
   const filterSelectStyle: CSSProperties = {
-    height: '30px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 9px',
-    fontSize: '.75rem', background: '#fff', color: '#334155', outline: 'none',
+    height: '30px', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '0 9px',
+    fontSize: '.75rem', background: 'hsl(var(--color-bg-surface))', color: 'hsl(var(--color-fg-subtle))', outline: 'none',
   };
 
   /** `libStatus` → `status`: the store keys the design used, mapped onto the
@@ -342,34 +342,34 @@ export default function Library(props: LibraryProps) {
         ? d.id + ' · ' + d.fields + ' fields · used ' + d.uses + '× · updated ' + d.updated
         : d.id + ' · ' + d.pages + ' pages · updated ' + d.updated,
       statusLabel: isTpl ? 'Template' : st.label,
-      pillStyle: pill(isTpl ? { bg: '#eef2ff', fg: '#3730a3', bd: '#c7d2fe' } : st),
+      pillStyle: pill(isTpl ? { bg: 'hsl(var(--color-accent-subtle))', fg: 'hsl(var(--color-accent-fg))', bd: 'hsl(var(--color-accent-border))' } : st),
       signers: isTpl
         ? 'Owner ' + d.owner
         : signerProgressLabel(d.rawStatus ?? d.status, d.signed || 0, d.total || 0),
       rowStyle: {
         display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px',
-        borderTop: i ? '1px solid #f2f4f8' : 'none',
-        background: checked ? '#f8faff' : 'transparent', flexWrap: 'wrap',
+        borderTop: i ? '1px solid hsl(var(--color-border-faint))' : 'none',
+        background: checked ? 'hsl(var(--color-bg-subtle))' : 'transparent', flexWrap: 'wrap',
       } as CSSProperties,
       /* Same children, stacked: the tile is a column so the title and the
          action sit under the thumbnail rather than beside it. */
       cardStyle: {
         display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '10px',
-        padding: '12px', border: '1px solid ' + (checked ? '#c7d2fe' : '#eef1f6'), borderRadius: '12px',
-        background: checked ? '#f8faff' : '#fff', minWidth: 0,
+        padding: '12px', border: '1px solid ' + (checked ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-hairline))'), borderRadius: '12px',
+        background: checked ? 'hsl(var(--color-bg-subtle))' : 'hsl(var(--color-bg-surface))', minWidth: 0,
       } as CSSProperties,
       onCheck: () => set(st2 => ({
         libSelected: checked ? st2.libSelected.filter(x => x !== uid) : st2.libSelected.concat([uid]),
       })),
       thumb: {
-        width: '40px', height: '50px', borderRadius: '5px', background: '#fff',
-        border: '1px solid #e3e7ee', flex: '0 0 40px', display: 'flex',
+        width: '40px', height: '50px', borderRadius: '5px', background: 'hsl(var(--color-bg-surface))',
+        border: '1px solid hsl(var(--color-border-subtle))', flex: '0 0 40px', display: 'flex',
         flexDirection: 'column', gap: '3px', padding: '6px 5px', overflow: 'hidden',
       } as CSSProperties,
       line1: { height: '2px', background: BORDER_STRONG, borderRadius: '2px' } as CSSProperties,
-      line2: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '82%' } as CSSProperties,
-      line3: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '64%' } as CSSProperties,
-      line4: { height: '2px', background: '#e3e7ee', borderRadius: '2px', width: '74%' } as CSSProperties,
+      line2: { height: '2px', background: 'hsl(var(--color-border-subtle))', borderRadius: '2px', width: '82%' } as CSSProperties,
+      line3: { height: '2px', background: 'hsl(var(--color-border-subtle))', borderRadius: '2px', width: '64%' } as CSSProperties,
+      line4: { height: '2px', background: 'hsl(var(--color-border-subtle))', borderRadius: '2px', width: '74%' } as CSSProperties,
       onOpen: () => { set({ wizardStep: 1 }); go('builder', { documentId: uid }); },
       /* The design gives favourites no affordance of their own, so the row
          title carries the toggle on double-click until one is designed. */
@@ -398,8 +398,8 @@ export default function Library(props: LibraryProps) {
         set({ menuDoc: s.menuDoc === uid ? null : uid });
       },
       menuBtn: {
-        width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
-        background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '.8125rem',
+        width: '28px', height: '28px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-subtle))',
+        background: 'hsl(var(--color-bg-surface))', cursor: 'pointer', color: 'hsl(var(--color-fg-subtle))', fontSize: '.8125rem',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         lineHeight: 1, flex: '0 0 28px',
       } as CSSProperties,
@@ -418,7 +418,7 @@ export default function Library(props: LibraryProps) {
             display: 'flex', alignItems: 'center', gap: '7px', width: '100%', textAlign: 'left', padding: '7px 10px',
             borderRadius: '7px', border: 'none', background: 'transparent', cursor: 'pointer',
             fontSize: '.78125rem',
-            color: (label === 'Delete' || label === 'Archive') ? '#b91c1c' : '#334155',
+            color: (label === 'Delete' || label === 'Archive') ? 'hsl(var(--color-fg-danger))' : 'hsl(var(--color-fg-subtle))',
           } as CSSProperties,
         };
       }),
@@ -445,9 +445,9 @@ export default function Library(props: LibraryProps) {
   const chipStyle = (active: boolean, tone?: string): CSSProperties => ({
     display: 'inline-flex', alignItems: 'center', gap: '6px',
     padding: '5px 10px', borderRadius: '99px', textDecoration: 'none',
-    border: '1px solid ' + (active ? '#c7d2fe' : '#e3e7ee'),
-    background: active ? '#eef2ff' : '#fff',
-    color: active ? '#3730a3' : '#475569',
+    border: '1px solid ' + (active ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))'),
+    background: active ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))',
+    color: active ? 'hsl(var(--color-accent-fg))' : 'hsl(var(--color-fg-subtle))',
     fontSize: '.75rem', fontWeight: active ? 600 : 500, whiteSpace: 'nowrap',
     borderLeft: tone ? '3px solid ' + tone : undefined,
   });
@@ -505,9 +505,9 @@ export default function Library(props: LibraryProps) {
     width: '17px', height: '17px', borderRadius: '5px', cursor: 'pointer', flex: '0 0 17px', padding: 0,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '.6875rem', lineHeight: 1, fontWeight: 700,
-    border: '1px solid ' + (on || partial ? A : '#8492a6'),
-    background: on || partial ? A : '#fff',
-    color: '#fff',
+    border: '1px solid ' + (on || partial ? A : 'hsl(var(--color-border-strong))'),
+    background: on || partial ? A : 'hsl(var(--color-bg-surface))',
+    color: 'hsl(var(--color-fg-on-solid))',
   });
 
   const bulkRun = (optimistic: string, call: () => Promise<ApiResult<unknown>>) => {
@@ -567,7 +567,7 @@ export default function Library(props: LibraryProps) {
       }
       bulkRun('Moved to Trash' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'delete' }));
     },
-    style: btn('#fff', label === 'Delete' ? '#b91c1c' : '#475569', label === 'Delete' ? '#fecaca' : '#e3e7ee'),
+    style: btn('hsl(var(--color-bg-surface))', label === 'Delete' ? 'hsl(var(--color-fg-danger))' : 'hsl(var(--color-fg-subtle))', label === 'Delete' ? 'hsl(var(--color-border-danger))' : 'hsl(var(--color-border-subtle))'),
   }));
 
   /* `libView` used to tint these two buttons and nothing else — Grid was a
@@ -576,13 +576,13 @@ export default function Library(props: LibraryProps) {
   const isGrid = s.libView === 'grid';
 
   const libListBtn = btn(
-    s.libView === 'list' ? '#eef2ff' : '#fff',
-    s.libView === 'list' ? '#3730a3' : '#475569',
-    s.libView === 'list' ? '#c7d2fe' : '#e3e7ee');
+    s.libView === 'list' ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))',
+    s.libView === 'list' ? 'hsl(var(--color-accent-fg))' : 'hsl(var(--color-fg-subtle))',
+    s.libView === 'list' ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))');
   const libGridBtn = btn(
-    s.libView === 'grid' ? '#eef2ff' : '#fff',
-    s.libView === 'grid' ? '#3730a3' : '#475569',
-    s.libView === 'grid' ? '#c7d2fe' : '#e3e7ee');
+    s.libView === 'grid' ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))',
+    s.libView === 'grid' ? 'hsl(var(--color-accent-fg))' : 'hsl(var(--color-fg-subtle))',
+    s.libView === 'grid' ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))');
 
   return (
     <section data-screen-label="Documents" style={{ display: 'flex', minHeight: '100%', alignItems: 'stretch' }}>
@@ -590,7 +590,7 @@ export default function Library(props: LibraryProps) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', minWidth: 0 }}>
             <h2 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700, letterSpacing: '-.3px' }}>{libFolderLabel}</h2>
-            <span style={{ fontSize: '.75rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{libCountLabel}</span>
+            <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>{libCountLabel}</span>
           </div>
           <div style={{ display: 'flex', gap: '7px', flex: '0 0 auto' }}>
             {isTemplateFolder ? (
@@ -613,7 +613,7 @@ export default function Library(props: LibraryProps) {
             const real = folderOptions.find(f => f.id === id);
             return badge(real ? real.documentCount : null);
           })}
-          <span aria-hidden="true" style={{ width: '1px', alignSelf: 'stretch', minHeight: '18px', background: '#e3e7ee', margin: '0 2px' }} />
+          <span aria-hidden="true" style={{ width: '1px', alignSelf: 'stretch', minHeight: '18px', background: 'hsl(var(--color-border-subtle))', margin: '0 2px' }} />
           {chipRow('views', 'Views', viewChips, id => badge(countOf(id)))}
         </div>
 
@@ -626,9 +626,9 @@ export default function Library(props: LibraryProps) {
             aria-expanded={showFilters}
             onClick={() => setShowFilters(v => !v)}
             style={btn(
-              activeFilterCount ? '#eef2ff' : '#fff',
-              activeFilterCount ? '#3730a3' : '#475569',
-              activeFilterCount ? '#c7d2fe' : '#e3e7ee')}
+              activeFilterCount ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))',
+              activeFilterCount ? 'hsl(var(--color-accent-fg))' : 'hsl(var(--color-fg-subtle))',
+              activeFilterCount ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))')}
           >{activeFilterCount ? 'Filters · ' + activeFilterCount : 'Filters'}</button>
           <input
             type="search"
@@ -636,13 +636,13 @@ export default function Library(props: LibraryProps) {
             onChange={e => setQueryDraft(e.target.value)}
             placeholder="Search documents and forms"
             aria-label="Search documents"
-            style={{ height: '30px', flex: '1 1 200px', maxWidth: '320px', minWidth: '160px', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 10px', fontSize: '.78125rem', outline: 'none', background: '#fff' }}
+            style={{ height: '30px', flex: '1 1 200px', maxWidth: '320px', minWidth: '160px', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '0 10px', fontSize: '.78125rem', outline: 'none', background: 'hsl(var(--color-bg-surface))' }}
           />
           <select
             value={filters.sort}
             onChange={e => pushFilters({ sort: e.target.value })}
             aria-label="Sort"
-            style={{ height: '30px', marginLeft: 'auto', border: '1px solid #e3e7ee', borderRadius: '9px', padding: '0 9px', fontSize: '.75rem', background: '#fff', color: '#334155', outline: 'none' }}
+            style={{ height: '30px', marginLeft: 'auto', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '0 9px', fontSize: '.75rem', background: 'hsl(var(--color-bg-surface))', color: 'hsl(var(--color-fg-subtle))', outline: 'none' }}
           >
             {libSortOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
@@ -692,12 +692,12 @@ export default function Library(props: LibraryProps) {
         ) : null}
 
         {hasLibSelection ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', border: '1px solid #c7d2fe', background: '#eef2ff', borderRadius: '11px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '.78125rem', fontWeight: 600, color: '#3730a3' }}>{libSelectedLabel}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', border: '1px solid hsl(var(--color-accent-border))', background: 'hsl(var(--color-accent-subtle))', borderRadius: '11px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '.78125rem', fontWeight: 600, color: 'hsl(var(--color-accent-fg))' }}>{libSelectedLabel}</span>
             <button type="button" onClick={toggleSelectAll} style={linkBtn(A)}>
               <Icon name="checkbox" size={11} />{allSelected ? 'Deselect all' : 'Select all ' + libRowIds.length}
             </button>
-            <button type="button" onClick={() => set({ libSelected: [] })} style={linkBtn('#64748b')}><Icon name="close" size={11} />Clear</button>
+            <button type="button" onClick={() => set({ libSelected: [] })} style={linkBtn('hsl(var(--color-fg-muted))')}><Icon name="close" size={11} />Clear</button>
             <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
               {libBulk.map(b => (
                 <button key={b.label} type="button" onClick={b.onClick} style={b.style}><Icon name={markFor(b.label)} size={12} />{b.label}</button>
@@ -706,10 +706,10 @@ export default function Library(props: LibraryProps) {
           </div>
         ) : null}
 
-        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', overflow: 'visible' }}>
+        <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', overflow: 'visible' }}>
           {libRows.length === 0 ? (
             <div style={{ padding: '28px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <span style={{ fontSize: '.84375rem', fontWeight: 600, color: '#0f172a' }}>
+              <span style={{ fontSize: '.84375rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>
                 {isTemplateFolder ? 'No templates yet' : 'Nothing in ' + libFolderLabel}
               </span>
               <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
@@ -727,7 +727,7 @@ export default function Library(props: LibraryProps) {
             </div>
           ) : null}
           {libRows.length ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 14px', borderBottom: '1px solid #eef1f6' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 14px', borderBottom: '1px solid hsl(var(--color-border-hairline))' }}>
               <button
                 type="button"
                 role="checkbox"
@@ -769,12 +769,12 @@ export default function Library(props: LibraryProps) {
                   type="button"
                   onClick={d.onOpen}
                   onDoubleClick={d.onFavorite}
-                  style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: '.84375rem', fontWeight: 600, color: '#0f172a', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: '.84375rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 >{d.title}</button>
                 <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.meta}</span>
                 <span style={{ display: 'flex', gap: '7px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={d.pillStyle}>{d.statusLabel}</span>
-                  <span style={{ fontSize: '.6875rem', color: '#64748b' }}>{d.signers}</span>
+                  <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))' }}>{d.signers}</span>
                 </span>
               </div>
               <div style={isGrid
@@ -793,7 +793,7 @@ export default function Library(props: LibraryProps) {
                     <div
                       role="menu"
                       data-sf-scroll="1"
-                      style={{ position: 'absolute', right: 0, top: '32px', width: '230px', maxHeight: '320px', overflow: 'auto', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '12px', boxShadow: '0 18px 40px -18px rgba(15,23,42,.35)', padding: '6px', zIndex: 30, animation: 'sfIn .12s ease' }}
+                      style={{ position: 'absolute', right: 0, top: '32px', width: '230px', maxHeight: '320px', overflow: 'auto', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '12px', boxShadow: '0 18px 40px -18px rgba(15,23,42,.35)', padding: '6px', zIndex: 30, animation: 'sfIn .12s ease' }}
                     >
                       {d.actions.map(ac => (
                         <button key={ac.label} type="button" role="menuitem" onClick={ac.onClick} style={ac.style}><Icon name={markFor(ac.label)} size={12} />{ac.label}</button>

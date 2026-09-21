@@ -163,19 +163,19 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
   const cancel = () => { close(dismiss); };
 
   const cardStyle: CSSProperties = {
-    width: '420px', maxWidth: '100%', background: '#fff', borderRadius: '16px',
+    width: '420px', maxWidth: '100%', background: 'hsl(var(--color-bg-surface))', borderRadius: '16px',
     boxShadow: '0 40px 90px -30px rgba(15,23,42,.6)', animation: 'sfIn .16s ease',
   };
-  const ghost = btn('#fff', '#475569', '#e3e7ee');
+  const ghost = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
   const confirmTone = req?.kind === 'confirm' && req.opts.danger
-    ? btn('#b91c1c', '#fff', '#b91c1c')
-    : btn(A, '#fff', A);
+    ? btn('hsl(var(--color-bg-danger-solid))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-fg-danger))')
+    : btn(A, 'hsl(var(--color-fg-on-solid))', A);
   const ctaStyle: CSSProperties = submitDisabled
     ? Object.assign({}, confirmTone, { opacity: .5, cursor: 'not-allowed' })
     : confirmTone;
   const closeBtn: CSSProperties = {
-    width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee',
-    background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '.8125rem', lineHeight: 1, flex: '0 0 28px',
+    width: '28px', height: '28px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-subtle))',
+    background: 'hsl(var(--color-bg-surface))', cursor: 'pointer', color: 'hsl(var(--color-fg-subtle))', fontSize: '.8125rem', lineHeight: 1, flex: '0 0 28px',
   };
 
   const cta = req
@@ -200,11 +200,11 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
             style={cardStyle}
             onSubmit={event => { event.preventDefault(); submit(); }}
           >
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px', padding: '16px 18px', borderBottom: '1px solid #eef1f6' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px', padding: '16px 18px', borderBottom: '1px solid hsl(var(--color-border-hairline))' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <span style={{ fontSize: '.9375rem', fontWeight: 700, letterSpacing: '-.2px' }}>{req.opts.title}</span>
                 {req.opts.message ? (
-                  <span style={{ fontSize: '.75rem', color: '#64748b' }}>{req.opts.message}</span>
+                  <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))' }}>{req.opts.message}</span>
                 ) : null}
               </div>
               <button type="button" aria-label="Close" onClick={cancel} style={closeBtn}><Icon name="close" size={13} /></button>
@@ -214,7 +214,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
               <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label
                   htmlFor="sf-dialog-input"
-                  style={{ fontSize: '.6875rem', letterSpacing: '.04em', textTransform: 'uppercase', color: '#64748b', fontWeight: 500 }}
+                  style={{ fontSize: '.6875rem', letterSpacing: '.04em', textTransform: 'uppercase', color: 'hsl(var(--color-fg-muted))', fontWeight: 500 }}
                 >{fieldLabel}</label>
                 <input
                   id="sf-dialog-input"
@@ -233,7 +233,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
               <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label
                   htmlFor="sf-dialog-choice"
-                  style={{ fontSize: '.6875rem', letterSpacing: '.04em', textTransform: 'uppercase', color: '#64748b', fontWeight: 500 }}
+                  style={{ fontSize: '.6875rem', letterSpacing: '.04em', textTransform: 'uppercase', color: 'hsl(var(--color-fg-muted))', fontWeight: 500 }}
                 >{fieldLabel}</label>
                 <select
                   id="sf-dialog-choice"
@@ -246,7 +246,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
               </div>
             ) : null}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '14px 18px', borderTop: '1px solid #eef1f6' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '14px 18px', borderTop: '1px solid hsl(var(--color-border-hairline))' }}>
               <button type="button" onClick={cancel} style={ghost}><Icon name="close" size={13} />{cancelLabel}</button>
               <button type="submit" disabled={submitDisabled} style={ctaStyle}><Icon name="check" size={13} />{cta}</button>
             </div>

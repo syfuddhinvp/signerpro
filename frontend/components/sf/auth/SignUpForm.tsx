@@ -29,15 +29,15 @@ export default function SignUpForm() {
   const score = passwordScore(pw);
 
   const strengthBars = [0, 1, 2, 3].map(i => ({
-    style: { flex: '1', height: '4px', borderRadius: '99px', background: i < score ? STRENGTH_COLORS[score] : '#eef1f6' } as CSSProperties,
+    style: { flex: '1', height: '4px', borderRadius: '99px', background: i < score ? STRENGTH_COLORS[score] : 'hsl(var(--color-bg-muted))' } as CSSProperties,
   }));
   const strengthLabel = STRENGTH_WORDS[score];
-  const strengthLabelStyle: CSSProperties = { fontSize: '.6875rem', color: score >= 3 ? '#047857' : (score === 0 ? TEXT_MUTED : '#c2410c') };
+  const strengthLabelStyle: CSSProperties = { fontSize: '.6875rem', color: score >= 3 ? 'hsl(var(--color-fg-success))' : (score === 0 ? TEXT_MUTED : 'hsl(var(--color-fg-warning))') };
 
   const termsRow: CSSProperties = { display: 'flex', alignItems: 'flex-start', gap: '9px', background: 'none', border: 'none', padding: 0, cursor: 'pointer' };
   const termsBox: CSSProperties = {
-    width: '17px', height: '17px', borderRadius: '5px', display: 'grid', placeItems: 'center', fontSize: '.6875rem', color: '#fff',
-    flex: '0 0 17px', marginTop: '1px', border: '1px solid ' + (s.reg.terms ? A : BORDER_STRONG), background: s.reg.terms ? A : '#fff',
+    width: '17px', height: '17px', borderRadius: '5px', display: 'grid', placeItems: 'center', fontSize: '.6875rem', color: 'hsl(var(--color-fg-on-solid))',
+    flex: '0 0 17px', marginTop: '1px', border: '1px solid ' + (s.reg.terms ? A : BORDER_STRONG), background: s.reg.terms ? A : 'hsl(var(--color-bg-surface))',
   };
   const toggleTerms = () => set(st => ({ reg: Object.assign({}, st.reg, { terms: !st.reg.terms }) }));
 
@@ -115,7 +115,7 @@ export default function SignUpForm() {
         </label>
         <button type="button" role="checkbox" aria-checked={s.reg.terms} onClick={toggleTerms} style={termsRow}>
           <span style={termsBox}>{s.reg.terms ? <Icon name="check" size={11} /> : null}</span>
-          <span style={{ fontSize: '.71875rem', color: '#475569', lineHeight: 1.5, textAlign: 'left' }}>I agree to the Terms of Service, the Electronic Record and Signature Disclosure, and the DPA.</span>
+          <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.5, textAlign: 'left' }}>I agree to the Terms of Service, the Electronic Record and Signature Disclosure, and the DPA.</span>
         </button>
         {error ? <div role="alert" style={authErrorStyle}>{error}</div> : null}
         <button type="button" onClick={submitSignup} disabled={pending} style={authPrimary}><Icon name="addUser" size={14} />{pending ? 'Creating account…' : 'Create account'}</button>

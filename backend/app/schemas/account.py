@@ -1,7 +1,7 @@
 """Account-level preference schemas (SIGN-3, PREF-1…PREF-4, ACT-4)."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -58,6 +58,23 @@ class FieldFavoritesResponse(BaseModel):
     """The field types this user pinned to the builder palette's Favourites tab."""
 
     types: list[str] = []
+
+
+THEME_MODES = ("system", "light", "dark")
+THEME_PALETTES = ("indigo", "ocean", "emerald", "rose", "amber", "graphite")
+
+
+class AppearanceResponse(BaseModel):
+    """The theme this user chose: colour mode and accent palette. The values
+    mirror ``frontend/lib/theme/themes.ts``."""
+
+    mode: Literal["system", "light", "dark"] = "system"
+    palette: Literal["indigo", "ocean", "emerald", "rose", "amber", "graphite"] = "indigo"
+
+
+class AppearanceUpdate(AppearanceResponse):
+    """Both halves, always: the provider knows its whole state, and a replace
+    is idempotent when two tabs disagree."""
 
 
 class FieldFavoritesUpdate(BaseModel):

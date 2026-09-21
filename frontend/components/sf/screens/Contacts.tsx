@@ -24,7 +24,7 @@ export type ContactsProps = {
 export default function Contacts({ contacts: allContacts, groupLabels, counts }: ContactsProps) {
   const { s, set, accent, initials } = useSF();
   const A = accent();
-  const primaryBtn = btn(A, '#fff', A);
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
 
   const ctCounts = counts;
   /* Same predicate as the prototype's `contactsFiltered`, over server rows. */
@@ -41,8 +41,8 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts }:
         id, label, count: String(ctCounts[id] || 0), selected: on ? 'true' : 'false',
         onClick: () => set({ contactGroup: id }),
         style: { height:'26px', padding:'0 9px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.71875rem', fontWeight: on ? 600 : 500, display:'inline-flex', alignItems:'center', gap:'5px',
-          background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties,
-        badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: on ? '#64748b' : TEXT_MUTED } as CSSProperties,
+          background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties,
+        badge: { fontSize:'.625rem', fontFamily:'var(--font-sans)', color: on ? 'hsl(var(--color-fg-muted))' : TEXT_MUTED } as CSSProperties,
       };
     });
 
@@ -52,10 +52,10 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts }:
     return {
       id: c.id, name: c.name, email: c.email, company: c.company, source: c.source, initials: initials(c.name),
       envelopes: c.envelopes + ' envelopes',
-      avatar: { width:'30px', height:'30px', borderRadius:'99px', background:c.color, color:'#fff', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 30px' } as CSSProperties,
+      avatar: { width:'30px', height:'30px', borderRadius:'99px', background:c.color, color:'hsl(var(--color-fg-on-solid))', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 30px' } as CSSProperties,
       sourcePill: pill(SRC_TONE[c.source]),
       href: contactPathFor(c.id),
-      rowStyle: { display:'flex', alignItems:'center', gap:'11px', width:'100%', padding:'11px 14px', borderTop: i ? '1px solid #f2f4f8' : 'none',
+      rowStyle: { display:'flex', alignItems:'center', gap:'11px', width:'100%', padding:'11px 14px', borderTop: i ? '1px solid hsl(var(--color-border-faint))' : 'none',
         background:'transparent', border:'none', borderLeft:'3px solid transparent', cursor:'pointer', flexWrap:'wrap',
         color:'inherit', textDecoration:'none' } as CSSProperties,
     };
@@ -69,8 +69,8 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts }:
 
   return (
     <section data-screen-label="Contacts" style={{ padding:'22px 22px 40px', display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-        <div style={{ padding:'12px 14px', borderBottom:'1px solid #eef1f6', display:'flex', flexDirection:'column', gap:'9px' }}>
+      <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+        <div style={{ padding:'12px 14px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', flexDirection:'column', gap:'9px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
             <div style={railHead}>{contactScopeLabel}</div>
             <div style={{ display:'flex', gap:'7px' }}>
@@ -79,7 +79,7 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts }:
           </div>
           {allContacts.length ? (
             <>
-              <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px', flexWrap:'wrap' }}>
+              <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'10px', flexWrap:'wrap' }}>
                 {contactGroups.map(g => (
                   <button key={g.id} type="button" onClick={g.onClick} aria-pressed={g.selected as unknown as boolean} style={g.style}>
                     {g.label} <span style={g.badge}>{g.count}</span>
@@ -88,7 +88,7 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts }:
               </div>
               <input type="search" value={s.contactQuery} onChange={e => set({ contactQuery: e.target.value })}
                 placeholder="Search name, email, company, tag…" aria-label="Search contacts"
-                style={{ height:'32px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'#fbfcfd' }} />
+                style={{ height:'32px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'hsl(var(--color-bg-subtle))' }} />
             </>
           ) : null}
         </div>
@@ -96,14 +96,14 @@ export default function Contacts({ contacts: allContacts, groupLabels, counts }:
           <Link key={c.id} href={c.href} style={c.rowStyle}>
             <span style={c.avatar}>{c.initials}</span>
             <span style={{ display:'flex', flexDirection:'column', gap:'2px', flex:'1 1 180px', minWidth:'160px', textAlign:'left' }}>
-              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.name}</span>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.email} · {c.company}</span>
+              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'hsl(var(--color-fg-default))', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.name}</span>
+              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.email} · {c.company}</span>
             </span>
             <span style={c.sourcePill}>{c.source}</span>
             <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, flex:'0 0 auto', width:'96px', textAlign:'right' }}>{c.envelopes}</span>
           </Link>
         )) : (
-          <div style={{ padding:'22px 14px', fontSize:'.78125rem', color:'#64748b' }}>No contacts yet — add one to start routing envelopes.</div>
+          <div style={{ padding:'22px 14px', fontSize:'.78125rem', color:'hsl(var(--color-fg-muted))' }}>No contacts yet — add one to start routing envelopes.</div>
         )}
       </div>
     </section>

@@ -118,7 +118,7 @@ export default function AddRecipient({ accent, onAdd, variant = 'rail', disabled
   };
 
   const openBtn: CSSProperties = Object.assign(
-    btn('#fff', accent, '#e3e7ee'),
+    btn('hsl(var(--color-bg-surface))', accent, 'hsl(var(--color-border-subtle))'),
     { width: '100%', justifyContent: 'center' } as CSSProperties,
     disabled ? { opacity: .55, cursor: 'not-allowed' } : null,
   );
@@ -174,7 +174,7 @@ export default function AddRecipient({ accent, onAdd, variant = 'rail', disabled
               aria-label="Matching contacts"
               style={{
                 position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 30, margin: 0,
-                padding: '4px', listStyle: 'none', background: '#fff', border: '1px solid #e3e7ee',
+                padding: '4px', listStyle: 'none', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))',
                 borderRadius: '11px', boxShadow: '0 18px 40px -18px rgba(15,23,42,.4)', maxHeight: '212px', overflow: 'auto',
               }}
             >
@@ -190,10 +190,10 @@ export default function AddRecipient({ accent, onAdd, variant = 'rail', disabled
                     style={{
                       display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '1px', width: '100%',
                       padding: '6px 8px', borderRadius: '8px', border: 'none', cursor: 'pointer', textAlign: 'left',
-                      background: i === active ? '#eef2ff' : 'transparent',
+                      background: i === active ? 'hsl(var(--color-accent-subtle))' : 'transparent',
                     }}
                   >
-                    <span style={{ fontSize: '.75rem', fontWeight: 600, color: '#0f172a' }}>{row.name}</span>
+                    <span style={{ fontSize: '.75rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>{row.name}</span>
                     <span style={{ fontSize: '.6875rem', color: TEXT_MUTED }}>{row.email}</span>
                   </button>
                 </li>
@@ -211,14 +211,14 @@ export default function AddRecipient({ accent, onAdd, variant = 'rail', disabled
           style={inputStyle}
         />
         <div style={{ display: 'flex', gap: '6px' }}>
-          <button type="button" onClick={() => void submit()} disabled={busy} style={btn(accent, '#fff', accent)}>
+          <button type="button" onClick={() => void submit()} disabled={busy} style={btn(accent, 'hsl(var(--color-fg-on-solid))', accent)}>
             <Icon name="check" size={13} />{busy ? 'Adding…' : 'Add'}
           </button>
-          <button type="button" onClick={() => { reset(); setOpen(false); }} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
+          <button type="button" onClick={() => { reset(); setOpen(false); }} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="close" size={13} />Cancel</button>
         </div>
       </div>
       {error ? (
-        <span id={errorId} role="alert" style={{ fontSize: '.6875rem', color: '#b91c1c' }}>{error}</span>
+        <span id={errorId} role="alert" style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-danger))' }}>{error}</span>
       ) : (
         <span style={{ fontSize: '.6875rem', color: TEXT_MUTED }}>
           Email is enough — they are added as a signer and saved to your contacts.

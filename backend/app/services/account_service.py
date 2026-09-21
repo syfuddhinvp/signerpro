@@ -23,6 +23,8 @@ from app.models.enums import FieldType
 from app.schemas.account import (
     AccountAuditEntry,
     AccountAuditFeed,
+    AppearanceResponse,
+    AppearanceUpdate,
     CloudTargetItem,
     CloudTargetsUpdate,
     FieldFavoritesResponse,
@@ -32,6 +34,8 @@ from app.schemas.account import (
     NotificationPreferencesUpdate,
     SavedSignatureCreate,
     SavedSignatureResponse,
+    THEME_MODES,
+    THEME_PALETTES,
 )
 from app.services.cloud_integration_service import cloud_integration_service
 from app.services.cloud_providers import PROVIDER_NAMES
@@ -63,6 +67,10 @@ def _now() -> datetime:
 #: Where the builder palette's starred field types live on ``users.preferences``.
 #: A short per-user list with no query of its own does not earn a table.
 FIELD_FAVORITES_KEY = "favorite_field_types"
+
+#: Where the chosen theme lives on ``users.preferences``, beside the palette
+#: favourites: one small per-user record, never queried across users.
+APPEARANCE_KEY = "appearance"
 
 #: What a fresh account sees under the palette's Favourites tab.
 DEFAULT_FIELD_FAVORITES: tuple[str, ...] = ("signature", "date", "full_name", "checkbox")
@@ -363,6 +371,32 @@ class AccountService:
         user.preferences = preferences
         db.commit()
         return FieldFavoritesResponse(types=types)
+
+    # --- appearance (theme) ----------------------------------------------
+
+    def get_appearance(self, db: Session, *, user: User) -> AppearanceResponse:
+        stored = (user.preferences or {}).get(APPEARANCE_KEY)
+        if not isinstance(stored, dict):
+            return AppearanceResponse()
+        # Each half is validated on its own: a palette retired from the product
+        # falls back to the default without also resetting the colour mode.
+        defaults = AppearanceResponse()
+        mode = stored.get("mode")
+        palette = stored.get("palette")
+        return AppearanceResponse(
+            mode=mode if mode in THEME_MODES else defaults.mode,
+            palette=palette if palette in THEME_PALETTES else defaults.palette,
+        )
+
+    def update_appearance(
+        self, db: Session, *, user: User, payload: AppearanceUpdate
+    ) -> AppearanceResponse:
+        # Reassigned whole: see `update_field_favorites` on JSON columns.
+        preferences = dict(user.preferences or {})
+        preferences[APPEARANCE_KEY] = {"mode": payload.mode, "palette": payload.palette}
+        user.preferences = preferences
+        db.commit()
+        return AppearanceResponse(mode=payload.mode, palette=payload.palette)
 
     # --- integrations (PREF-3) -------------------------------------------
 

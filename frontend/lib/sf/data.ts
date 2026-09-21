@@ -7,7 +7,7 @@ export type Dict<T = any> = { [k: string]: T };
 export type Tone = { bg: string; fg: string; bd: string };
 
 export const BLANK_PNG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-export const ACCENT_DEFAULT = '#4f46e5';
+export const ACCENT_DEFAULT = 'hsl(var(--color-accent-solid))';
 
 /**
  * The builder palette. `id` is the backend `FieldType` verbatim — nothing is
@@ -93,11 +93,11 @@ export const DOCS: { id: string; title: string; pages: number; status: string; s
   ];
 
 export const STATUS: Dict<Tone & { label: string }> ={
-    action:   { label:'Action required', bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' },
-    waiting:  { label:'Waiting for others', bg:'#eef2ff', fg:'#4338ca', bd:'#c7d2fe' },
-    completed:{ label:'Completed', bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' },
-    draft:    { label:'Draft', bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' },
-    voided:   { label:'Voided', bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' }
+    action:   { label:'Action required', bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' },
+    waiting:  { label:'Waiting for others', bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-fg-info))', bd:'hsl(var(--color-accent-border))' },
+    completed:{ label:'Completed', bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' },
+    draft:    { label:'Draft', bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-subtle))', bd:'hsl(var(--color-border-subtle))' },
+    voided:   { label:'Voided', bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' }
   };
 
 export type TourStep = {
@@ -301,7 +301,7 @@ export const ROLE_WORDS: Dict<string> = { sign:'Needs to sign', approve:'Approve
 /* ── dashboard / library ── */
 
 export const QUICK_ACCESS: [string, string, number, string][] =[
-      ['inbox', 'Inbox / Waiting for me', 3, '#4f46e5'],
+      ['inbox', 'Inbox / Waiting for me', 3, 'hsl(var(--color-accent-solid))'],
       ['outbox', 'Outbox / Waiting for others', 12, '#0ea5e9'],
       ['completed', 'Completed / Signed', 127, '#10b981'],
       ['drafts', 'Drafts', 4, '#8492a6'],
@@ -329,9 +329,9 @@ export const PALETTE_TABS: [string, string][] = [['all','All fields'],['fav','Fa
 
 /* ── platform / super admin ── */
 
-export const PLAN_TONE: Dict<Tone> ={ Enterprise:{ bg:'#eef2ff', fg:'#3730a3', bd:'#c7d2fe' }, Business:{ bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' }, Team:{ bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' } };
+export const PLAN_TONE: Dict<Tone> ={ Enterprise:{ bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-accent-fg))', bd:'hsl(var(--color-accent-border))' }, Business:{ bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' }, Team:{ bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-subtle))', bd:'hsl(var(--color-border-subtle))' } };
 
-export const STATUS_TONE: Dict<Tone> ={ Active:{ bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' }, Trial:{ bg:'#eef2ff', fg:'#4338ca', bd:'#c7d2fe' }, 'Past due':{ bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' }, Suspended:{ bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' } };
+export const STATUS_TONE: Dict<Tone> ={ Active:{ bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' }, Trial:{ bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-fg-info))', bd:'hsl(var(--color-accent-border))' }, 'Past due':{ bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' }, Suspended:{ bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' } };
 export const ROLE_LABEL: Dict<string> = { super:'Super admin', orgadmin:'Org admin', sender:'Sender', viewer:'Viewer' };
 export const PERM_COLUMNS: string[] = ['Super admin','Org admin','Sender','Viewer'];
 export const PLATFORM_TABS: [string, string][] = [['tenants','Tenants'],['users','Users & roles'],['flags','Feature flags'],['billing','Plans & usage'],['security','Security & compliance']];
@@ -343,7 +343,7 @@ export const FLAG_META: Dict<[string, string]> ={
       'audit.ledger_anchoring': ['prod', 'Hourly anchoring of document hashes to the append-only verification ledger.'],
       'signing.ai_clause_summary': ['canary', 'Plain-language clause summary shown to signers before execution.']
     };
-export const FLAG_ENV_TONE: Dict<Tone> = { prod:{ bg:'#eef2ff', fg:'#3730a3', bd:'#c7d2fe' }, staging:{ bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' }, canary:{ bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' } };
+export const FLAG_ENV_TONE: Dict<Tone> = { prod:{ bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-accent-fg))', bd:'hsl(var(--color-accent-border))' }, staging:{ bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' }, canary:{ bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' } };
 
 /* ── tenant admin overview ── */
 
@@ -357,7 +357,7 @@ export const PLAN_PRICES: Dict<string> = { Team:'$12 / seat', Business:'$28 / se
 
 /* ── invoices ── */
 
-export const INV_STATUS_TONE: Dict<Tone> ={ paid:{ bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' }, open:{ bg:'#eef2ff', fg:'#4338ca', bd:'#c7d2fe' }, past_due:{ bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' }, void:{ bg:'#f5f6f8', fg:'#64748b', bd:'#e3e7ee' } };
+export const INV_STATUS_TONE: Dict<Tone> ={ paid:{ bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' }, open:{ bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-fg-info))', bd:'hsl(var(--color-accent-border))' }, past_due:{ bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' }, void:{ bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-muted))', bd:'hsl(var(--color-border-subtle))' } };
 
 export const INV_STATUS_LABEL: Dict<string> ={ paid:'Paid', open:'Open', past_due:'Past due', void:'Void' };
 export const INVOICE_FILTERS: [string, string][] = [['all','All'],['open','Open'],['paid','Paid'],['past_due','Past due']];
@@ -366,13 +366,13 @@ export const INVOICE_FILTERS: [string, string][] = [['all','All'],['open','Open'
 export const LOG_SOURCES: [string, string][] = [['all','All'],['api','API'],['webhook','Webhooks'],['auth','Auth'],['billing','Billing'],['signing','Signing'],['admin','Admin']];
 export const LOG_LEVELS: [string, string][] = [['all','All levels'],['info','Info'],['warn','Warn'],['error','Error']];
 
-export const LEVEL_TONE: Dict<{ bg: string; fg: string }> ={ info:{ bg:'rgba(99,102,241,.18)', fg:'#a5b4fc' }, warn:{ bg:'rgba(245,158,11,.18)', fg:'#fcd34d' }, error:{ bg:'rgba(244,63,94,.18)', fg:'#fda4af' } };
+export const LEVEL_TONE: Dict<{ bg: string; fg: string }> ={ info:{ bg:'rgba(99,102,241,.18)', fg:'#a5b4fc' }, warn:{ bg:'rgba(245,158,11,.18)', fg:'hsl(var(--color-border-warning))' }, error:{ bg:'rgba(244,63,94,.18)', fg:'#fda4af' } };
 
 /* ── contacts ── */
 
 export const GROUP_LABELS: Dict<string> ={ customers:'Customers', internal:'Internal', counsel:'Counsel', vendors:'Vendors' };
 
-export const SRC_TONE: Dict<Tone> ={ CRM:{ bg:'#eef2ff', fg:'#3730a3', bd:'#c7d2fe' }, SCIM:{ bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' }, API:{ bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' }, Manual:{ bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' } };
+export const SRC_TONE: Dict<Tone> ={ CRM:{ bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-accent-fg))', bd:'hsl(var(--color-accent-border))' }, SCIM:{ bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' }, API:{ bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' }, Manual:{ bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-subtle))', bd:'hsl(var(--color-border-subtle))' } };
 
 export const CONTACT_PALETTE: string[] = ['#10b981','#6366f1','#f59e0b','#0ea5e9','#8b5cf6','#14b8a6','#f43f5e'];
 
@@ -427,18 +427,18 @@ export const EMBED_SNIPPET: string =
 
 /* ── support ── */
 
-export const TK_STATUS_TONE: Dict<Tone> ={ open:{ bg:'#eef2ff', fg:'#4338ca', bd:'#c7d2fe' }, pending:{ bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' }, escalated:{ bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' }, resolved:{ bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } };
+export const TK_STATUS_TONE: Dict<Tone> ={ open:{ bg:'hsl(var(--color-accent-subtle))', fg:'hsl(var(--color-fg-info))', bd:'hsl(var(--color-accent-border))' }, pending:{ bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' }, escalated:{ bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' }, resolved:{ bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' } };
 
 export const TK_STATUS_LABEL: Dict<string> ={ open:'Open', pending:'Pending customer', escalated:'Escalated', resolved:'Resolved' };
 
-export const TK_PRIO_TONE: Dict<Tone & { c: string }> ={ urgent:{ bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca', c:'#f43f5e' }, high:{ bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa', c:'#f59e0b' }, normal:{ bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee', c:'#8492a6' }, low:{ bg:'#f5f6f8', fg:'#64748b', bd:'#e3e7ee', c:'#8492a6' } };
+export const TK_PRIO_TONE: Dict<Tone & { c: string }> ={ urgent:{ bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))', c:'#f43f5e' }, high:{ bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))', c:'#f59e0b' }, normal:{ bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-subtle))', bd:'hsl(var(--color-border-subtle))', c:'#8492a6' }, low:{ bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-muted))', bd:'hsl(var(--color-border-subtle))', c:'#8492a6' } };
 
 export const TK_PRIO_LABEL: Dict<string> ={ urgent:'P1 Urgent', high:'P2 High', normal:'P3 Normal', low:'P4 Low' };
 export const TICKET_FILTERS: [string, string][] = [['all','All'],['open','Open'],['escalated','Escalated'],['pending','Pending'],['resolved','Resolved']];
 export const SLA_MAP: Dict<string> = { urgent:'1h 00m left', high:'4h 00m left', normal:'1d 0h left', low:'3d 0h left' };
 /* ── auth ── */
 
-export const STRENGTH_COLORS: string[] =['#e3e7ee', '#f43f5e', '#f59e0b', '#6366f1', '#10b981'];
+export const STRENGTH_COLORS: string[] =['hsl(var(--color-border-subtle))', '#f43f5e', '#f59e0b', '#6366f1', '#10b981'];
 
 export const STRENGTH_WORDS: string[] =['Use 12+ characters with a number, capital and symbol', 'Weak — add length', 'Fair — add a number or symbol', 'Strong', 'Excellent — meets enterprise policy'];
 export const AUTH_TABS: [string, string][] = [['signin','Sign in'],['signup','Create account']];

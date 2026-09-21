@@ -34,7 +34,7 @@ export default function SignInForm() {
   const rememberRow: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', padding: 0, cursor: 'pointer' };
   const rememberBox: CSSProperties = {
     width: '17px', height: '17px', borderRadius: '5px', display: 'grid', placeItems: 'center', fontSize: '.6875rem',
-    color: '#fff', flex: '0 0 17px', border: '1px solid ' + (s.remember ? A : BORDER_STRONG), background: s.remember ? A : '#fff',
+    color: 'hsl(var(--color-fg-on-solid))', flex: '0 0 17px', border: '1px solid ' + (s.remember ? A : BORDER_STRONG), background: s.remember ? A : 'hsl(var(--color-bg-surface))',
   };
 
   const submitSignin = async (event: FormEvent<HTMLFormElement>) => {
@@ -105,7 +105,7 @@ export default function SignInForm() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
           <button type="button" role="switch" aria-checked={s.remember} onClick={() => set({ remember: !s.remember })} style={rememberRow}>
             <span style={rememberBox}>{s.remember ? <Icon name="check" size={11} /> : null}</span>
-            <span style={{ fontSize: '.75rem', color: '#334155' }}>Remember this device</span>
+            <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-subtle))' }}>Remember this device</span>
           </button>
           <Link href={AUTH_PATHS.forgot} style={linkStyle}>Forgot password?</Link>
         </div>

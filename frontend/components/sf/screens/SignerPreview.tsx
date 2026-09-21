@@ -46,23 +46,23 @@ export default function SignerPreview({
   const viewportBtn = (on: boolean): CSSProperties => ({
     height: '28px', padding: '0 11px', borderRadius: '8px', border: 'none', cursor: 'pointer',
     fontSize: '.75rem', fontWeight: on ? 600 : 500,
-    background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
+    background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
     boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
   });
 
   const chip = (on: boolean): CSSProperties => ({
     display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 10px', borderRadius: '99px',
-    border: '1px solid ' + (on ? '#c7d2fe' : '#e3e7ee'), background: on ? '#eef2ff' : '#fff',
-    color: on ? '#0f172a' : '#475569', fontSize: '.75rem', fontWeight: on ? 600 : 500,
+    border: '1px solid ' + (on ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))'), background: on ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))',
+    color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-subtle))', fontSize: '.75rem', fontWeight: on ? 600 : 500,
     textDecoration: 'none', whiteSpace: 'nowrap',
   });
 
   return (
     <section data-screen-label="Signer preview" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
 
-      <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '10px 16px', background: '#fff', borderBottom: '1px solid #e3e7ee' }}>
-        <Link href={backHref} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '.78125rem', fontWeight: 600, color: '#334155', textDecoration: 'none' }}>
+      <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '10px 16px', background: 'hsl(var(--color-bg-surface))', borderBottom: '1px solid hsl(var(--color-border-subtle))' }}>
+        <Link href={backHref} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '.78125rem', fontWeight: 600, color: 'hsl(var(--color-fg-subtle))', textDecoration: 'none' }}>
           <span aria-hidden="true">‹</span> Back to editing
         </Link>
 
@@ -84,20 +84,20 @@ export default function SignerPreview({
           </div>
         ) : null}
 
-        <div role="group" aria-label="Preview viewport" style={{ marginLeft: 'auto', display: 'flex', gap: '4px', background: '#eceff4', padding: '4px', borderRadius: '10px' }}>
+        <div role="group" aria-label="Preview viewport" style={{ marginLeft: 'auto', display: 'flex', gap: '4px', background: 'hsl(var(--color-bg-muted))', padding: '4px', borderRadius: '10px' }}>
           <button type="button" aria-pressed={!mobile} onClick={() => setMobile(false)} style={viewportBtn(!mobile)}><Icon name="desktop" size={12} />Desktop</button>
           <button type="button" aria-pressed={mobile} onClick={() => setMobile(true)} style={viewportBtn(mobile)}><Icon name="mobile" size={12} />Mobile</button>
         </div>
       </div>
 
-      <div role="status" style={{ flex: '0 0 auto', padding: '8px 16px', background: '#fef3c7', borderBottom: '1px solid #fde68a', fontSize: '.75rem', color: '#92400e', textAlign: 'center' }}>
+      <div role="status" style={{ flex: '0 0 auto', padding: '8px 16px', background: 'hsl(var(--color-bg-warning-subtle))', borderBottom: '1px solid hsl(var(--color-border-warning))', fontSize: '.75rem', color: 'hsl(var(--color-fg-warning))', textAlign: 'center' }}>
         This is a preview — anything you fill in here is not saved, and no one is notified.
       </div>
 
       {/* The mobile viewport is a width constraint on the real surface rather
           than a second rendering of it, so the two previews cannot diverge. */}
-      <div data-preview-viewport={mobile ? 'mobile' : 'desktop'} style={{ flex: 1, minHeight: 0, display: 'flex', justifyContent: 'center', background: '#eceff4' }}>
-        <div style={{ flex: 1, minWidth: 0, maxWidth: mobile ? MOBILE_WIDTH + 'px' : 'none', display: 'flex', flexDirection: 'column', minHeight: 0, borderLeft: mobile ? '1px solid #e3e7ee' : 'none', borderRight: mobile ? '1px solid #e3e7ee' : 'none' }}>
+      <div data-preview-viewport={mobile ? 'mobile' : 'desktop'} style={{ flex: 1, minHeight: 0, display: 'flex', justifyContent: 'center', background: 'hsl(var(--color-bg-muted))' }}>
+        <div style={{ flex: 1, minWidth: 0, maxWidth: mobile ? MOBILE_WIDTH + 'px' : 'none', display: 'flex', flexDirection: 'column', minHeight: 0, borderLeft: mobile ? '1px solid hsl(var(--color-border-subtle))' : 'none', borderRight: mobile ? '1px solid hsl(var(--color-border-subtle))' : 'none' }}>
           {children}
         </div>
       </div>

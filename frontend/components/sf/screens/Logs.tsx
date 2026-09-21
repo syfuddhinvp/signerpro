@@ -87,7 +87,7 @@ export default function Logs({ page, scope, sinceDays, orgSlug, loadError = null
 
   const chipStyle = (on: boolean): CSSProperties => ({
     height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: on ? 600 : 500,
-    background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none'
+    background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none'
   });
 
   /* The filter groups come from the API's own `sources` / `levels` lists — the
@@ -117,7 +117,7 @@ export default function Logs({ page, scope, sinceDays, orgSlug, loadError = null
       levelStyle: { padding:'2px 7px', borderRadius:'6px', background: tone.bg, color: tone.fg, fontSize:'.59375rem', fontWeight:700, fontFamily:'var(--font-sans)', flex:'0 0 auto' } as CSSProperties,
       srcStyle: { fontSize:'.65625rem', color:TEXT_MUTED_ON_DARK, fontFamily:'var(--font-sans)', width:'62px', flex:'0 0 62px', textAlign:'left' } as CSSProperties,
       codeStyle: { fontSize:'.65625rem', fontFamily:'var(--font-sans)', flex:'0 0 auto', width:'34px', textAlign:'right',
-        color: l.code === '429' || l.code === '402' || l.code === '422' || l.code === '502' ? '#fda4af' : '#64748b' } as CSSProperties
+        color: l.code === '429' || l.code === '402' || l.code === '422' || l.code === '502' ? '#fda4af' : 'hsl(var(--color-fg-muted))' } as CSSProperties
     };
   });
 
@@ -130,31 +130,31 @@ export default function Logs({ page, scope, sinceDays, orgSlug, loadError = null
         <ApiUnavailable what="The log stream" detail={fetchError} onRetry={retry} />
       ) : null}
       <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
-        <div style={{ display:'flex', gap:'4px', background:'#eceff4', padding:'4px', borderRadius:'10px' }}>
+        <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-muted))', padding:'4px', borderRadius:'10px' }}>
           {logSources.map(l => (
             <button key={l.id} type="button" onClick={l.onClick} aria-pressed={l.selected} style={l.style}>{l.label}</button>
           ))}
         </div>
-        <div style={{ display:'flex', gap:'4px', background:'#eceff4', padding:'4px', borderRadius:'10px' }}>
+        <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-muted))', padding:'4px', borderRadius:'10px' }}>
           {logLevels.map(l => (
             <button key={l.id} type="button" onClick={l.onClick} aria-pressed={l.selected} style={l.style}>{l.label}</button>
           ))}
         </div>
         <input type="search" value={s.logQuery} onChange={(e) => set({ logQuery: e.target.value })} placeholder="Search message, request id, actor…" aria-label="Search logs"
-          style={{ height:'32px', flex:1, minWidth:'200px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'#fff' }} />
-        <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{logCountLabel}</span>
+          style={{ height:'32px', flex:1, minWidth:'200px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'hsl(var(--color-bg-surface))' }} />
+        <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{logCountLabel}</span>
       </div>
 
-      <div style={{ background:'#0f172a', border:'1px solid #1e293b', borderRadius:'16px', overflow:'hidden' }}>
+      <div style={{ background:'hsl(var(--color-bg-panel-dark))', border:'1px solid #1e293b', borderRadius:'16px', overflow:'hidden' }}>
         {logs.map(l => (
           <div key={l.key} style={l.wrapStyle}>
             <button type="button" onClick={l.onToggle} aria-expanded={l.openStr} style={l.rowStyle}>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{l.ts}</span>
+              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{l.ts}</span>
               <span style={l.levelStyle}>{l.level}</span>
               <span style={l.srcStyle}>{l.source}</span>
               <span style={{ fontSize:'.75rem', color:'#e2e8f0', fontFamily:'var(--font-sans)', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', textAlign:'left' }}>{l.msg}</span>
               <span style={l.codeStyle}>{l.code}</span>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', flex:'0 0 auto', width:'56px', textAlign:'right' }}>{l.latency}</span>
+              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', flex:'0 0 auto', width:'56px', textAlign:'right' }}>{l.latency}</span>
             </button>
             {l.open ? (
               <pre style={{ margin:0, padding:'12px 16px 16px 16px', fontFamily:'var(--font-sans)', fontSize:'.6875rem', color:'#a5b4fc', background:'#0b1424', whiteSpace:'pre-wrap', wordBreak:'break-all', lineHeight:1.65 }}>{l.payload}</pre>
@@ -162,10 +162,10 @@ export default function Logs({ page, scope, sinceDays, orgSlug, loadError = null
           </div>
         ))}
         {logs.length === 0 ? (
-          <div style={{ padding:'26px 15px', textAlign:'center', fontSize:'.75rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>No events in this window.</div>
+          <div style={{ padding:'26px 15px', textAlign:'center', fontSize:'.75rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>No events in this window.</div>
         ) : null}
       </div>
-      <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>
         <span>retention 90 days · streamed to S3 + Datadog</span>
         <span>{logScopeLabel}</span>
       </div>

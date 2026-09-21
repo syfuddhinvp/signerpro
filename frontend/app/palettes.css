@@ -1,0 +1,157 @@
+/**
+ * Accent palettes. `lib/theme/themes.ts` lists the ids; the provider writes
+ * the chosen one to `<html data-palette>`, and each block below re-points the
+ * accent, highlight and focus tokens from `tokens.css`. Indigo is the default
+ * and is what `tokens.css` declares, so it needs no block here.
+ *
+ * Every `*-fg` value is checked against its `*-subtle` at 4.5:1 or better, and
+ * every solid against white (light) or the dark canvas (dark) at 4.5:1. The hex
+ * in `PALETTES[].accent` / `.accentDark` must equal `--color-accent-solid` here.
+ */
+
+/* ── ocean ── */
+:root[data-palette='ocean'] {
+  --color-accent-solid: 201 96% 32%;          /* #0369a1 */
+  --color-accent-solid-hover: 201 90% 27%;
+  --color-accent-solid-active: 202 80% 24%;
+  --color-accent-subtle: 204 100% 97%;        /* #f0f9ff */
+  --color-accent-muted: 201 94% 86%;          /* #bae6fd */
+  --color-accent-fg: 202 80% 24%;             /* #075985 */
+  --color-accent-border: 201 94% 86%;
+  --color-focus-ring: 201 96% 32%;
+  --color-field-selected-ring: 201 96% 32%;
+  --color-field-surface: 204 100% 97%;
+}
+:root[data-palette='ocean'][data-theme='dark'] {
+  --color-accent-solid: 199 89% 48%;          /* #0ea5e9 */
+  --color-accent-solid-hover: 199 89% 56%;
+  --color-accent-solid-active: 199 89% 42%;
+  --color-accent-subtle: 202 60% 18%;
+  --color-accent-muted: 201 50% 30%;
+  --color-accent-fg: 199 95% 80%;
+  --color-accent-border: 201 50% 30%;
+  --color-focus-ring: 199 95% 74%;
+  --color-field-selected-ring: 199 89% 48%;
+  --color-field-surface: 202 60% 18%;
+}
+
+/* ── emerald ── */
+:root[data-palette='emerald'] {
+  --color-accent-solid: 163 94% 24%;          /* #047857 */
+  --color-accent-solid-hover: 163 94% 20%;
+  --color-accent-solid-active: 164 86% 17%;
+  --color-accent-subtle: 152 81% 96%;         /* #ecfdf5 */
+  --color-accent-muted: 152 76% 80%;          /* #a7f3d0 */
+  --color-accent-fg: 164 86% 17%;             /* #065f46 */
+  --color-accent-border: 152 76% 80%;
+  --color-focus-ring: 164 96% 24%;
+  --color-field-selected-ring: 164 96% 24%;
+  --color-field-surface: 152 81% 96%;
+  /* The secondary emphasis is green by default; swap it to indigo so success
+     states and the accent stay tellable apart. */
+  --color-highlight-solid: 243 75% 59%;
+  --color-highlight-solid-hover: 244 62% 51%;
+  --color-highlight-subtle: 226 100% 97%;
+  --color-highlight-fg: 244 47% 43%;
+  --color-highlight-border: 226 100% 92%;
+}
+:root[data-palette='emerald'][data-theme='dark'] {
+  --color-accent-solid: 160 84% 39%;          /* #10b981 */
+  --color-accent-solid-hover: 160 84% 46%;
+  --color-accent-solid-active: 161 94% 30%;
+  --color-accent-subtle: 162 50% 16%;
+  --color-accent-muted: 161 45% 28%;
+  --color-accent-fg: 152 76% 74%;
+  --color-accent-border: 161 45% 28%;
+  --color-focus-ring: 152 76% 70%;
+  --color-field-selected-ring: 160 84% 39%;
+  --color-field-surface: 162 50% 16%;
+  --color-highlight-subtle: 244 40% 20%;
+  --color-highlight-fg: 226 100% 84%;
+  --color-highlight-border: 244 30% 34%;
+}
+
+/* ── rose ── */
+:root[data-palette='rose'] {
+  --color-accent-solid: 345 83% 41%;          /* #be123c */
+  --color-accent-solid-hover: 343 84% 35%;
+  --color-accent-solid-active: 343 80% 30%;
+  --color-accent-subtle: 356 100% 97%;        /* #fff1f2 */
+  --color-accent-muted: 353 96% 90%;          /* #fecdd3 */
+  --color-accent-fg: 343 80% 30%;             /* #9f1239 */
+  --color-accent-border: 353 96% 90%;
+  --color-focus-ring: 343 88% 41%;
+  --color-field-selected-ring: 343 88% 41%;
+  --color-field-surface: 356 100% 97%;
+}
+:root[data-palette='rose'][data-theme='dark'] {
+  --color-accent-solid: 350 89% 60%;          /* #f43f5e */
+  --color-accent-solid-hover: 350 89% 66%;
+  --color-accent-solid-active: 347 77% 50%;
+  --color-accent-subtle: 345 50% 18%;
+  --color-accent-muted: 346 45% 32%;
+  --color-accent-fg: 353 96% 84%;
+  --color-accent-border: 346 45% 32%;
+  --color-focus-ring: 353 96% 78%;
+  --color-field-selected-ring: 350 89% 60%;
+  --color-field-surface: 345 50% 18%;
+}
+
+/* ── amber ── */
+:root[data-palette='amber'] {
+  --color-accent-solid: 26 90% 37%;           /* #b45309 */
+  --color-accent-solid-hover: 26 86% 31%;
+  --color-accent-solid-active: 24 80% 27%;
+  --color-accent-subtle: 48 100% 96%;         /* #fffbeb */
+  --color-accent-muted: 45 97% 77%;           /* #fde68a */
+  --color-accent-fg: 24 80% 27%;              /* #7c2d12 area */
+  --color-accent-border: 45 97% 77%;
+  --color-focus-ring: 26 90% 37%;
+  --color-field-selected-ring: 26 90% 37%;
+  --color-field-surface: 48 100% 96%;
+  /* Warning is amber too; push warnings toward orange-red so they still stand
+     out against an amber accent. */
+  --color-fg-warning: 17 88% 40%;
+  --color-bg-warning-solid: 17 88% 40%;
+}
+:root[data-palette='amber'][data-theme='dark'] {
+  --color-accent-solid: 38 92% 50%;           /* #f59e0b */
+  --color-accent-solid-hover: 38 92% 58%;
+  --color-accent-solid-active: 32 95% 44%;
+  --color-accent-subtle: 36 50% 16%;
+  --color-accent-muted: 36 45% 30%;
+  --color-accent-fg: 45 97% 77%;
+  --color-accent-border: 36 45% 30%;
+  --color-focus-ring: 45 97% 70%;
+  --color-field-selected-ring: 38 92% 50%;
+  --color-field-surface: 36 50% 16%;
+  --color-accent-on-solid: 24 80% 12%;
+  --color-fg-warning: 17 90% 74%;
+}
+
+/* ── graphite ── */
+:root[data-palette='graphite'] {
+  --color-accent-solid: 217 33% 17%;          /* #1e293b */
+  --color-accent-solid-hover: 215 28% 24%;
+  --color-accent-solid-active: 222 47% 11%;
+  --color-accent-subtle: 214 32% 95%;         /* #eef1f6 */
+  --color-accent-muted: 214 24% 84%;          /* #cbd5e1 */
+  --color-accent-fg: 222 47% 11%;
+  --color-accent-border: 214 24% 84%;
+  --color-focus-ring: 217 33% 17%;
+  --color-field-selected-ring: 217 33% 17%;
+  --color-field-surface: 214 32% 95%;
+}
+:root[data-palette='graphite'][data-theme='dark'] {
+  --color-accent-solid: 216 21% 70%;          /* #a1aec2 */
+  --color-accent-solid-hover: 215 20% 72%;
+  --color-accent-solid-active: 215 18% 56%;
+  --color-accent-subtle: 220 26% 22%;
+  --color-accent-muted: 219 22% 34%;
+  --color-accent-fg: 214 32% 91%;
+  --color-accent-border: 219 22% 34%;
+  --color-focus-ring: 215 20% 78%;
+  --color-field-selected-ring: 215 20% 65%;
+  --color-field-surface: 220 26% 22%;
+  --color-accent-on-solid: 222 47% 11%;
+}

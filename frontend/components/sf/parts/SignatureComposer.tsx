@@ -73,7 +73,7 @@ export default function SignatureComposer({
       onClick: () => set({ sigTab: id }),
       style: {
         flex: '1', height: '30px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '.78125rem',
-        fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
+        fontWeight: on ? 600 : 500, background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
         boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none'
       } as CSSProperties
     };
@@ -86,11 +86,11 @@ export default function SignatureComposer({
       onClick: () => set({ typeFace: name }),
       style: {
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', padding: '12px 8px',
-        borderRadius: '11px', cursor: 'pointer', border: '1px solid ' + (on ? A : '#e3e7ee'),
-        background: on ? '#eef2ff' : '#fbfcfd'
+        borderRadius: '11px', cursor: 'pointer', border: '1px solid ' + (on ? A : 'hsl(var(--color-border-subtle))'),
+        background: on ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-subtle))'
       } as CSSProperties,
       preview: {
-        fontFamily: typeFaceStack(name), fontSize: '1.625rem', color: '#0f172a', lineHeight: 1.1,
+        fontFamily: typeFaceStack(name), fontSize: '1.625rem', color: 'hsl(var(--color-fg-default))', lineHeight: 1.1,
         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%'
       } as CSSProperties
     };
@@ -104,9 +104,9 @@ export default function SignatureComposer({
     meta: [x.signature_type, x.is_passkey_bound ? 'passkey-bound' : null].filter(Boolean).join(' · '),
     style: {
       display: 'flex', alignItems: 'center', gap: '14px', padding: '11px 13px', borderRadius: '12px',
-      border: '1px solid #e3e7ee', background: '#fbfcfd', cursor: 'pointer', width: '100%'
+      border: '1px solid hsl(var(--color-border-subtle))', background: 'hsl(var(--color-bg-subtle))', cursor: 'pointer', width: '100%'
     } as CSSProperties,
-    preview: { fontFamily: typeFaceStack(x.type_face || x.face), fontSize: '1.625rem', color: '#0f172a' } as CSSProperties
+    preview: { fontFamily: typeFaceStack(x.type_face || x.face), fontSize: '1.625rem', color: 'hsl(var(--color-fg-default))' } as CSSProperties
   }));
 
   const inks = INKS.map(([c, aria]) => ({
@@ -114,8 +114,8 @@ export default function SignatureComposer({
     onClick: () => set({ sigInk: c }),
     style: {
       width: '22px', height: '22px', borderRadius: '99px', background: c, cursor: 'pointer',
-      border: s.sigInk === c ? '2px solid ' + A : '2px solid #e3e7ee',
-      boxShadow: s.sigInk === c ? '0 0 0 2px #fff inset' : 'none'
+      border: s.sigInk === c ? '2px solid ' + A : '2px solid hsl(var(--color-border-subtle))',
+      boxShadow: s.sigInk === c ? '0 0 0 2px hsl(var(--color-bg-surface)) inset' : 'none'
     } as CSSProperties
   }));
 
@@ -191,11 +191,11 @@ export default function SignatureComposer({
     return { signature_type: 'typed', signature_text: st.typedName, type_face: st.typeFace, signature_image_base64: null };
   };
 
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <div role="tablist" aria-label="Signature method" style={{ display: 'flex', gap: '4px', background: '#f5f6f8', padding: '4px', borderRadius: '11px' }}>
+      <div role="tablist" aria-label="Signature method" style={{ display: 'flex', gap: '4px', background: 'hsl(var(--color-bg-canvas))', padding: '4px', borderRadius: '11px' }}>
         {sigTabs.map(t => (
           <button key={t.id} type="button" role="tab" aria-selected={t.selected} onClick={t.onClick} style={t.style}>{t.label}</button>
         ))}
@@ -208,25 +208,25 @@ export default function SignatureComposer({
             width={1120}
             height={360}
             aria-label="Draw your signature"
-            style={{ width: '100%', height: '180px', background: '#fbfcfd', border: '1px dashed #8492a6', borderRadius: '12px', touchAction: 'none', cursor: 'crosshair' }}
+            style={{ width: '100%', height: '180px', background: 'hsl(var(--color-bg-subtle))', border: '1px dashed hsl(var(--color-border-strong))', borderRadius: '12px', touchAction: 'none', cursor: 'crosshair' }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Ink</span>
+              <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))' }}>Ink</span>
               {inks.map(i => (
                 <button key={i.c} type="button" aria-label={i.aria} onClick={i.onClick} style={i.style} />
               ))}
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Stroke</span>
+              <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))' }}>Stroke</span>
               <input
                 type="range" min="1" max="9" step="1"
                 value={String(s.sigStroke)}
                 onChange={(e) => set({ sigStroke: parseInt(e.target.value, 10) })}
                 aria-label="Stroke thickness"
-                style={{ width: '120px', accentColor: '#4f46e5' }}
+                style={{ width: '120px', accentColor: 'hsl(var(--color-accent-solid))' }}
               />
-              <span style={{ fontSize: '.71875rem', fontFamily: 'var(--font-sans)', color: '#334155' }}>{String(s.sigStroke)}px</span>
+              <span style={{ fontSize: '.71875rem', fontFamily: 'var(--font-sans)', color: 'hsl(var(--color-fg-subtle))' }}>{String(s.sigStroke)}px</span>
             </div>
             <button type="button" onClick={clearCanvas} style={ghostBtn}><Icon name="trash" size={13} />Clear</button>
             <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, marginLeft: 'auto' }}>Bézier smoothing · stylus &amp; touch supported</span>
@@ -256,17 +256,17 @@ export default function SignatureComposer({
 
       {s.sigTab === 'upload' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
-          <label style={{ border: '1px dashed #8492a6', borderRadius: '12px', padding: '24px', textAlign: 'center', background: '#fbfcfd', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <label style={{ border: '1px dashed hsl(var(--color-border-strong))', borderRadius: '12px', padding: '24px', textAlign: 'center', background: 'hsl(var(--color-bg-subtle))', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>Drop a PNG or JPG of your signature</span>
-            <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Background is filtered to transparency automatically</span>
+            <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))' }}>Background is filtered to transparency automatically</span>
             <input type="file" accept="image/*" onChange={onUpload} style={{ margin: '9px auto 0', fontSize: '.75rem' }} />
           </label>
           {s.uploadSrc ? (
-            <div style={{ border: '1px solid #eef1f6', borderRadius: '12px', padding: '12px', display: 'flex', alignItems: 'center', gap: '12px', background: '#fff' }}>
+            <div style={{ border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '12px', padding: '12px', display: 'flex', alignItems: 'center', gap: '12px', background: 'hsl(var(--color-bg-surface))' }}>
               <span style={{ display: 'flex' }}>
                 <img src={s.uploadSrc} alt="Uploaded signature preview" style={{ height: '64px', objectFit: 'contain' }} />
               </span>
-              <span style={{ fontSize: '.71875rem', color: '#64748b' }}>Transparency filter applied · 1 layer</span>
+              <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))' }}>Transparency filter applied · 1 layer</span>
             </div>
           ) : null}
         </div>
@@ -283,7 +283,7 @@ export default function SignatureComposer({
             <button key={sig.key} type="button" onClick={() => onPickSaved?.(sig.row)} style={sig.style}>
               <span style={sig.preview}>{sig.name}</span>
               <span style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '2px', marginLeft: 'auto' }}>
-                <span style={{ fontSize: '.71875rem', color: '#475569', fontWeight: 600 }}>{sig.label}</span>
+                <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-subtle))', fontWeight: 600 }}>{sig.label}</span>
                 <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>{sig.meta}</span>
               </span>
             </button>

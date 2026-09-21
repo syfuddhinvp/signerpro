@@ -197,8 +197,8 @@ export default function Routing({ documentId, title, recipients, routing, brandi
     role: r.role,
     order: s.routing === 'parallel' ? '=' : String(r.order),
     status: r.status,
-    rowStyle: { display: 'flex', alignItems: 'center', gap: '11px', padding: '11px', border: '1px solid #eef1f6', borderRadius: '12px', background: '#fbfcfd' } as CSSProperties,
-    orderStyle: { width: '26px', height: '26px', borderRadius: '8px', background: r.color, color: '#fff', display: 'grid', placeItems: 'center', fontSize: '.71875rem', fontWeight: 700, flex: '0 0 26px' } as CSSProperties,
+    rowStyle: { display: 'flex', alignItems: 'center', gap: '11px', padding: '11px', border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '12px', background: 'hsl(var(--color-bg-subtle))' } as CSSProperties,
+    orderStyle: { width: '26px', height: '26px', borderRadius: '8px', background: r.color, color: 'hsl(var(--color-fg-on-solid))', display: 'grid', placeItems: 'center', fontSize: '.71875rem', fontWeight: 700, flex: '0 0 26px' } as CSSProperties,
     selectStyle: Object.assign({}, inputStyle, { width: '160px' }) as CSSProperties,
     pill: pill(TONE_NEUTRAL),
     onRole: (e: React.ChangeEvent<HTMLSelectElement>) => changeRole(r.id, e.target.value),
@@ -216,7 +216,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
     key: c,
     label: c === 'none' ? 'No reminders' : 'Every ' + c,
     onClick: () => changeRouting({ cadence: c }),
-    style: btn(s.cadence === c ? '#eef2ff' : '#fff', s.cadence === c ? '#3730a3' : '#475569', s.cadence === c ? '#c7d2fe' : '#e3e7ee')
+    style: btn(s.cadence === c ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))', s.cadence === c ? 'hsl(var(--color-accent-fg))' : 'hsl(var(--color-fg-subtle))', s.cadence === c ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))')
   }));
 
   const timeline = ([
@@ -226,28 +226,28 @@ export default function Routing({ documentId, title, recipients, routing, brandi
     ['Expires', 'in ' + s.expiry + ' days · auto-void']
   ] as [string, string][]).map(([label, meta], i) => ({
     label, meta,
-    dot: { width: '8px', height: '8px', borderRadius: '99px', marginTop: '5px', flex: '0 0 8px', background: i === 0 ? '#10b981' : '#334155' } as CSSProperties
+    dot: { width: '8px', height: '8px', borderRadius: '99px', marginTop: '5px', flex: '0 0 8px', background: i === 0 ? 'hsl(var(--color-highlight-solid))' : 'hsl(var(--color-border-strong))' } as CSSProperties
   }));
 
-  const seqStyle: CSSProperties = { height: '28px', padding: '0 12px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '.78125rem', fontWeight: s.routing === 'sequential' ? 600 : 500, background: s.routing === 'sequential' ? '#fff' : 'transparent', color: s.routing === 'sequential' ? '#0f172a' : '#64748b', boxShadow: s.routing === 'sequential' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
-  const parStyle: CSSProperties = { height: '28px', padding: '0 12px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '.78125rem', fontWeight: s.routing === 'parallel' ? 600 : 500, background: s.routing === 'parallel' ? '#fff' : 'transparent', color: s.routing === 'parallel' ? '#0f172a' : '#64748b', boxShadow: s.routing === 'parallel' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
+  const seqStyle: CSSProperties = { height: '28px', padding: '0 12px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '.78125rem', fontWeight: s.routing === 'sequential' ? 600 : 500, background: s.routing === 'sequential' ? 'hsl(var(--color-bg-surface))' : 'transparent', color: s.routing === 'sequential' ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: s.routing === 'sequential' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
+  const parStyle: CSSProperties = { height: '28px', padding: '0 12px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '.78125rem', fontWeight: s.routing === 'parallel' ? 600 : 500, background: s.routing === 'parallel' ? 'hsl(var(--color-bg-surface))' : 'transparent', color: s.routing === 'parallel' ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: s.routing === 'parallel' ? '0 1px 2px rgba(15,23,42,.12)' : 'none' };
   const routeNote = s.routing === 'sequential'
     ? 'Each recipient is notified only after the previous one completes. Signer 1 → Signer 2 → Signer 3.'
     : 'All recipients are notified simultaneously and may sign in any order.';
-  const routeNoteStyle: CSSProperties = { fontSize: '.75rem', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55 };
-  const iconBtn: CSSProperties = { width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e3e7ee', background: '#fff', cursor: 'pointer', color: '#475569', fontSize: '.8125rem', lineHeight: 1 };
-  const linkActionBtn: CSSProperties = { height: '28px', padding: '0 9px', borderRadius: '8px', border: '1px solid #e3e7ee', background: '#fff', cursor: 'pointer', color: '#334155', fontSize: '.71875rem', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '5px' };
+  const routeNoteStyle: CSSProperties = { fontSize: '.75rem', color: 'hsl(var(--color-accent-fg))', background: 'hsl(var(--color-accent-subtle))', border: '1px solid hsl(var(--color-accent-border))', borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55 };
+  const iconBtn: CSSProperties = { width: '28px', height: '28px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-subtle))', background: 'hsl(var(--color-bg-surface))', cursor: 'pointer', color: 'hsl(var(--color-fg-subtle))', fontSize: '.8125rem', lineHeight: 1 };
+  const linkActionBtn: CSSProperties = { height: '28px', padding: '0 9px', borderRadius: '8px', border: '1px solid hsl(var(--color-border-subtle))', background: 'hsl(var(--color-bg-surface))', cursor: 'pointer', color: 'hsl(var(--color-fg-subtle))', fontSize: '.71875rem', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '5px' };
   const disabledBtn: CSSProperties = { opacity: .45, cursor: 'not-allowed' };
-  const textarea: CSSProperties = { border: '1px solid #e3e7ee', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem', resize: 'vertical', outline: 'none', width: '100%', color: '#0f172a' };
-  const primaryBtnWide: CSSProperties = Object.assign(btn(A, '#fff', A), { flex: '1', justifyContent: 'center', height: '36px' });
+  const textarea: CSSProperties = { border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '8px 10px', fontSize: '.78125rem', resize: 'vertical', outline: 'none', width: '100%', color: 'hsl(var(--color-fg-default))' };
+  const primaryBtnWide: CSSProperties = Object.assign(btn(A, 'hsl(var(--color-fg-on-solid))', A), { flex: '1', justifyContent: 'center', height: '36px' });
 
   if (!documentId) {
     return (
       <section data-screen-label="Routing" style={{ padding: '22px', display: 'grid', placeItems: 'center' }}>
-        <div style={{ maxWidth: '420px', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'center' }}>
-          <span style={{ fontSize: '.84375rem', fontWeight: 600, color: '#0f172a' }}>No envelope to route</span>
-          <span style={{ fontSize: '.75rem', lineHeight: 1.6, color: '#64748b' }}>Create a draft from the documents list, add its recipients, then set the signing order here.</span>
-          <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, btn(A, '#fff', A), { justifyContent: 'center' })}><Icon name="documents" size={13} />Go to documents</button>
+        <div style={{ maxWidth: '420px', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'center' }}>
+          <span style={{ fontSize: '.84375rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>No envelope to route</span>
+          <span style={{ fontSize: '.75rem', lineHeight: 1.6, color: 'hsl(var(--color-fg-muted))' }}>Create a draft from the documents list, add its recipients, then set the signing order here.</span>
+          <button type="button" onClick={() => go('dashboard')} style={Object.assign({}, btn(A, 'hsl(var(--color-fg-on-solid))', A), { justifyContent: 'center' })}><Icon name="documents" size={13} />Go to documents</button>
         </div>
       </section>
     );
@@ -255,17 +255,17 @@ export default function Routing({ documentId, title, recipients, routing, brandi
 
   return (
     <section data-screen-label="Routing" style={{ padding: '22px', display: 'grid', gridTemplateColumns: 'minmax(0,1.55fr) minmax(0,1fr)', gap: '16px', alignItems: 'start' }}>
-      <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+      <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
           <div style={railHead}>Signing order</div>
-          <div style={{ display: 'flex', gap: '4px', background: '#f5f6f8', padding: '4px', borderRadius: '10px' }}>
+          <div style={{ display: 'flex', gap: '4px', background: 'hsl(var(--color-bg-canvas))', padding: '4px', borderRadius: '10px' }}>
             <button type="button" onClick={() => changeRouting({ routing: 'sequential' })} style={seqStyle}>Sequential</button>
             <button type="button" onClick={() => changeRouting({ routing: 'parallel' })} style={parStyle}>Parallel</button>
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
           {!routingRows.length ? (
-            <div style={{ fontSize: '.75rem', color: '#64748b', background: '#fbfcfd', border: '1px solid #eef1f6', borderRadius: '12px', padding: '14px', lineHeight: 1.6 }}>
+            <div style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))', background: 'hsl(var(--color-bg-subtle))', border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '12px', padding: '14px', lineHeight: 1.6 }}>
               No recipients on this envelope yet — it cannot be sent until it has at least one.
             </div>
           ) : null}
@@ -274,7 +274,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
               <span style={r.orderStyle}>{r.order}</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, flex: 1 }}>
                 <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>{r.name}</span>
-                <span style={{ fontSize: '.71875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{r.email}</span>
+                <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>{r.email}</span>
               </div>
               <select value={r.role} onChange={r.onRole} aria-label="Role" style={r.selectStyle}>
                 <option value="sign">Needs to sign</option>
@@ -305,7 +305,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
                 <button type="button" aria-label="Move up" onClick={r.onUp} style={iconBtn}><Icon name="arrowUp" size={13} /></button>
                 <button type="button" aria-label="Move down" onClick={r.onDown} style={iconBtn}><Icon name="arrowDown" size={13} /></button>
                 <button type="button" aria-label={'Remove ' + r.name} title={'Remove ' + r.name} onClick={r.onRemove}
-                  style={Object.assign({}, iconBtn, { color: '#b91c1c' })}><Icon name="close" size={13} /></button>
+                  style={Object.assign({}, iconBtn, { color: 'hsl(var(--color-fg-danger))' })}><Icon name="close" size={13} /></button>
               </div>
             </div>
           ))}
@@ -315,7 +315,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
+        <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
             <div style={railHead}>Branding</div>
             <button type="button" onClick={() => go('brand')} style={linkActionBtn}><Icon name="settings" size={12} />Manage themes</button>
@@ -333,8 +333,8 @@ export default function Routing({ documentId, title, recipients, routing, brandi
                 </select>
               </label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span aria-hidden style={{ width: '20px', height: '20px', borderRadius: '6px', flex: '0 0 20px', border: '1px solid #e3e7ee', background: (effectiveTheme && effectiveTheme.primary_color) || A }} />
-                <span style={{ fontSize: '.71875rem', color: '#64748b', lineHeight: 1.55 }}>
+                <span aria-hidden style={{ width: '20px', height: '20px', borderRadius: '6px', flex: '0 0 20px', border: '1px solid hsl(var(--color-border-subtle))', background: (effectiveTheme && effectiveTheme.primary_color) || A }} />
+                <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))', lineHeight: 1.55 }}>
                   {effectiveTheme
                     ? 'Recipients see ' + effectiveTheme.name + ' on the invitation email and while signing.'
                     : 'No default theme set, so invitations go out with SignerPro\u2019s stock wording.'}
@@ -342,13 +342,13 @@ export default function Routing({ documentId, title, recipients, routing, brandi
               </div>
             </>
           ) : (
-            <div style={{ fontSize: '.75rem', color: '#64748b', background: '#fbfcfd', border: '1px solid #eef1f6', borderRadius: '12px', padding: '12px', lineHeight: 1.6 }}>
+            <div style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))', background: 'hsl(var(--color-bg-subtle))', border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '12px', padding: '12px', lineHeight: 1.6 }}>
               No branding themes yet \u2014 invitations go out with SignerPro\u2019s stock logo and wording.
             </div>
           )}
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={railHead}>Reminders &amp; expiration</div>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             {cadences.map(c => (
@@ -368,14 +368,14 @@ export default function Routing({ documentId, title, recipients, routing, brandi
           </label>
           <button type="button" onClick={send} disabled={sending} style={primaryBtnWide}><Icon name="send" size={13} />Send envelope &amp; preview signer view</button>
         </div>
-        <div style={{ background: '#0f172a', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div style={{ background: 'hsl(var(--color-bg-panel-dark))', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ fontSize: '.6875rem', letterSpacing: '.08em', color: TEXT_MUTED_ON_DARK, fontFamily: 'var(--font-sans)' }}>DELIVERY SIMULATION</div>
           {timeline.map(t => (
             <div key={t.label} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
               <span style={t.dot}></span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                <span style={{ fontSize: '.78125rem', color: '#e2e8f0', fontWeight: 500 }}>{t.label}</span>
-                <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{t.meta}</span>
+                <span style={{ fontSize: '.78125rem', color: 'hsl(var(--color-fg-on-solid))', fontWeight: 500 }}>{t.label}</span>
+                <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>{t.meta}</span>
               </div>
             </div>
           ))}

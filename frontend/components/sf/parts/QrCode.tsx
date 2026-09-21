@@ -41,7 +41,7 @@ export default function QrCode({ value, size = 148, label }: { value: string; si
       role="img"
       aria-label={label || 'QR code'}
       shapeRendering="crispEdges"
-      style={{ borderRadius:'8px', background:'#fff', border:'1px solid #c7d2fe', padding:'0', flex:`0 0 ${size}px` }}>
+      style={{ borderRadius:'8px', background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-accent-border))', padding:'0', flex:`0 0 ${size}px` }}>
       <rect width={span} height={span} fill="#fff" />
       <g transform={`translate(${quiet} ${quiet})`} fill="#0f172a">
         <path d={path.d} />

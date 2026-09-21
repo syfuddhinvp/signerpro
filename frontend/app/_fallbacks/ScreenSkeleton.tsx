@@ -13,12 +13,12 @@ import { SF_FONT } from '@/lib/sf/fallback';
 export type SkeletonShape = 'stats' | 'table' | 'split' | 'form';
 
 const bar = (w: string, h = '13px'): CSSProperties => ({
-  width: w, height: h, borderRadius: '7px', background: '#e3e7ee',
+  width: w, height: h, borderRadius: '7px', background: 'hsl(var(--color-border-subtle))',
   animation: 'sfPulse 1.4s ease-in-out infinite',
 });
 
 const panel: CSSProperties = {
-  background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '17px',
+  background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '17px',
   display: 'flex', flexDirection: 'column', gap: '13px',
 };
 
@@ -65,7 +65,7 @@ export default function ScreenSkeleton({ label, shape = 'table' }: { label: stri
       {shape === 'form' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: '16px', alignItems: 'start' }}>
           <div style={panel}>{[0, 1, 2, 3].map(i => <div key={i} style={bar(i % 2 ? '72%' : '92%', '30px')} />)}</div>
-          <div style={{ ...panel, background: '#0f172a', border: '1px solid #0f172a' }}>
+          <div style={{ ...panel, background: 'hsl(var(--color-bg-panel-dark))', border: '1px solid hsl(var(--color-fg-default))' }}>
             {[0, 1, 2, 3, 4].map(i => (
               <div key={i} style={{ ...bar(`${86 - i * 9}%`, '10px'), background: '#1e293b' }} />
             ))}

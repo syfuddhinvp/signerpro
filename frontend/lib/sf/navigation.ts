@@ -142,7 +142,7 @@ export function areaItems(ctx: NavContext): AreaItem[] {
    sidebar stays a list of areas and every view is still a shareable URL. */
 
 export const DOCUMENT_VIEWS: [string, string, string][] = [
-  ['inbox', 'Waiting for me', '#4f46e5'],
+  ['inbox', 'Waiting for me', 'hsl(var(--color-accent-solid))'],
   ['outbox', 'Waiting for others', '#0ea5e9'],
   ['drafts', 'Drafts', BORDER_STRONG],
   ['completed', 'Completed', '#10b981'],

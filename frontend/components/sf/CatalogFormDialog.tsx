@@ -179,13 +179,13 @@ export default function CatalogFormDialog({ entry = null, onClose, onSaved }: Ca
         aria-modal="true"
         aria-labelledby="new-form-title"
         style={{
-          background: '#fff', borderRadius: '16px', border: '1px solid #e3e7ee',
+          background: 'hsl(var(--color-bg-surface))', borderRadius: '16px', border: '1px solid hsl(var(--color-border-subtle))',
           width: 'min(620px, 100%)', maxHeight: 'min(88vh, 900px)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}
       >
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid #eef1f6' }}>
-          <h2 id="new-form-title" style={{ margin: 0, fontSize: '.9375rem', fontWeight: 600, color: '#0f172a' }}>
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid hsl(var(--color-border-hairline))' }}>
+          <h2 id="new-form-title" style={{ margin: 0, fontSize: '.9375rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>
             {editing ? 'Form details' : 'New catalog form'}
           </h2>
           <p style={{ margin: '3px 0 0', fontSize: '.75rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
@@ -213,7 +213,7 @@ export default function CatalogFormDialog({ entry = null, onClose, onSaved }: Ca
               onChange={event => { slugEdited.current = true; setSlug(event.target.value); }}
               placeholder="irs-w9"
               readOnly={editing}
-              style={{ ...inputStyle, ...(editing ? { background: '#f5f6f8', color: TEXT_MUTED } : null) }}
+              style={{ ...inputStyle, ...(editing ? { background: 'hsl(var(--color-bg-canvas))', color: TEXT_MUTED } : null) }}
             />
             <span style={{ fontSize: '.6875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
               {editing
@@ -273,15 +273,15 @@ export default function CatalogFormDialog({ entry = null, onClose, onSaved }: Ca
           )}
 
           {error ? (
-            <p role="alert" style={{ margin: 0, fontSize: '.71875rem', color: '#b91c1c', fontFamily: 'var(--font-sans)' }}>
+            <p role="alert" style={{ margin: 0, fontSize: '.71875rem', color: 'hsl(var(--color-fg-danger))', fontFamily: 'var(--font-sans)' }}>
               {error}
             </p>
           ) : null}
         </div>
 
-        <div style={{ padding: '12px 18px', borderTop: '1px solid #eef1f6', display: 'flex', gap: '7px', justifyContent: 'flex-end' }}>
-          <button type="button" onClick={close} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
-          <button type="button" onClick={submit} disabled={saving} style={{ ...btn(A, '#fff', A), opacity: saving ? 0.6 : 1 }}>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid hsl(var(--color-border-hairline))', display: 'flex', gap: '7px', justifyContent: 'flex-end' }}>
+          <button type="button" onClick={close} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="close" size={13} />Cancel</button>
+          <button type="button" onClick={submit} disabled={saving} style={{ ...btn(A, 'hsl(var(--color-fg-on-solid))', A), opacity: saving ? 0.6 : 1 }}>
             <Icon name={editing ? 'save' : 'plus'} size={13} />{saving ? 'Saving…' : editing ? 'Save details' : 'Create form'}
           </button>
         </div>

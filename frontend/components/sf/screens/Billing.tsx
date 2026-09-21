@@ -50,8 +50,8 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
   const router = useRouter();
   const A = accent();
 
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const primaryBtn = btn(A, '#fff', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
   const input = inputStyle;
   const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily:'var(--font-sans)', fontSize:'.71875rem' });
 
@@ -92,7 +92,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
       : 'linear-gradient(135deg,#0f172a,#243044 55%,#3d4c66)';
     return {
       position:'relative', overflow:'hidden', width:'100%', maxWidth:'320px', aspectRatio:'1.586',
-      borderRadius:'14px', padding:'14px', color:'#f8fafc', background: plate,
+      borderRadius:'14px', padding:'14px', color:'hsl(var(--color-fg-on-solid))', background: plate,
       boxShadow:'0 10px 22px -12px rgba(15,23,42,.55)',
       display:'flex', flexDirection:'column', justifyContent:'space-between',
     };
@@ -103,8 +103,8 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
   const cardNumber: CSSProperties = { fontSize:'.9375rem', fontWeight:600, letterSpacing:'.1em', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' };
   const cardCaption: CSSProperties = { fontSize:'.53125rem', letterSpacing:'.11em', color:'rgba(248,250,252,.62)', fontFamily:'var(--font-sans)' };
   const cardValue: CSSProperties = { fontSize:'.6875rem', fontWeight:600, letterSpacing:'.06em', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' };
-  const cardDefaultPill: CSSProperties = { display:'inline-flex', alignItems:'center', height:'20px', padding:'0 8px', borderRadius:'99px', fontSize:'.59375rem', fontWeight:700, letterSpacing:'.06em', background:'rgba(255,255,255,.18)', border:'1px solid rgba(255,255,255,.35)', color:'#fff', flex:'0 0 auto' };
-  const cardDefaultBtn: CSSProperties = { height:'26px', padding:'0 10px', borderRadius:'99px', fontSize:'.65625rem', fontWeight:600, cursor:'pointer', background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.35)', color:'#fff', flex:'0 0 auto',
+  const cardDefaultPill: CSSProperties = { display:'inline-flex', alignItems:'center', height:'20px', padding:'0 8px', borderRadius:'99px', fontSize:'.59375rem', fontWeight:700, letterSpacing:'.06em', background:'rgba(255,255,255,.18)', border:'1px solid rgba(255,255,255,.35)', color:'hsl(var(--color-fg-on-solid))', flex:'0 0 auto' };
+  const cardDefaultBtn: CSSProperties = { height:'26px', padding:'0 10px', borderRadius:'99px', fontSize:'.65625rem', fontWeight:600, cursor:'pointer', background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.35)', color:'hsl(var(--color-fg-on-solid))', flex:'0 0 auto',
     display:'inline-flex', alignItems:'center', gap:'4px' };
 
   const paymentMethods_ = toPaymentMethodRows(paymentMethods).map(p => ({
@@ -124,14 +124,14 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
 
   const charges = toChargeRows(chargeList).map(c => ({
     id: c.id, amount: c.amount, meta: c.meta, status: c.status,
-    dot: { width:'8px', height:'8px', borderRadius:'99px', background: c.good ? '#10b981' : '#f59e0b', flex:'0 0 8px' } as CSSProperties,
-    pill: pill(c.good ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : { bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' }),
+    dot: { width:'8px', height:'8px', borderRadius:'99px', background: c.good ? 'hsl(var(--color-highlight-solid))' : 'hsl(var(--color-bg-warning-solid))', flex:'0 0 8px' } as CSSProperties,
+    pill: pill(c.good ? { bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' } : { bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' }),
   }));
 
   const autopayStr = autopay ? 'true' : 'false';
-  const autopayRow: CSSProperties = { display:'inline-flex', alignItems:'center', gap:'9px', height:'32px', padding:'0 12px', borderRadius:'9px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer' };
-  const autopaySwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: autopay ? '#10b981' : BORDER_STRONG, position:'relative', flex:'0 0 34px' };
-  const autopayKnob: CSSProperties = { position:'absolute', top:'2px', left: autopay ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' };
+  const autopayRow: CSSProperties = { display:'inline-flex', alignItems:'center', gap:'9px', height:'32px', padding:'0 12px', borderRadius:'9px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', cursor:'pointer' };
+  const autopaySwitch: CSSProperties = { width:'34px', height:'19px', borderRadius:'99px', background: autopay ? 'hsl(var(--color-highlight-solid))' : BORDER_STRONG, position:'relative', flex:'0 0 34px' };
+  const autopayKnob: CSSProperties = { position:'absolute', top:'2px', left: autopay ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))', transition:'left .15s' };
   const toggleAutopay = () => {
     const next = !autopay;
     setAutopay(next);
@@ -152,7 +152,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
 
   const goInvoices = () => go('invoices');
 
-  const emptyNote: CSSProperties = { fontSize:'.78125rem', color:'#64748b' };
+  const emptyNote: CSSProperties = { fontSize:'.78125rem', color:'hsl(var(--color-fg-muted))' };
 
   return (
     <section data-screen-label="Billing" style={{ padding:'22px 22px 40px', maxWidth:'1180px', margin:'0 auto', width:'100%', display:'grid', gridTemplateColumns:'minmax(0,1.5fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
@@ -161,7 +161,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
           needs a Suspense boundary to keep the page statically renderable. */}
       <Suspense fallback={null}><CheckoutReturn /></Suspense>
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'14px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'14px' }}>
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
             <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
               <span style={railHead}>Current subscription</span>
@@ -169,7 +169,7 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
                 <span style={{ fontSize:'1.375rem', fontWeight:700, letterSpacing:'-.5px' }}>{sub.planName}</span>
                 <span style={subPill}>{subStatus}</span>
               </div>
-              <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{sub.metaLine}</span>
+              <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{sub.metaLine}</span>
             </div>
             <div style={{ display:'flex', gap:'8px', flex:'0 0 auto' }}>
               <button type="button" onClick={openPlanChange} style={ghostBtn}><Icon name="settings" size={13} />Change plan</button>
@@ -179,8 +179,8 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
           {subscription.pending_plan_code ? (
             /* The plan has NOT changed yet. Saying so plainly, with the date
                and a way out, is the whole point of scheduling it. */
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap', border:'1px solid #bfdbfe', background:'#eff6ff', borderRadius:'12px', padding:'11px 12px' }}>
-              <span style={{ fontSize:'.78125rem', color:'#1e40af' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap', border:'1px solid hsl(var(--color-border-info))', background:'hsl(var(--color-bg-info-subtle))', borderRadius:'12px', padding:'11px 12px' }}>
+              <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-info))' }}>
                 {subscription.pending_plan_name} starts {formatDate(subscription.pending_plan_effective_at)}
                 {' · you keep ' + subscription.plan_name + ' until then'}
               </span>
@@ -190,8 +190,8 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
             </div>
           ) : null}
           {wallet.balance_cents > 0 ? (
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap', border:'1px solid #bbf7d0', background:'#f0fdf4', borderRadius:'12px', padding:'11px 12px' }}>
-              <span style={{ fontSize:'.78125rem', color:'#166534' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap', border:'1px solid hsl(var(--color-border-success))', background:'hsl(var(--color-bg-success-subtle))', borderRadius:'12px', padding:'11px 12px' }}>
+              <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-success))' }}>
                 {formatCents(wallet.balance_cents, wallet.currency)} account balance
                 {' · applied to your next invoice before any card is charged'}
               </span>
@@ -199,16 +199,16 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
           ) : null}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'11px' }}>
             {subTiles.map(t => (
-              <div key={t.label} style={{ border:'1px solid #eef1f6', borderRadius:'12px', padding:'12px', background:'#fbfcfd', display:'flex', flexDirection:'column', gap:'5px' }}>
-                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)', letterSpacing:'.05em' }}>{t.label}</span>
+              <div key={t.label} style={{ border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'12px', padding:'12px', background:'hsl(var(--color-bg-subtle))', display:'flex', flexDirection:'column', gap:'5px' }}>
+                <span style={{ fontSize:'.65625rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', letterSpacing:'.05em' }}>{t.label}</span>
                 <span style={{ fontSize:'1.0625rem', fontWeight:700, letterSpacing:'-.4px' }}>{t.value}</span>
-                <span style={{ fontSize:'.6875rem', color:'#64748b' }}>{t.meta}</span>
+                <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>{t.meta}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'13px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'13px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
             <div style={railHead}>Payment methods</div>
           </div>
@@ -247,31 +247,31 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
           <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
             <button type="button" onClick={openCardModal} style={primaryBtn}><Icon name="card" size={13} />Add payment method</button>
             <button type="button" role="switch" aria-checked={autopayStr === 'true'} onClick={toggleAutopay} style={autopayRow}>
-              <span style={{ fontSize:'.78125rem', color:'#334155' }}>Autopay</span>
+              <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))' }}>Autopay</span>
               <span style={autopaySwitch}><span style={autopayKnob}></span></span>
             </button>
           </div>
         </div>
 
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'12px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <div style={railHead}>Upcoming invoice · preview</div>
           {upcomingLines.length ? null : (
             <div style={emptyNote}>No charges are scheduled for the next invoice.</div>
           )}
           {upcomingLines.map(l => (
-            <div key={l.d} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.78125rem', padding:'7px 0', borderTop:'1px solid #f2f4f8' }}>
-              <span style={{ color:'#334155' }}>{l.d}</span>
-              <span style={{ fontFamily:'var(--font-sans)', color:'#0f172a', flex:'0 0 auto' }}>{l.amt}</span>
+            <div key={l.d} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.78125rem', padding:'7px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
+              <span style={{ color:'hsl(var(--color-fg-subtle))' }}>{l.d}</span>
+              <span style={{ fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-default))', flex:'0 0 auto' }}>{l.amt}</span>
             </div>
           ))}
-          <div style={{ display:'flex', justifyContent:'space-between', borderTop:'1px solid #e3e7ee', paddingTop:'11px', fontSize:'.875rem', fontWeight:700 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', borderTop:'1px solid hsl(var(--color-border-subtle))', paddingTop:'11px', fontSize:'.875rem', fontWeight:700 }}>
             <span>{upcomingTotalLabel(upcoming)}</span><span style={{ fontFamily:'var(--font-sans)' }}>{formatCents(upcoming.total_cents, upcoming.currency)}</span>
           </div>
         </div>
       </div>
 
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Billing details</div>
           <label style={lbl}>Billing email
             <input type="text" value={billingEmail} onChange={(e) => setBillingEmail(e.target.value)}
@@ -299,26 +299,26 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
               <option value="annual">Annual (save 12%)</option>
             </select>
           </label>
-          <div style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>Invoices are issued from SignerPro Inc., 400 Market St, San Francisco. Reverse-charge applies for EU VAT-registered entities.</div>
+          <div style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.55 }}>Invoices are issued from SignerPro Inc., 400 Market St, San Francisco. Reverse-charge applies for EU VAT-registered entities.</div>
         </div>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Recent charges</div>
           {charges.length ? null : (
             <div style={emptyNote}>No charges yet — the first invoice has not been collected.</div>
           )}
           {charges.map(c => (
-            <div key={c.id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 0', borderTop:'1px solid #f2f4f8' }}>
+            <div key={c.id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
               <span style={c.dot}></span>
               <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
                 <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{c.amount}</span>
-                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.meta}</span>
+                <span style={{ fontSize:'.65625rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.meta}</span>
               </div>
               <span style={c.pill}>{c.status}</span>
             </div>
           ))}
           <button type="button" onClick={goInvoices} style={ghostBtn}><Icon name="file" size={13} />All invoices &amp; receipts</button>
         </div>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:'8px' }}>
             <div style={railHead}>Account balance</div>
             <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.3px' }}>
@@ -327,19 +327,19 @@ export default function Billing({ subscription, settings, paymentMethods, upcomi
           </div>
           {/* Said once, here, rather than left for a support ticket to answer:
               this is credit, not money held on the tenant's behalf. */}
-          <div style={{ fontSize:'.6875rem', color:'#64748b', lineHeight:1.55 }}>
+          <div style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.55 }}>
             Applied to your invoices automatically, before any card is charged. Balance is not refundable to a card or bank account.
           </div>
           {wallet.entries.length ? null : (
             <div style={emptyNote}>No balance activity yet.</div>
           )}
           {wallet.entries.map(entry => (
-            <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 0', borderTop:'1px solid #f2f4f8' }}>
+            <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
               <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:1, minWidth:0 }}>
                 <span style={{ fontSize:'.78125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{entry.description}</span>
-                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{formatDate(entry.created_at)}</span>
+                <span style={{ fontSize:'.65625rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{formatDate(entry.created_at)}</span>
               </div>
-              <span style={{ fontSize:'.78125rem', fontWeight:700, fontFamily:'var(--font-sans)', color: entry.amount_cents < 0 ? '#64748b' : '#166534' }}>
+              <span style={{ fontSize:'.78125rem', fontWeight:700, fontFamily:'var(--font-sans)', color: entry.amount_cents < 0 ? 'hsl(var(--color-fg-muted))' : '#166534' }}>
                 {(entry.amount_cents < 0 ? '−' : '+') + formatCents(Math.abs(entry.amount_cents), entry.currency)}
               </span>
             </div>

@@ -129,12 +129,12 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
     });
   };
 
-  const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
-  const primaryBtn: CSSProperties = btn(A, '#fff', A);
-  const superBtn: CSSProperties = Object.assign(btn('transparent', '#e2e8f0', '#334155'), { flex: '0 0 auto' });
+  const ghostBtn: CSSProperties = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const primaryBtn: CSSProperties = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const superBtn: CSSProperties = Object.assign(btn('transparent', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-border-strong))'), { flex: '0 0 auto' });
   const mono: CSSProperties = Object.assign({}, inputStyle, { fontFamily: 'var(--font-sans)', fontSize: '.71875rem' });
 
-  const addonBannerStyle: CSSProperties = { background:'#0f172a', borderRadius:'14px', padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'16px', flexWrap:'wrap' };
+  const addonBannerStyle: CSSProperties = { background:'hsl(var(--color-bg-panel-dark))', borderRadius:'14px', padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'16px', flexWrap:'wrap' };
 
   const launchEmbed = () => {
     if (busy) return;
@@ -165,7 +165,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
     label: x.label,
     value: x.value,
     meta: x.meta,
-    metaStyle: { fontSize:'.6875rem', fontFamily:'var(--font-sans)', color: x.good ? '#047857' : '#c2410c' } as CSSProperties
+    metaStyle: { fontSize:'.6875rem', fontFamily:'var(--font-sans)', color: x.good ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-warning))' } as CSSProperties
   }));
 
   const apiOverview = section === 'overview';
@@ -270,7 +270,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
   /* `GET /api/billing/usage` returns a purpose-built `rows` array. */
   const planUsage = (usageRows ?? []).map((row: UsageRow) => ({
     key: row.key, label: row.label, meta: row.display,
-    bar: { width: Math.max(0, Math.min(100, row.pct)) + '%', height:'100%', borderRadius:'99px', background: row.pct > 85 ? '#f59e0b' : A } as CSSProperties }));
+    bar: { width: Math.max(0, Math.min(100, row.pct)) + '%', height:'100%', borderRadius:'99px', background: row.pct > 85 ? 'hsl(var(--color-bg-warning-solid))' : A } as CSSProperties }));
 
   const devResources = ([
     ['Quickstart guide', 'Send your first envelope in 10 minutes', 'quickstart'],
@@ -282,21 +282,21 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
   ] as [string, string, string][]).map(([label, meta, target]) => ({ label, meta,
     onClick: () => { if (target === 'sandbox') go('sandbox'); else { set({ docsPage: target }); go('guides'); } },
     style: { display:'flex', flexDirection:'column', gap:'4px', alignItems:'flex-start', textAlign:'left', padding:'13px', borderRadius:'12px',
-      border:'1px solid #e3e7ee', background:'#fbfcfd', cursor:'pointer' } as CSSProperties }));
+      border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-subtle))', cursor:'pointer' } as CSSProperties }));
 
   const apiTabs = API_TABS.map(([id, label]) => {
     const on = s.apiTab === id;
     return { id, label, selected: on ? 'true' : 'false', onClick: () => set({ apiTab: id }),
       style: { height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: on ? 600 : 500,
-        background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
+        background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties };
   });
 
   /* `apiTab` is persisted client state, so a value from an older build (or a
      removed tab) must not take the screen down with an undefined `ep`. */
   const ep = API_DEFS[s.apiTab] || API_DEFS[API_TABS[0][0]];
   const apiMethodStyle: CSSProperties = { padding:'4px 9px', borderRadius:'7px', fontSize:'.65625rem', fontWeight:700, fontFamily:'var(--font-sans)',
-    background: ep.method === 'GET' ? '#ecfdf5' : '#eef2ff', color: ep.method === 'GET' ? '#047857' : '#3730a3',
-    border:'1px solid ' + (ep.method === 'GET' ? '#a7f3d0' : '#c7d2fe'), flex:'0 0 auto' };
+    background: ep.method === 'GET' ? 'hsl(var(--color-bg-success-subtle))' : 'hsl(var(--color-accent-subtle))', color: ep.method === 'GET' ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-accent-fg))',
+    border:'1px solid ' + (ep.method === 'GET' ? 'hsl(var(--color-border-success))' : 'hsl(var(--color-accent-border))'), flex:'0 0 auto' };
   const apiParams = ep.params.map(([name, type, desc]) => ({ name, type, desc,
     typeStyle: { fontSize:'.65625rem', fontFamily:'var(--font-sans)', color:TEXT_MUTED, width:'66px', flex:'0 0 66px' } as CSSProperties }));
   const copyEndpoint = () => flash((typeof window === 'undefined' ? '' : window.location.origin) + ep.path + ' copied');
@@ -366,13 +366,13 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
       ? 'Copy this secret now — it will not be shown again'
       : 'created ' + k.created + ' · last used ' + k.lastUsed,
     modePill: pill(k.mode === 'live' ? TONE_GOOD : TONE_WARN),
-    rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'11px', border:'1px solid #eef1f6', borderRadius:'12px', background: k.revoked ? '#fafbfc' : '#fbfcfd', opacity: k.revoked ? .6 : 1, flexWrap:'wrap' } as CSSProperties,
+    rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'12px', background: k.revoked ? 'hsl(var(--color-bg-muted))' : 'hsl(var(--color-bg-subtle))', opacity: k.revoked ? .6 : 1, flexWrap:'wrap' } as CSSProperties,
     /* No reveal endpoint exists: the choices are "copy the secret you were just
        handed" or "roll the key to be handed a new one". */
     revealLabel: freshSecret && freshSecret.keyId === k.id ? 'Copy' : 'Roll',
     onReveal: () => { if (freshSecret && freshSecret.keyId === k.id) copySecret(); else rollKey(k); },
     revokeLabel: k.revoked ? 'Restore' : 'Revoke',
-    revokeStyle: k.revoked ? btn('#fff', '#047857', '#a7f3d0') : btn('#fff', '#b91c1c', '#fecaca'),
+    revokeStyle: k.revoked ? btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-success))', 'hsl(var(--color-border-success))') : btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))'),
     onRevoke: () => toggleKey(k)
   }));
 
@@ -391,7 +391,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
         });
       },
       style: { padding:'5px 10px', borderRadius:'99px', cursor:'pointer', fontSize:'.6875rem', fontFamily:'var(--font-sans)',
-        border:'1px solid ' + (on ? '#a7f3d0' : '#e3e7ee'), background: on ? '#ecfdf5' : '#fbfcfd', color: on ? '#047857' : TEXT_MUTED } as CSSProperties };
+        border:'1px solid ' + (on ? 'hsl(var(--color-border-success))' : 'hsl(var(--color-border-subtle))'), background: on ? 'hsl(var(--color-bg-success-subtle))' : 'hsl(var(--color-bg-subtle))', color: on ? 'hsl(var(--color-fg-success))' : TEXT_MUTED } as CSSProperties };
   });
 
   const embedSnippet = EMBED_SNIPPET;
@@ -401,7 +401,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
 
       <div style={addonBannerStyle}>
         <div style={{ display:'flex', flexDirection:'column', gap:'5px', minWidth:0 }}>
-          <span style={{ fontSize:'.875rem', fontWeight:700, letterSpacing:'-.2px', color:'#f8fafc' }}>SignerPro as an add-on</span>
+          <span style={{ fontSize:'.875rem', fontWeight:700, letterSpacing:'-.2px', color:'hsl(var(--color-fg-on-solid))' }}>SignerPro as an add-on</span>
           <span style={{ fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6, maxWidth:'620px' }}>Expose users, contacts and documents to your host application over REST, then launch the preparation surface in place with an embed session that carries document and contact metadata.</span>
         </div>
         <div style={{ display:'flex', gap:'8px', flex:'0 0 auto' }}>
@@ -411,8 +411,8 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0,1fr))', gap:'12px' }}>
         {apiStats.map(st => (
-          <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'6px' }}>
-            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{st.label}</span>
+          <div key={st.label} style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'6px' }}>
+            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{st.label}</span>
             <span style={{ fontSize:'1.375rem', fontWeight:700, letterSpacing:'-.7px' }}>{st.value}</span>
             <span style={st.metaStyle}>{st.meta}</span>
           </div>
@@ -423,39 +423,39 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'12px' }}>
           {devResources.map(r => (
             <button key={r.label} type="button" onClick={r.onClick} style={r.style}>
-              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a' }}>{r.label}</span>
-              <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{r.meta}</span>
+              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'hsl(var(--color-fg-default))' }}>{r.label}</span>
+              <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>{r.meta}</span>
             </button>
           ))}
         </div>
       ) : null}
 
       {apiWebhooksView ? (
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
             <div style={railHead}>Webhook endpoints</div>
             <button type="button" onClick={addWebhook} style={primaryBtn}><Icon name="plus" size={13} />Add endpoint</button>
           </div>
           {webhookSecret ? (
-            <div style={{ border:'1px solid #c7d2fe', background:'#eef2ff', borderRadius:'12px', padding:'11px', display:'flex', flexDirection:'column', gap:'5px' }}>
+            <div style={{ border:'1px solid hsl(var(--color-accent-border))', background:'hsl(var(--color-accent-subtle))', borderRadius:'12px', padding:'11px', display:'flex', flexDirection:'column', gap:'5px' }}>
               <span style={{ fontSize:'.75rem', fontWeight:600 }}>{webhookSecret.rotated ? 'New signing secret for ' : 'Signing secret for '}{webhookSecret.url}</span>
-              <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', wordBreak:'break-all', color:'#3730a3' }}>{webhookSecret.secret}</span>
+              <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', wordBreak:'break-all', color:'hsl(var(--color-accent-fg))' }}>{webhookSecret.secret}</span>
               <button type="button" onClick={() => setWebhookSecret(null)} style={ghostBtn}><Icon name="close" size={13} />Dismiss</button>
             </div>
           ) : null}
           {webhookRows === null ? (
-            <div style={{ border:'1px dashed #8492a6', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED }}>Loading endpoints…</div>
+            <div style={{ border:'1px dashed hsl(var(--color-border-strong))', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED }}>Loading endpoints…</div>
           ) : webhookEndpoints.length === 0 ? (
-            <div style={{ border:'1px dashed #8492a6', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 }}>No webhook endpoints yet. Add one to receive envelope and billing events.</div>
+            <div style={{ border:'1px dashed hsl(var(--color-border-strong))', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 }}>No webhook endpoints yet. Add one to receive envelope and billing events.</div>
           ) : null}
           {webhookEndpoints.map(w => (
-            <div key={w.id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'11px', border:'1px solid #eef1f6', borderRadius:'12px', background:'#fbfcfd', flexWrap:'wrap' }}>
+            <div key={w.id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'12px', background:'hsl(var(--color-bg-subtle))', flexWrap:'wrap' }}>
               <div style={{ display:'flex', flexDirection:'column', gap:'3px', minWidth:0, flex:1 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
                   <span style={{ fontSize:'.75rem', fontWeight:600, fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{w.url}</span>
                   <span style={w.pill}>{w.pillLabel}</span>
                 </div>
-                <span style={{ fontSize:'.6875rem', color:'#64748b' }}>{w.meta}</span>
+                <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>{w.meta}</span>
               </div>
               <div style={{ display:'flex', gap:'6px', flexWrap:'wrap' }}>
                 <button type="button" onClick={w.onToggleOpen} aria-expanded={w.isOpen} style={w.isOpen ? primaryBtn : ghostBtn}>
@@ -464,11 +464,11 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
                 <button type="button" onClick={w.onTest} style={ghostBtn}><Icon name="test" size={13} />Send test</button>
                 <button type="button" onClick={w.onToggle} style={ghostBtn}><Icon name={w.pillLabel === 'Active' ? 'pause' : 'play'} size={13} />{w.pillLabel === 'Active' ? 'Disable' : 'Enable'}</button>
                 <button type="button" onClick={w.onRotate} style={ghostBtn}><Icon name="refresh" size={13} />Rotate secret</button>
-                <button type="button" onClick={w.onDelete} style={btn('#fff', '#b91c1c', '#fecaca')}><Icon name="trash" size={13} />Delete</button>
+                <button type="button" onClick={w.onDelete} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}><Icon name="trash" size={13} />Delete</button>
               </div>
 
               {w.isOpen ? (
-                <div style={{ flex:'1 0 100%', display:'flex', flexDirection:'column', gap:'10px', borderTop:'1px solid #e3e7ee', paddingTop:'11px' }}>
+                <div style={{ flex:'1 0 100%', display:'flex', flexDirection:'column', gap:'10px', borderTop:'1px solid hsl(var(--color-border-subtle))', paddingTop:'11px' }}>
                   {/* Subscription. `null` is the backend wildcard, so "All
                       events" is a real state rather than "every box ticked". */}
                   <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
@@ -532,7 +532,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
                   ) : (
                     <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
                       {deliveries.map(d => (
-                        <div key={d.id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 10px', border:'1px solid #eef1f6', borderRadius:'10px', background:'#fff', flexWrap:'wrap' }}>
+                        <div key={d.id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 10px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'10px', background:'hsl(var(--color-bg-surface))', flexWrap:'wrap' }}>
                           <span style={pill(d.status === 'succeeded' ? TONE_GOOD : d.status === 'pending' ? TONE_MUTED : TONE_WARN)}>
                             {d.status === 'exhausted' ? 'Dead-lettered' : d.status}
                           </span>
@@ -549,7 +549,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
                             <button type="button" onClick={() => replayDelivery(d)} style={ghostBtn}><Icon name="refresh" size={13} />Replay</button>
                           ) : null}
                           {d.error ? (
-                            <span style={{ flex:'1 0 100%', fontSize:'.6875rem', color:'#b91c1c', fontFamily:'var(--font-sans)', wordBreak:'break-word' }}>{d.error}</span>
+                            <span style={{ flex:'1 0 100%', fontSize:'.6875rem', color:'hsl(var(--color-fg-danger))', fontFamily:'var(--font-sans)', wordBreak:'break-word' }}>{d.error}</span>
                           ) : null}
                         </div>
                       ))}
@@ -563,7 +563,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
       ) : null}
 
       {apiUsageView ? (
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Plan usage · current cycle</div>
           {usageRows === null ? (
             <span style={{ fontSize:'.75rem', color:TEXT_MUTED }}>Loading usage…</span>
@@ -572,9 +572,9 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
           ) : null}
           {planUsage.map(u => (
             <div key={u.key} style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-              <span style={{ width:'160px', fontSize:'.78125rem', color:'#334155', flex:'0 0 160px' }}>{u.label}</span>
-              <div style={{ flex:1, height:'7px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={u.bar}></div></div>
-              <span style={{ width:'150px', textAlign:'right', fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)', flex:'0 0 150px' }}>{u.meta}</span>
+              <span style={{ width:'160px', fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))', flex:'0 0 160px' }}>{u.label}</span>
+              <div style={{ flex:1, height:'7px', borderRadius:'99px', background:'hsl(var(--color-bg-muted))', overflow:'hidden' }}><div style={u.bar}></div></div>
+              <span style={{ width:'150px', textAlign:'right', fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', flex:'0 0 150px' }}>{u.meta}</span>
             </div>
           ))}
         </div>
@@ -584,18 +584,18 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:'12px' }}>
           {devResources.map(r => (
             <button key={r.label} type="button" onClick={r.onClick} style={r.style}>
-              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a', display:'inline-flex', alignItems:'center', gap:'5px' }}>{r.label}<Icon name="externalLink" size={12} /></span>
-              <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{r.meta}</span>
+              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'hsl(var(--color-fg-default))', display:'inline-flex', alignItems:'center', gap:'5px' }}>{r.label}<Icon name="externalLink" size={12} /></span>
+              <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>{r.meta}</span>
             </button>
           ))}
         </div>
       ) : null}
 
       <div style={apiEndpointsGridStyle}>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-          <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+          <div style={{ padding:'12px 15px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
             <div style={railHead}>Endpoints</div>
-            <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px', flexWrap:'wrap' }}>
+            <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'10px', flexWrap:'wrap' }}>
               {apiTabs.map(t => (
                 <button key={t.id} type="button" onClick={t.onClick} aria-pressed={t.selected === 'true'} style={t.style}>{t.label}</button>
               ))}
@@ -604,20 +604,20 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
           <div style={{ padding:'15px', display:'flex', flexDirection:'column', gap:'12px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:'9px', flexWrap:'wrap' }}>
               <span style={apiMethodStyle}>{ep.method}</span>
-              <span style={{ fontSize:'.78125rem', fontFamily:'var(--font-sans)', color:'#0f172a', wordBreak:'break-all' }}>{ep.path}</span>
+              <span style={{ fontSize:'.78125rem', fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-default))', wordBreak:'break-all' }}>{ep.path}</span>
               <button type="button" onClick={copyEndpoint} style={ghostBtn}><Icon name="copy" size={13} />Copy</button>
             </div>
-            <span style={{ fontSize:'.75rem', color:'#475569', lineHeight:1.6 }}>{ep.desc}</span>
+            <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-subtle))', lineHeight:1.6 }}>{ep.desc}</span>
             <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
               <span style={railHead}>Parameters</span>
               {apiParams.length === 0 ? (
                 <span style={{ fontSize:'.71875rem', color:TEXT_MUTED, lineHeight:1.5 }}>None. The route takes no query parameters.</span>
               ) : null}
               {apiParams.map(p => (
-                <div key={p.name} style={{ display:'flex', gap:'10px', alignItems:'flex-start', padding:'7px 0', borderTop:'1px solid #f2f4f8' }}>
-                  <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', color:'#0f172a', width:'118px', flex:'0 0 118px' }}>{p.name}</span>
+                <div key={p.name} style={{ display:'flex', gap:'10px', alignItems:'flex-start', padding:'7px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
+                  <span style={{ fontSize:'.71875rem', fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-default))', width:'118px', flex:'0 0 118px' }}>{p.name}</span>
                   <span style={p.typeStyle}>{p.type}</span>
-                  <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5, flex:1, minWidth:0 }}>{p.desc}</span>
+                  <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5, flex:1, minWidth:0 }}>{p.desc}</span>
                 </div>
               ))}
             </div>
@@ -639,7 +639,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
         </div>
 
         <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
               <div style={railHead}>API keys</div>
               <button type="button" onClick={createKey} style={ghostBtn}><Icon name="key" size={13} />Create key</button>
@@ -651,7 +651,7 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
                     <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{k.label}</span>
                     <span style={k.modePill}>{k.mode}</span>
                   </div>
-                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{k.secret}</span>
+                  <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{k.secret}</span>
                   <span style={{ fontSize:'.65625rem', color:TEXT_MUTED }}>{k.meta}</span>
                 </div>
                 <div style={{ display:'flex', gap:'5px', flex:'0 0 auto' }}>
@@ -661,11 +661,11 @@ export default function ApiScreen({ keys, scopeCatalogue, usage, apiSettings, em
               </div>
             ))}
             {apiKeys.length === 0 ? (
-              <div style={{ border:'1px dashed #8492a6', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 }}>No API keys yet. Create one to start calling the REST API.</div>
+              <div style={{ border:'1px dashed hsl(var(--color-border-strong))', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:TEXT_MUTED, lineHeight:1.6 }}>No API keys yet. Create one to start calling the REST API.</div>
             ) : null}
           </div>
 
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
             <div style={railHead}>Embed snippet</div>
             <pre style={jsonBoxStyle}>{embedSnippet}</pre>
             <label style={lbl}>Allowed origins

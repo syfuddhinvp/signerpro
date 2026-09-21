@@ -2610,9 +2610,18 @@ const DECLINE_COPY: Dict<string> = {
 
 /**
  * A decline must never read as a success. The 402 body carries `decline_code`
- * and the dunning state, but `ApiError` keeps only the message, so the screen
- * re-reads the invoice and its failed charge and this builds the sentence.
+ * and the dunning state on its structured `detail`, which `ApiError` keeps —
+ * `declineFields` unpacks it, and this builds the sentence. Screens fall back
+ * to re-reading the invoice only when the body carried nothing.
  */
+/** The decline fields off a 402's structured `detail` body. */
+export function declineFields(
+  detail: Record<string, unknown> | undefined,
+): { declineCode: string | null; invoiceStatus: string | null } {
+  const read = (key: string) => (typeof detail?.[key] === 'string' ? (detail[key] as string) : null);
+  return { declineCode: read('decline_code'), invoiceStatus: read('invoice_status') };
+}
+
 export function declineNotice(
   invoiceNumber: string,
   declineCode: string | null | undefined,

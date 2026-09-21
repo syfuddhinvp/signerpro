@@ -140,8 +140,8 @@ export default function ImageCropDialog({ file, pageAspect, onDone }: ImageCropD
 
   const percent = (n: number) => (n * 100).toFixed(4) + '%';
   const handleStyle = (corner: Grip): React.CSSProperties => ({
-    position: 'absolute', width: '14px', height: '14px', background: '#fff', borderRadius: '3px',
-    border: '1px solid #0f172a', touchAction: 'none',
+    position: 'absolute', width: '14px', height: '14px', background: 'hsl(var(--color-bg-surface))', borderRadius: '3px',
+    border: '1px solid hsl(var(--color-fg-default))', touchAction: 'none',
     cursor: corner === 'nw' || corner === 'se' ? 'nwse-resize' : 'nesw-resize',
     top: corner[0] === 'n' ? '-7px' : undefined, bottom: corner[0] === 's' ? '-7px' : undefined,
     left: corner[1] === 'w' ? '-7px' : undefined, right: corner[1] === 'e' ? '-7px' : undefined,
@@ -155,7 +155,7 @@ export default function ImageCropDialog({ file, pageAspect, onDone }: ImageCropD
         display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' }}
     >
       <div onClick={e => e.stopPropagation()}
-        style={{ background:'#fff', borderRadius:'14px', padding:'16px', maxWidth:'640px', width:'100%',
+        style={{ background:'hsl(var(--color-bg-surface))', borderRadius:'14px', padding:'16px', maxWidth:'640px', width:'100%',
           display:'flex', flexDirection:'column', gap:'12px', boxShadow:'0 18px 48px rgba(15,23,42,.28)' }}>
         <div>
           <h2 id={titleId} style={{ margin:0, fontSize:'.9375rem', fontWeight:600 }}>Choose the area to keep</h2>
@@ -174,9 +174,9 @@ export default function ImageCropDialog({ file, pageAspect, onDone }: ImageCropD
               <button
                 key={String(option.value)} type="button" role="radio" aria-checked={locked === option.value}
                 title={option.hint} onClick={() => setLocked(option.value)}
-                style={Object.assign({}, btn(locked === option.value ? '#0f172a' : '#fff',
-                  locked === option.value ? '#fff' : '#475569',
-                  locked === option.value ? '#0f172a' : '#e3e7ee'), { flex: 1, justifyContent: 'center' })}
+                style={Object.assign({}, btn(locked === option.value ? 'hsl(var(--color-bg-panel-dark))' : 'hsl(var(--color-bg-surface))',
+                  locked === option.value ? 'hsl(var(--color-fg-on-solid))' : 'hsl(var(--color-fg-subtle))',
+                  locked === option.value ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-border-subtle))'), { flex: 1, justifyContent: 'center' })}
               >
                 {option.label}
               </button>
@@ -184,7 +184,7 @@ export default function ImageCropDialog({ file, pageAspect, onDone }: ImageCropD
           </div>
         ) : null}
 
-        <div ref={frameRef} style={{ position:'relative', width:'100%', background:'#eceff4', borderRadius:'10px',
+        <div ref={frameRef} style={{ position:'relative', width:'100%', background:'hsl(var(--color-bg-muted))', borderRadius:'10px',
           overflow:'hidden', display:'flex', justifyContent:'center', userSelect:'none' }}>
           {url ? (
             /* eslint-disable-next-line @next/next/no-img-element */
@@ -201,7 +201,7 @@ export default function ImageCropDialog({ file, pageAspect, onDone }: ImageCropD
             onPointerDown={startDrag('move')} onKeyDown={onBoxKeyDown}
             style={{ position:'absolute', touchAction:'none', cursor:'move', outlineOffset:'2px',
               left:percent(crop.x), top:percent(crop.y), width:percent(crop.width), height:percent(crop.height),
-              border:'2px solid #fff', boxShadow:'0 0 0 1px rgba(15,23,42,.6)' }}
+              border:'2px solid hsl(var(--color-bg-surface))', boxShadow:'0 0 0 1px rgba(15,23,42,.6)' }}
           >
             {(['nw','ne','sw','se'] as Grip[]).map(corner => (
               <span key={corner} onPointerDown={startDrag(corner)} style={handleStyle(corner)} />
@@ -214,11 +214,11 @@ export default function ImageCropDialog({ file, pageAspect, onDone }: ImageCropD
             Keeping {Math.round(crop.width * 100)}% × {Math.round(crop.height * 100)}% of the image
           </span>
           <button type="button" onClick={() => setCrop(shape === null ? WHOLE_IMAGE : largestOfShape(shape))}
-            style={btn('#fff', '#475569', '#e3e7ee')}>
+            style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}>
             <Icon name={shape === null ? 'image' : 'undo'} size={13} />{shape === null ? 'Whole image' : 'Reset'}
           </button>
-          <button type="button" onClick={() => onDone(null)} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Cancel</button>
-          <button type="button" onClick={() => onDone(crop)} style={btn('#0f172a', '#fff', '#0f172a')}>
+          <button type="button" onClick={() => onDone(null)} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="close" size={13} />Cancel</button>
+          <button type="button" onClick={() => onDone(crop)} style={btn('hsl(var(--color-bg-panel-dark))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-fg-default))')}>
             <Icon name="check" size={13} />Add this area
           </button>
         </div>

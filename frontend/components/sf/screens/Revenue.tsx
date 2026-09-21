@@ -44,12 +44,12 @@ export default function Revenue({
   const [live, setLive] = useState(initialLiveMode);
   const [replaying, setReplaying] = useState<string | null>(null);
 
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
   const emptyNote: CSSProperties = { fontSize:'.71875rem', color:TEXT_MUTED, lineHeight:1.6 };
 
   const revenueStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
-    metaStyle: { fontSize:'.6875rem', fontFamily:'var(--font-sans)', color: x.good ? '#047857' : '#c2410c' } as CSSProperties,
+    metaStyle: { fontSize:'.6875rem', fontFamily:'var(--font-sans)', color: x.good ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-warning))' } as CSSProperties,
   }));
 
   const planBars = subsByPlan.map(p => ({
@@ -59,7 +59,7 @@ export default function Revenue({
 
   const churn = churnRows.map(r => ({
     k: r.k, v: r.v,
-    style: { fontFamily:'var(--font-sans)', fontWeight:600, color: r.tone === 'good' ? '#047857' : '#c2410c' } as CSSProperties,
+    style: { fontFamily:'var(--font-sans)', fontWeight:600, color: r.tone === 'good' ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-warning))' } as CSSProperties,
   }));
 
   const replayEvent = (row: BillingEventRow) => {
@@ -76,13 +76,13 @@ export default function Revenue({
   const webhooks = events.map(e => ({
     id: e.id, type: e.type, ref: e.ref, status: e.status, ts: e.ts,
     label: replaying === e.id ? 'Replaying…' : 'Replay',
-    pill: pill(e.good ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : { bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' }),
-    rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'10px 15px', borderTop:'1px solid #f2f4f8', flexWrap:'wrap' } as CSSProperties,
+    pill: pill(e.good ? { bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' } : { bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' }),
+    rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'10px 15px', borderTop:'1px solid hsl(var(--color-border-faint))', flexWrap:'wrap' } as CSSProperties,
     onReplay: () => replayEvent(e),
   }));
 
   const liveModeLabel = live ? 'LIVE MODE' : 'TEST MODE';
-  const liveModePill = pill(live ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : { bg:'#fff7ed', fg:'#c2410c', bd:'#fed7aa' });
+  const liveModePill = pill(live ? { bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' } : { bg:'hsl(var(--color-bg-warning-subtle))', fg:'hsl(var(--color-fg-warning))', bd:'hsl(var(--color-border-warning))' });
 
   const toggleLiveMode = () => {
     const next = !live;
@@ -102,8 +102,8 @@ export default function Revenue({
     <section data-screen-label="Revenue" style={{ padding:'22px 22px 40px', display:'flex', flexDirection:'column', gap:'16px' }}>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0,1fr))', gap:'12px' }}>
         {revenueStats.map(st => (
-          <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'15px 16px', display:'flex', flexDirection:'column', gap:'7px' }}>
-            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{st.label}</span>
+          <div key={st.label} style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'14px', padding:'15px 16px', display:'flex', flexDirection:'column', gap:'7px' }}>
+            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{st.label}</span>
             <span style={{ fontSize:'1.5rem', fontWeight:700, letterSpacing:'-.8px' }}>{st.value}</span>
             <span style={st.metaStyle}>{st.meta}</span>
           </div>
@@ -111,17 +111,17 @@ export default function Revenue({
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div style={railHead}>{payoutDestination} balance &amp; payouts</div>
             <span style={liveModePill}>{liveModeLabel}</span>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'11px' }}>
             {balanceTiles.map(b => (
-              <div key={b.label} style={{ border:'1px solid #eef1f6', borderRadius:'12px', padding:'12px', background:'#fbfcfd', display:'flex', flexDirection:'column', gap:'4px' }}>
-                <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{b.label}</span>
+              <div key={b.label} style={{ border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'12px', padding:'12px', background:'hsl(var(--color-bg-subtle))', display:'flex', flexDirection:'column', gap:'4px' }}>
+                <span style={{ fontSize:'.65625rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{b.label}</span>
                 <span style={{ fontSize:'1.125rem', fontWeight:700, letterSpacing:'-.4px' }}>{b.value}</span>
-                <span style={{ fontSize:'.65625rem', color:'#64748b' }}>{b.meta}</span>
+                <span style={{ fontSize:'.65625rem', color:'hsl(var(--color-fg-muted))' }}>{b.meta}</span>
               </div>
             ))}
           </div>
@@ -130,40 +130,40 @@ export default function Revenue({
           </div>
         </div>
 
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
           <div style={railHead}>Subscriptions by plan</div>
           {planBars.length ? planBars.map(p => (
             <div key={p.name} style={{ display:'flex', alignItems:'center', gap:'11px' }}>
-              <span style={{ width:'88px', fontSize:'.78125rem', color:'#334155', flex:'0 0 88px' }}>{p.name}</span>
-              <div style={{ flex:1, height:'8px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={p.bar}></div></div>
-              <span style={{ width:'118px', textAlign:'right', fontSize:'.71875rem', fontFamily:'var(--font-sans)', color:'#475569', flex:'0 0 118px' }}>{p.meta}</span>
+              <span style={{ width:'88px', fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))', flex:'0 0 88px' }}>{p.name}</span>
+              <div style={{ flex:1, height:'8px', borderRadius:'99px', background:'hsl(var(--color-bg-muted))', overflow:'hidden' }}><div style={p.bar}></div></div>
+              <span style={{ width:'118px', textAlign:'right', fontSize:'.71875rem', fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-subtle))', flex:'0 0 118px' }}>{p.meta}</span>
             </div>
           )) : (<span style={emptyNote}>No subscriptions yet.</span>)}
-          <div style={{ borderTop:'1px solid #f2f4f8', paddingTop:'11px', display:'flex', flexDirection:'column', gap:'7px' }}>
+          <div style={{ borderTop:'1px solid hsl(var(--color-border-faint))', paddingTop:'11px', display:'flex', flexDirection:'column', gap:'7px' }}>
             {churn.map(c => (
               <div key={c.k} style={{ display:'flex', justifyContent:'space-between', fontSize:'.75rem' }}>
-                <span style={{ color:'#64748b' }}>{c.k}</span><span style={c.style}>{c.v}</span>
+                <span style={{ color:'hsl(var(--color-fg-muted))' }}>{c.k}</span><span style={c.style}>{c.v}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-        <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }}>
+      <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+        <div style={{ padding:'12px 15px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }}>
           <div style={railHead}>{payoutDestination} webhook events</div>
-          <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{events.length} events · {deliveredPct} delivered</span>
+          <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{events.length} events · {deliveredPct} delivered</span>
         </div>
         {webhooks.length ? webhooks.map(w => (
           <div key={w.id} style={w.rowStyle}>
             <span style={w.pill}>{w.status}</span>
-            <span style={{ fontSize:'.75rem', fontFamily:'var(--font-sans)', color:'#0f172a', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{w.type}</span>
-            <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{w.ref}</span>
+            <span style={{ fontSize:'.75rem', fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-default))', flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{w.type}</span>
+            <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{w.ref}</span>
             <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{w.ts}</span>
             <button type="button" onClick={w.onReplay} style={ghostBtn}><Icon name="refresh" size={13} />{w.label}</button>
           </div>
         )) : (
-          <div style={{ padding:'22px 15px', fontSize:'.78125rem', color:'#64748b' }}>No provider events received yet.</div>
+          <div style={{ padding:'22px 15px', fontSize:'.78125rem', color:'hsl(var(--color-fg-muted))' }}>No provider events received yet.</div>
         )}
       </div>
     </section>

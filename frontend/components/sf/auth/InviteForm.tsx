@@ -63,9 +63,9 @@ export default function InviteForm({ token }: { token: string }) {
 
   const score = passwordScore(password);
   const strengthBars = [0, 1, 2, 3].map(i => ({
-    style: { flex: '1', height: '4px', borderRadius: '99px', background: i < score ? STRENGTH_COLORS[score] : '#eef1f6' } as CSSProperties,
+    style: { flex: '1', height: '4px', borderRadius: '99px', background: i < score ? STRENGTH_COLORS[score] : 'hsl(var(--color-bg-muted))' } as CSSProperties,
   }));
-  const strengthLabelStyle: CSSProperties = { fontSize: '.6875rem', color: score >= 3 ? '#047857' : (score === 0 ? TEXT_MUTED : '#c2410c') };
+  const strengthLabelStyle: CSSProperties = { fontSize: '.6875rem', color: score >= 3 ? 'hsl(var(--color-fg-success))' : (score === 0 ? TEXT_MUTED : 'hsl(var(--color-fg-warning))') };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -131,7 +131,7 @@ export default function InviteForm({ token }: { token: string }) {
       subtitle="Set a name and password to join the workspace you were invited to."
     >
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '13px' }}>
-        <div style={{ fontSize: '.71875rem', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55 }}>
+        <div style={{ fontSize: '.71875rem', color: 'hsl(var(--color-accent-fg))', background: 'hsl(var(--color-accent-subtle))', border: '1px solid hsl(var(--color-accent-border))', borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55 }}>
           Your account will be created for the email address the invitation was sent to, with the role the
           administrator chose. Invitations can be accepted once.
         </div>

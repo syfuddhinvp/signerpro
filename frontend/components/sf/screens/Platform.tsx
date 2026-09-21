@@ -32,11 +32,11 @@ const thRight: CSSProperties = { padding:'10px 14px', fontSize:'.6875rem', lette
 const td: CSSProperties = { padding:'11px 14px', verticalAlign:'middle' };
 const tdRight: CSSProperties = { padding:'11px 14px', textAlign:'right', verticalAlign:'middle' };
 
-const superBannerStyle: CSSProperties = { background:'#0f172a', borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px' };
-const superChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background:'#f59e0b', color:'#3b1d00', fontSize:'.65625rem', fontWeight:700, fontFamily:'var(--font-sans)', letterSpacing:'.06em', whiteSpace:'nowrap', flex:'0 0 auto' };
-const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
+const superBannerStyle: CSSProperties = { background:'hsl(var(--color-bg-panel-dark))', borderRadius:'14px', padding:'13px 15px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px' };
+const superChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background:'hsl(var(--color-bg-warning-solid))', color:'#3b1d00', fontSize:'.65625rem', fontWeight:700, fontFamily:'var(--font-sans)', letterSpacing:'.06em', whiteSpace:'nowrap', flex:'0 0 auto' };
+const ghostBtn: CSSProperties = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
-const emptyCell: CSSProperties = { padding:'22px 14px', fontSize:'.78125rem', color:'#64748b' };
+const emptyCell: CSSProperties = { padding:'22px 14px', fontSize:'.78125rem', color:'hsl(var(--color-fg-muted))' };
 const emptyNote: CSSProperties = { fontSize:'.71875rem', color:TEXT_MUTED, lineHeight:1.6 };
 
 /** Filter values that live in the URL, so a filtered view is shareable. */
@@ -185,14 +185,14 @@ export default function Platform({
   const tenantRows = tenants.map((t, i) => ({
     id: t.id, name: t.name, slug: t.slug, owner: t.owner, plan: t.plan, region: t.region,
     volume: t.volume, status: t.status, initials: initials(t.name),
-    rowStyle: { borderTop: i ? '1px solid #eef1f6' : 'none', opacity: t.suspended ? .62 : 1, cursor:'pointer' } as CSSProperties,
-    avatar: { width:'30px', height:'30px', borderRadius:'9px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 30px' } as CSSProperties,
+    rowStyle: { borderTop: i ? '1px solid hsl(var(--color-border-hairline))' : 'none', opacity: t.suspended ? .62 : 1, cursor:'pointer' } as CSSProperties,
+    avatar: { width:'30px', height:'30px', borderRadius:'9px', background:'hsl(var(--color-bg-panel-dark))', color:'hsl(var(--color-fg-on-solid))', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 30px' } as CSSProperties,
     planPill: pill(t.planTone),
     statusPill: pill(t.statusTone),
     seatLabel: t.used.toLocaleString() + ' / ' + t.seats.toLocaleString(),
     seatBar: (() => {
       const pct = t.seats ? Math.min(100, Math.round(t.used / t.seats * 100)) : 0;
-      return { width: pct + '%', height:'100%', borderRadius:'99px', background: pct > 92 ? '#f59e0b' : '#10b981' } as CSSProperties;
+      return { width: pct + '%', height:'100%', borderRadius:'99px', background: pct > 92 ? 'hsl(var(--color-bg-warning-solid))' : 'hsl(var(--color-highlight-solid))' } as CSSProperties;
     })(),
     /* The row is the record page. A fold under the table could only ever hold
        a summary of what that page shows in full. */
@@ -200,7 +200,7 @@ export default function Platform({
     onOpen: () => router.push('/platform/tenants/' + t.id),
     onImpersonate: () => { setReason(''); setScope('read'); setDialog({ kind: 'impersonate', tenant: t }); },
     suspendLabel: t.suspended ? 'Reinstate' : 'Suspend',
-    suspendStyle: t.suspended ? btn('#fff', '#047857', '#a7f3d0') : btn('#fff', '#b91c1c', '#fecaca'),
+    suspendStyle: t.suspended ? btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-success))', 'hsl(var(--color-border-success))') : btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))'),
     onSuspend: () => {
       if (t.suspended) { reinstate(t); return; }
       setReason('');
@@ -211,7 +211,7 @@ export default function Platform({
   /* ── stats / tabs ────────────────────────────────────────────────────── */
   const platformStats = stats.map(x => ({
     label: x.label, value: x.value, meta: x.meta,
-    metaStyle: { fontSize:'.6875rem', color: x.good ? '#047857' : '#c2410c', fontFamily:'var(--font-sans)' } as CSSProperties,
+    metaStyle: { fontSize:'.6875rem', color: x.good ? 'hsl(var(--color-fg-success))' : 'hsl(var(--color-fg-warning))', fontFamily:'var(--font-sans)' } as CSSProperties,
   }));
 
   /* ── directory ───────────────────────────────────────────────────────── */
@@ -220,10 +220,10 @@ export default function Platform({
     return {
       id: u.id, name: u.name, email: u.email, tenant: u.tenant, role: u.role, mfa: u.mfa,
       lastActive: u.last, initials: initials(u.name),
-      rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'11px 15px', borderTop: i ? '1px solid #eef1f6' : 'none' } as CSSProperties,
-      avatar: { width:'30px', height:'30px', borderRadius:'99px', background: u.role === 'super' ? '#0f172a' : '#e3e7ee', color: u.role === 'super' ? '#f8fafc' : '#475569', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 30px' } as CSSProperties,
+      rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'11px 15px', borderTop: i ? '1px solid hsl(var(--color-border-hairline))' : 'none' } as CSSProperties,
+      avatar: { width:'30px', height:'30px', borderRadius:'99px', background: u.role === 'super' ? 'hsl(var(--color-bg-panel-dark))' : 'hsl(var(--color-border-subtle))', color: u.role === 'super' ? 'hsl(var(--color-fg-on-solid))' : 'hsl(var(--color-fg-subtle))', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700, flex:'0 0 30px' } as CSSProperties,
       selectStyle: Object.assign({}, inputStyle, { width:'138px' }) as CSSProperties,
-      mfaPill: pill(mfaOk ? { bg:'#ecfdf5', fg:'#047857', bd:'#a7f3d0' } : { bg:'#fef2f2', fg:'#b91c1c', bd:'#fecaca' }),
+      mfaPill: pill(mfaOk ? { bg:'hsl(var(--color-bg-success-subtle))', fg:'hsl(var(--color-fg-success))', bd:'hsl(var(--color-border-success))' } : { bg:'hsl(var(--color-bg-danger-subtle))', fg:'hsl(var(--color-fg-danger))', bd:'hsl(var(--color-border-danger))' }),
       onRole: (e: React.ChangeEvent<HTMLSelectElement>) => {
         const v = e.target.value;
         flash(u.name + ' → ' + (ROLE_LABEL[v] ?? v) + ' · change logged');
@@ -240,7 +240,7 @@ export default function Platform({
     cells: row.allowed.map((c, i) => ({
       mark: (c ? 'check' : 'minus') as IconName, title: (matrix.columnLabels[i] ?? matrix.columns[i] ?? '') + (c ? ': allowed' : ': denied'),
       style: { width:'26px', height:'22px', borderRadius:'6px', display:'grid', placeItems:'center', fontSize:'.6875rem', fontWeight:700,
-        background: c ? '#ecfdf5' : '#f5f6f8', color: c ? '#047857' : BORDER_STRONG, border:'1px solid ' + (c ? '#a7f3d0' : '#e3e7ee') } as CSSProperties,
+        background: c ? 'hsl(var(--color-bg-success-subtle))' : 'hsl(var(--color-bg-canvas))', color: c ? 'hsl(var(--color-fg-success))' : BORDER_STRONG, border:'1px solid ' + (c ? 'hsl(var(--color-border-success))' : 'hsl(var(--color-border-subtle))') } as CSSProperties,
     })),
   }));
 
@@ -267,14 +267,14 @@ export default function Platform({
 
   const flagRows = flags.map((f, i) => {
     const rollout = rollouts[f.key] ?? f.rollout;
-    const envTone = FLAG_ENV_TONE[f.env] ?? { bg:'#f5f6f8', fg:'#475569', bd:'#e3e7ee' };
+    const envTone = FLAG_ENV_TONE[f.env] ?? { bg:'hsl(var(--color-bg-canvas))', fg:'hsl(var(--color-fg-subtle))', bd:'hsl(var(--color-border-subtle))' };
     return {
       key: f.key, env: f.env, desc: f.desc, rollout: String(rollout), rolloutLabel: rollout + '%',
       onStr: f.on ? 'true' : 'false', aria: 'Toggle ' + f.key,
       envPill: pill(envTone),
-      rowStyle: { display:'flex', alignItems:'center', gap:'14px', padding:'11px', borderTop: i ? '1px solid #f2f4f8' : 'none' } as CSSProperties,
-      switch: { width:'38px', height:'21px', borderRadius:'99px', border:'none', cursor:'pointer', background: f.on ? '#10b981' : BORDER_STRONG, position:'relative', flex:'0 0 38px' } as CSSProperties,
-      knob: { position:'absolute', top:'3px', left: f.on ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' } as CSSProperties,
+      rowStyle: { display:'flex', alignItems:'center', gap:'14px', padding:'11px', borderTop: i ? '1px solid hsl(var(--color-border-faint))' : 'none' } as CSSProperties,
+      switch: { width:'38px', height:'21px', borderRadius:'99px', border:'none', cursor:'pointer', background: f.on ? 'hsl(var(--color-highlight-solid))' : BORDER_STRONG, position:'relative', flex:'0 0 38px' } as CSSProperties,
+      knob: { position:'absolute', top:'3px', left: f.on ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))', transition:'left .15s' } as CSSProperties,
       onToggle: () => { flash(f.key + ' → ' + (f.on ? 'off' : 'on')); patchFlag(f.key, { enabled: !f.on }); },
       onRollout: (e: React.ChangeEvent<HTMLInputElement>) => {
         const v = parseInt(e.target.value, 10);
@@ -289,7 +289,7 @@ export default function Platform({
   const planCards = plans.map(p => ({
     code: p.code, name: p.name, price: p.price, tag: p.tag, lines: p.lines,
     tenantsLabel: p.tenantsLabel, mrr: p.mrr, tagStyle: pill(p.tone),
-    cardStyle: { background:'#fff', border:'1px solid ' + (p.code === 'enterprise' ? '#c7d2fe' : '#e3e7ee'), borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' } as CSSProperties,
+    cardStyle: { background:'hsl(var(--color-bg-surface))', border:'1px solid ' + (p.code === 'enterprise' ? 'hsl(var(--color-accent-border))' : 'hsl(var(--color-border-subtle))'), borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' } as CSSProperties,
   }));
 
 
@@ -302,10 +302,10 @@ export default function Platform({
     key: r.key, label: r.label, meta: r.meta,
     implemented: r.implemented,
     onStr: r.enforced ? 'true' : 'false',
-    badge: { padding:'4px 9px', borderRadius:'99px', border:'1px solid #fed7aa', background:'#fff7ed',
+    badge: { padding:'4px 9px', borderRadius:'99px', border:'1px solid hsl(var(--color-border-warning))', background:'hsl(var(--color-bg-warning-subtle))',
       color:'#9a3412', fontSize:'.6875rem', fontWeight:600, whiteSpace:'nowrap', flex:'0 0 auto' } as CSSProperties,
-    switch: { width:'38px', height:'21px', borderRadius:'99px', border:'none', cursor:'pointer', background: r.enforced ? '#10b981' : BORDER_STRONG, position:'relative', flex:'0 0 38px' } as CSSProperties,
-    knob: { position:'absolute', top:'3px', left: r.enforced ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff', transition:'left .15s' } as CSSProperties,
+    switch: { width:'38px', height:'21px', borderRadius:'99px', border:'none', cursor:'pointer', background: r.enforced ? 'hsl(var(--color-highlight-solid))' : BORDER_STRONG, position:'relative', flex:'0 0 38px' } as CSSProperties,
+    knob: { position:'absolute', top:'3px', left: r.enforced ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))', transition:'left .15s' } as CSSProperties,
     onToggle: () => {
       flash(r.label + ' → ' + (r.on ? 'disabled' : 'enabled'));
       void flagsApi.updateSecurityPosture(apiCall, { [r.key]: !r.on }).then(res => {
@@ -316,19 +316,19 @@ export default function Platform({
   }));
 
   const auditRows = audit.map((a, i) => ({ key: a.key, label: a.label, meta: a.meta,
-    dot: { width:'8px', height:'8px', borderRadius:'99px', marginTop:'5px', flex:'0 0 8px', background: i === 0 ? '#f59e0b' : '#334155' } as CSSProperties }));
+    dot: { width:'8px', height:'8px', borderRadius:'99px', marginTop:'5px', flex:'0 0 8px', background: i === 0 ? 'hsl(var(--color-bg-warning-solid))' : 'hsl(var(--color-border-strong))' } as CSSProperties }));
 
   /* A chip is the only thing anyone reads at a glance, so it has to carry the
      status honestly: green is reserved for an attestation that is current, and
      a lapsed one goes amber rather than quietly staying green. */
   const certs = certifications.map(c => {
     const tone = c.effectiveStatus === 'certified'
-      ? { border:'#a7f3d0', background:'#ecfdf5', color:'#065f46' }
+      ? { border:'hsl(var(--color-border-success))', background:'hsl(var(--color-bg-success-subtle))', color:'#065f46' }
       : c.effectiveStatus === 'expired'
-        ? { border:'#fecaca', background:'#fef2f2', color:'#991b1b' }
+        ? { border:'hsl(var(--color-border-danger))', background:'hsl(var(--color-bg-danger-subtle))', color:'hsl(var(--color-fg-danger))' }
         : c.effectiveStatus === 'in_process'
-          ? { border:'#fed7aa', background:'#fff7ed', color:'#9a3412' }
-          : { border:'#e3e7ee', background:'#fbfcfd', color:'#475569' };
+          ? { border:'hsl(var(--color-border-warning))', background:'hsl(var(--color-bg-warning-subtle))', color:'#9a3412' }
+          : { border:'hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-subtle))', color:'hsl(var(--color-fg-subtle))' };
     return { ...c,
       style: { padding:'5px 10px', borderRadius:'99px', border:'1px solid ' + tone.border, background:tone.background, fontSize:'.71875rem', color:tone.color, fontFamily:'var(--font-sans)' } as CSSProperties };
   });
@@ -374,8 +374,8 @@ export default function Platform({
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0,1fr))', gap:'12px' }}>
         {platformStats.map(st => (
-          <div key={st.label} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'7px' }}>
-            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'#64748b', fontFamily:'var(--font-sans)' }}>{st.label}</span>
+          <div key={st.label} style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'7px' }}>
+            <span style={{ fontSize:'.65625rem', letterSpacing:'.06em', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{st.label}</span>
             <span style={{ fontSize:'1.5rem', fontWeight:700, letterSpacing:'-.8px' }}>{st.value}</span>
             <span style={st.metaStyle}>{st.meta}</span>
           </div>
@@ -383,8 +383,8 @@ export default function Platform({
       </div>
 
       {ptTenants ? (
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-          <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+          <div style={{ padding:'12px 15px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
             <div style={railHead}>Tenants / organisations · {tenants.length} of {tenantTotal}</div>
             <div style={{ display:'flex', alignItems:'center', gap:'7px', flexWrap:'wrap' }}>
               <select value={filters.status} onChange={e => pushQuery({ status: e.target.value })} aria-label="Filter by status" style={selectStyle}>
@@ -397,13 +397,13 @@ export default function Platform({
               <input type="search" value={tenantQuery}
                 onChange={e => { setTenantQuery(e.target.value); pushDebounced({ q: e.target.value }); }}
                 placeholder="Filter by org, region, plan…" aria-label="Filter tenants"
-                style={{ height:'32px', width:'240px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'#fbfcfd' }} />
+                style={{ height:'32px', width:'240px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'hsl(var(--color-bg-subtle))' }} />
             </div>
           </div>
           <div data-sf-scroll="1" style={{ overflowX:'auto', maxWidth:'100%' }}>
             <table style={{ width:'100%', minWidth:'920px', borderCollapse:'collapse', fontSize:'.8125rem' }}>
               <thead>
-                <tr style={{ textAlign:'left', color:'#64748b' }}>
+                <tr style={{ textAlign:'left', color:'hsl(var(--color-fg-muted))' }}>
                   <th scope="col" style={th}>Organisation</th>
                   <th scope="col" style={th}>Plan</th>
                   <th scope="col" style={th}>Seats</th>
@@ -422,7 +422,7 @@ export default function Platform({
                       <div style={{ display:'flex', alignItems:'center', gap:'11px' }}>
                         <span style={t.avatar}>{t.initials}</span>
                         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
-                          <Link href={t.href} style={{ textDecoration:'none', fontSize:'.84375rem', fontWeight:600, color:'#0f172a' }}>{t.name}</Link>
+                          <Link href={t.href} style={{ textDecoration:'none', fontSize:'.84375rem', fontWeight:600, color:'hsl(var(--color-fg-default))' }}>{t.name}</Link>
                           <span style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>{t.slug} · owner {t.owner}</span>
                         </div>
                       </div>
@@ -431,11 +431,11 @@ export default function Platform({
                     <td style={td}>
                       <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
                         <span style={{ fontFamily:'var(--font-sans)', fontSize:'.75rem' }}>{t.seatLabel}</span>
-                        <div style={{ width:'78px', height:'4px', borderRadius:'99px', background:'#eef1f6', overflow:'hidden' }}><div style={t.seatBar}></div></div>
+                        <div style={{ width:'78px', height:'4px', borderRadius:'99px', background:'hsl(var(--color-bg-muted))', overflow:'hidden' }}><div style={t.seatBar}></div></div>
                       </div>
                     </td>
                     <td style={td}><span style={{ fontFamily:'var(--font-sans)', fontSize:'.75rem' }}>{t.volume}</span></td>
-                    <td style={td}><span style={{ color:'#64748b', fontFamily:'var(--font-sans)', fontSize:'.71875rem' }}>{t.region}</span></td>
+                    <td style={td}><span style={{ color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', fontSize:'.71875rem' }}>{t.region}</span></td>
                     <td style={td}><span style={t.statusPill}>{t.status}</span></td>
                     <td style={tdRight} onClick={e => e.stopPropagation()}>
                       <div style={{ display:'inline-flex', gap:'6px' }}>
@@ -457,8 +457,8 @@ export default function Platform({
 
       {ptUsers ? (
         <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1.7fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-            <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', justifyContent:'space-between', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+            <div style={{ padding:'12px 15px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', justifyContent:'space-between', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
               <div style={railHead}>Directory · cross-tenant · {directory.length} of {directoryTotal}</div>
               <div style={{ display:'flex', alignItems:'center', gap:'7px', flexWrap:'wrap' }}>
                 <select value={filters.role} onChange={e => pushQuery({ drole: e.target.value })} aria-label="Filter by role" style={selectStyle}>
@@ -470,7 +470,7 @@ export default function Platform({
                 <input type="search" value={directoryQuery}
                   onChange={e => { setDirectoryQuery(e.target.value); pushDebounced({ duser: e.target.value }); }}
                   placeholder="Search name or email…" aria-label="Search directory"
-                  style={{ height:'32px', width:'200px', border:'1px solid #e3e7ee', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'#fbfcfd' }} />
+                  style={{ height:'32px', width:'200px', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'9px', padding:'0 11px', fontSize:'.78125rem', outline:'none', background:'hsl(var(--color-bg-subtle))' }} />
               </div>
             </div>
             {directoryRows.length ? directoryRows.map(u => (
@@ -478,7 +478,7 @@ export default function Platform({
                 <span style={u.avatar}>{u.initials}</span>
                 <div style={{ display:'flex', flexDirection:'column', gap:'2px', flex:'1 1 180px', minWidth:'170px' }}>
                   <span style={{ fontSize:'.8125rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.name}</span>
-                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.email} · {u.tenant}</span>
+                  <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.email} · {u.tenant}</span>
                 </div>
                 <select value={u.role} onChange={u.onRole} aria-label="Role" style={u.selectStyle}>
                   <option value="super">Super admin</option>
@@ -493,11 +493,11 @@ export default function Platform({
               <div style={emptyCell}>No users match these filters.</div>
             )}
           </div>
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
             <div style={railHead}>Role permission matrix</div>
             {permRows.length ? permRows.map(p => (
-              <div key={p.label} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', padding:'8px 0', borderBottom:'1px solid #f2f4f8' }}>
-                <span style={{ fontSize:'.75rem', color:'#334155' }}>{p.label}</span>
+              <div key={p.label} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', padding:'8px 0', borderBottom:'1px solid hsl(var(--color-border-faint))' }}>
+                <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-subtle))' }}>{p.label}</span>
                 <div style={{ display:'flex', gap:'6px' }}>
                   {p.cells.map((c, ci) => (
                     <span key={ci} style={c.style} title={c.title}><Icon name={c.mark} size={12} /></span>
@@ -511,14 +511,14 @@ export default function Platform({
       ) : null}
 
       {ptFlags ? (
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
             <div style={railHead}>Feature flags &amp; rollout</div>
             <div style={{ display:'flex', alignItems:'center', gap:'9px' }}>
               <select value={filters.flagEnvironment} onChange={e => pushQuery({ flagEnv: e.target.value })} aria-label="Filter by environment" style={selectStyle}>
                 {FLAG_ENV_OPTIONS.map(([id, label]) => (<option key={id} value={id}>{label}</option>))}
               </select>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>edge config · propagates in ~15s</span>
+              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>edge config · propagates in ~15s</span>
             </div>
           </div>
           {flagRows.length ? flagRows.map(f => (
@@ -528,11 +528,11 @@ export default function Platform({
                   <span style={{ fontSize:'.78125rem', fontWeight:600, fontFamily:'var(--font-sans)' }}>{f.key}</span>
                   <span style={f.envPill}>{f.env}</span>
                 </div>
-                <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{f.desc}</span>
+                <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>{f.desc}</span>
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:'9px' }}>
-                <span style={{ fontSize:'.6875rem', fontFamily:'var(--font-sans)', color:'#475569', width:'64px', textAlign:'right' }}>{f.rolloutLabel}</span>
-                <input type="range" min="0" max="100" step="5" value={f.rollout} onChange={f.onRollout} aria-label="Rollout percentage" style={{ width:'120px', accentColor:'#4f46e5' }} />
+                <span style={{ fontSize:'.6875rem', fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-subtle))', width:'64px', textAlign:'right' }}>{f.rolloutLabel}</span>
+                <input type="range" min="0" max="100" step="5" value={f.rollout} onChange={f.onRollout} aria-label="Rollout percentage" style={{ width:'120px', accentColor:'hsl(var(--color-accent-solid))' }} />
                 <button type="button" role="switch" aria-checked={f.onStr === 'true'} aria-label={f.aria} onClick={f.onToggle} style={f.switch}><span style={f.knob}></span></button>
               </div>
             </div>
@@ -550,26 +550,26 @@ export default function Platform({
               </div>
               <div style={{ display:'flex', alignItems:'baseline', gap:'5px' }}>
                 <span style={{ fontSize:'1.625rem', fontWeight:700, letterSpacing:'-1px' }}>{p.price}</span>
-                <span style={{ fontSize:'.75rem', color:'#64748b' }}>/ seat / mo</span>
+                <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-muted))' }}>/ seat / mo</span>
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:'7px', borderTop:'1px solid #eef1f6', paddingTop:'11px' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'7px', borderTop:'1px solid hsl(var(--color-border-hairline))', paddingTop:'11px' }}>
                 {p.lines.map(l => (
                   <div key={l.k} style={{ display:'flex', justifyContent:'space-between', fontSize:'.75rem', gap:'10px' }}>
-                    <span style={{ color:'#64748b' }}>{l.k}</span><span style={{ fontWeight:500, fontFamily:'var(--font-sans)' }}>{l.v}</span>
+                    <span style={{ color:'hsl(var(--color-fg-muted))' }}>{l.k}</span><span style={{ fontWeight:500, fontFamily:'var(--font-sans)' }}>{l.v}</span>
                   </div>
                 ))}
               </div>
-              <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.71875rem', color:'#475569', borderTop:'1px solid #eef1f6', paddingTop:'11px' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.71875rem', color:'hsl(var(--color-fg-subtle))', borderTop:'1px solid hsl(var(--color-border-hairline))', paddingTop:'11px' }}>
                 <span>{p.tenantsLabel}</span><span style={{ fontFamily:'var(--font-sans)', fontWeight:600 }}>{p.mrr} MRR</span>
               </div>
             </div>
           ))}
           {!planCards.length ? (
-            <div style={{ gridColumn:'1 / -1', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px' }}>
+            <div style={{ gridColumn:'1 / -1', background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px' }}>
               <span style={emptyNote}>No plans configured.</span>
             </div>
           ) : null}
-          <div style={{ gridColumn:'1 / -1', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+          <div style={{ gridColumn:'1 / -1', background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
             <div style={railHead}>Metered usage · current cycle</div>
             {/* Platform-wide metering has no endpoint (`GET /api/billing/usage`
                 is scoped to the caller's own tenant). The prototype's constants
@@ -581,17 +581,17 @@ export default function Platform({
 
       {ptSecurity ? (
         <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
             <div style={railHead}>Security posture</div>
             <span style={{ fontSize:'.71875rem', color:TEXT_MUTED, lineHeight:1.5 }}>
               Controls marked <strong>Not implemented</strong> have no enforcement anywhere in the
               product. Nothing you can change here restricts access.
             </span>
             {securityRows.length ? securityRows.map(r => (
-              <div key={r.key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', padding:'10px 11px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fbfcfd' }}>
+              <div key={r.key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', padding:'10px 11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'11px', background:'hsl(var(--color-bg-subtle))' }}>
                 <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
                   <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{r.label}</span>
-                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{r.meta}</span>
+                  <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{r.meta}</span>
                 </div>
                 {r.implemented ? (
                   <button type="button" role="switch" aria-checked={r.onStr === 'true'} aria-label={r.label} onClick={r.onToggle} style={r.switch}><span style={r.knob}></span></button>
@@ -602,22 +602,22 @@ export default function Platform({
             )) : (<span style={emptyNote}>Security posture unavailable.</span>)}
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-            <div style={{ background:'#0f172a', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
+            <div style={{ background:'hsl(var(--color-bg-panel-dark))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'11px' }}>
               <div style={{ fontSize:'.6875rem', letterSpacing:'.08em', color:TEXT_MUTED_ON_DARK, fontFamily:'var(--font-sans)' }}>PLATFORM AUDIT STREAM</div>
               {auditRows.length ? auditRows.map(a => (
                 <div key={a.key} style={{ display:'flex', gap:'10px', alignItems:'flex-start' }}>
                   <span style={a.dot}></span>
                   <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
-                    <span style={{ fontSize:'.78125rem', color:'#e2e8f0', fontWeight:500 }}>{a.label}</span>
-                    <span style={{ fontSize:'.65625rem', color:'#64748b', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{a.meta}</span>
+                    <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-on-solid))', fontWeight:500 }}>{a.label}</span>
+                    <span style={{ fontSize:'.65625rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', wordBreak:'break-all' }}>{a.meta}</span>
                   </div>
                 </div>
-              )) : (<span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.6 }}>No administrative actions recorded yet.</span>)}
+              )) : (<span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.6 }}>No administrative actions recorded yet.</span>)}
             </div>
-            <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
+            <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
               <div style={railHead}>Compliance certifications</div>
               {certs.length ? certs.map(c => (
-                <div key={c.id} style={{ display:'flex', flexDirection:'column', gap:'7px', padding:'10px 11px', border:'1px solid #eef1f6', borderRadius:'11px', background:'#fbfcfd' }}>
+                <div key={c.id} style={{ display:'flex', flexDirection:'column', gap:'7px', padding:'10px 11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'11px', background:'hsl(var(--color-bg-subtle))' }}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px' }}>
                     <span style={c.style}>{c.label}</span>
                     <button type="button" style={ghostBtn} onClick={() => {
@@ -626,7 +626,7 @@ export default function Platform({
                       setCertForm({ status: c.status, auditor: c.auditor, assessedOn: c.assessedOn, expiresOn: c.expiresOn, evidenceUrl: c.evidenceUrl, notes: c.notes });
                     }}>{certEdit === c.id ? 'Cancel' : 'Edit'}</button>
                   </div>
-                  <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', lineHeight:1.5 }}>{c.evidence}</span>
+                  <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', lineHeight:1.5 }}>{c.evidence}</span>
                   {c.evidenceUrl ? (
                     <a href={c.evidenceUrl} target="_blank" rel="noreferrer noopener" style={{ fontSize:'.6875rem', color:A, wordBreak:'break-all' }}>{c.evidenceUrl}</a>
                   ) : null}
@@ -650,18 +650,18 @@ export default function Platform({
                         onChange={e => setCertForm({ ...certForm, evidenceUrl: e.target.value })} />
                       <input value={certForm.notes} placeholder="Notes (scope, exceptions)" aria-label={c.name + ' notes'} style={inputStyle}
                         onChange={e => setCertForm({ ...certForm, notes: e.target.value })} />
-                      {certError ? (<span role="alert" style={{ fontSize:'.6875rem', color:'#b91c1c', lineHeight:1.5 }}>{certError}</span>) : null}
-                      <button type="button" disabled={certBusy} style={btn(A, '#fff', A)} onClick={saveCert}>
+                      {certError ? (<span role="alert" style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-danger))', lineHeight:1.5 }}>{certError}</span>) : null}
+                      <button type="button" disabled={certBusy} style={btn(A, 'hsl(var(--color-fg-on-solid))', A)} onClick={saveCert}>
                         {certBusy ? 'Saving…' : 'Save record'}
                       </button>
-                      <span style={{ fontSize:'.65625rem', color:'#64748b', lineHeight:1.5 }}>
+                      <span style={{ fontSize:'.65625rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>
                         Recording <strong>Certified</strong> requires the auditor, the assessment date and a link to the report.
                       </span>
                     </div>
                   ) : null}
                 </div>
               )) : (<span style={emptyNote}>No certifications recorded.</span>)}
-              <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>{complianceNote}</span>
+              <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>{complianceNote}</span>
             </div>
           </div>
         </div>
@@ -670,18 +670,18 @@ export default function Platform({
       {dialog ? (
         <div role="dialog" aria-modal="true" aria-label={dialog.kind === 'suspend' ? 'Suspend tenant' : 'Start impersonation'}
           style={{ position:'fixed', inset:0, background:'rgba(15,23,42,.42)', display:'grid', placeItems:'center', padding:'22px', zIndex:60 }}>
-          <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', width:'min(460px, 100%)', display:'flex', flexDirection:'column', gap:'12px' }}>
+          <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'18px', width:'min(460px, 100%)', display:'flex', flexDirection:'column', gap:'12px' }}>
             <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
               <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.2px' }}>
                 {dialog.kind === 'suspend' ? 'Suspend ' + dialog.tenant.name : 'Impersonate ' + dialog.tenant.name}
               </span>
-              <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.5 }}>
+              <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>
                 {dialog.kind === 'suspend'
                   ? 'All envelopes freeze immediately. The reason is stored on the tenant and written to the platform audit stream.'
                   : 'You will be signed in as the tenant owner until the session expires or you end it. The justification and the session are recorded before the token exists.'}
               </span>
             </div>
-            <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+            <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>
               {dialog.kind === 'suspend' ? 'Reason (min 3 characters)' : 'Justification (min 5 characters)'}
               <input value={reason} onChange={e => setReason(e.target.value)} autoFocus
                 placeholder={dialog.kind === 'suspend' ? 'non-payment · dunning step 4' : 'INC-4471 · signer cannot complete envelope'}
@@ -689,7 +689,7 @@ export default function Platform({
             </label>
             {dialog.kind === 'impersonate' ? (
               <>
-                <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+                <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>
                   Session lifetime
                   <select value={ttl} onChange={e => setTtl(e.target.value)} style={Object.assign({}, inputStyle, { width:'100%' })}>
                     <option value="300">5 minutes</option>
@@ -700,14 +700,14 @@ export default function Platform({
                 </label>
                 {/* Without this the session was always read-only, so every
                     action taken to fix the customer's problem came back 403. */}
-                <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+                <label style={{ display:'flex', flexDirection:'column', gap:'5px', fontSize:'.6875rem', letterSpacing:'.04em', textTransform:'uppercase', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>
                   Access
                   <select value={scope} onChange={e => setScope(e.target.value)} style={Object.assign({}, inputStyle, { width:'100%' })}>
                     <option value="read">Read only — look, change nothing</option>
                     <option value="write">Read and write — act on the tenant&rsquo;s behalf</option>
                   </select>
                 </label>
-                <span style={{ fontSize:'.6875rem', color:'#c2410c', lineHeight:1.5 }}>
+                <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-warning))', lineHeight:1.5 }}>
                   Everything you do is attributed to you in the tenant&rsquo;s audit trail, not to {dialog.tenant.owner || 'the owner'}.
                 </span>
               </>
@@ -716,7 +716,7 @@ export default function Platform({
               <button type="button" onClick={closeDialog} style={ghostBtn}><Icon name="close" size={13} />Cancel</button>
               <button type="button" disabled={busy}
                 onClick={dialog.kind === 'suspend' ? submitSuspend : submitImpersonation}
-                style={dialog.kind === 'suspend' ? btn('#b91c1c', '#fff', '#b91c1c') : btn(A, '#fff', A)}>
+                style={dialog.kind === 'suspend' ? btn('hsl(var(--color-bg-danger-solid))', 'hsl(var(--color-fg-on-solid))', 'hsl(var(--color-fg-danger))') : btn(A, 'hsl(var(--color-fg-on-solid))', A)}>
                 <Icon name={dialog.kind === 'suspend' ? 'pause' : 'eye'} size={13} />{busy ? 'Working…' : dialog.kind === 'suspend' ? 'Suspend tenant' : 'Start session'}
               </button>
             </div>

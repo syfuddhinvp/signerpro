@@ -36,9 +36,10 @@ import { btn, pill, inputStyle, lbl as lblStyle, railHead, TONE_BAD, TONE_GOOD, 
 import { rememberOauthProvider } from '@/lib/sf/cloudOauth';
 import { typeFaceStack } from '@/lib/sf/fonts';
 import Icon, { markFor } from '@/components/sf/Icon';
+import AppearancePanel from '@/components/sf/parts/AppearancePanel';
 
-const card: CSSProperties = { background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'13px' };
-const emptyBox: CSSProperties = { border:'1px dashed #8492a6', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:'#64748b', lineHeight:1.6 };
+const card: CSSProperties = { background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'13px' };
+const emptyBox: CSSProperties = { border:'1px dashed hsl(var(--color-border-strong))', borderRadius:'12px', padding:'18px', textAlign:'center', fontSize:'.75rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.6 };
 
 /** `2026-08-28T09:12:04Z` → `28 Aug 2026, 09:12`. Never invents a value. */
 function stamp(iso: string | null | undefined): string {
@@ -70,10 +71,10 @@ function downloadRecoveryCodes(codes: string[]): void {
   URL.revokeObjectURL(url);
 }
 
-const enrolStep: CSSProperties = { display:'flex', gap:'11px', padding:'13px 14px', borderBottom:'1px solid #eef2ff', alignItems:'flex-start' };
-const stepNum: CSSProperties = { flex:'0 0 20px', width:'20px', height:'20px', borderRadius:'99px', background:'#eef2ff', color:'#4338ca', fontSize:'.6875rem', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', marginTop:'1px' };
-const secretBox: CSSProperties = { fontFamily:'var(--font-mono, ui-monospace, monospace)', fontSize:'.75rem', letterSpacing:'.04em', background:'#f8fafc', border:'1px solid #e3e7ee', borderRadius:'8px', padding:'8px 10px', wordBreak:'break-all', lineHeight:1.6 };
-const codeChip: CSSProperties = { fontFamily:'var(--font-mono, ui-monospace, monospace)', fontSize:'.71875rem', background:'#f8fafc', border:'1px solid #e3e7ee', borderRadius:'6px', padding:'5px 7px', textAlign:'center' };
+const enrolStep: CSSProperties = { display:'flex', gap:'11px', padding:'13px 14px', borderBottom:'1px solid hsl(var(--color-accent-border))', alignItems:'flex-start' };
+const stepNum: CSSProperties = { flex:'0 0 20px', width:'20px', height:'20px', borderRadius:'99px', background:'hsl(var(--color-accent-subtle))', color:'hsl(var(--color-fg-info))', fontSize:'.6875rem', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', marginTop:'1px' };
+const secretBox: CSSProperties = { fontFamily:'var(--font-mono, ui-monospace, monospace)', fontSize:'.75rem', letterSpacing:'.04em', background:'hsl(var(--color-bg-subtle))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'8px', padding:'8px 10px', wordBreak:'break-all', lineHeight:1.6 };
+const codeChip: CSSProperties = { fontFamily:'var(--font-mono, ui-monospace, monospace)', fontSize:'.71875rem', background:'hsl(var(--color-bg-subtle))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'6px', padding:'5px 7px', textAlign:'center' };
 
 function sessionLabel(row: SessionResponse): string {
   const name = joinMeta([row.browser, row.os, row.device]);
@@ -87,10 +88,10 @@ export default function AccountArea({ section }: { section: AccountSection }) {
   const A = accent();
   const { askText, askChoice, askConfirm } = useDialogs();
 
-  const primaryBtn = btn(A, '#fff', A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const autoGhostBtn: CSSProperties = { ...btn('#fff', '#475569', '#e3e7ee'), marginLeft:'auto', flex:'0 0 auto' };
-  const autoDangerBtn: CSSProperties = { ...btn('#fff', '#b91c1c', '#fecaca'), marginLeft:'auto', flex:'0 0 auto' };
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const autoGhostBtn: CSSProperties = { ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), marginLeft:'auto', flex:'0 0 auto' };
+  const autoDangerBtn: CSSProperties = { ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))'), marginLeft:'auto', flex:'0 0 auto' };
   /* A row-level edit that repeats down a list. Bordered buttons on every row
      turn a quiet roster into a column of competing calls to action. */
   const linkBtn: CSSProperties = {
@@ -818,8 +819,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
         setNotifPrefs(res.data);
       });
     },
-    switchStyle: { width:'34px', height:'19px', borderRadius:'99px', background: p.enabled ? '#10b981' : BORDER_STRONG, position:'relative', flex:'0 0 34px', border:'none', cursor:'pointer' } as CSSProperties,
-    knob: { position:'absolute', top:'2px', left: p.enabled ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff' } as CSSProperties,
+    switchStyle: { width:'34px', height:'19px', borderRadius:'99px', background: p.enabled ? 'hsl(var(--color-highlight-solid))' : BORDER_STRONG, position:'relative', flex:'0 0 34px', border:'none', cursor:'pointer' } as CSSProperties,
+    knob: { position:'absolute', top:'2px', left: p.enabled ? '17px' : '2px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))' } as CSSProperties,
   }));
 
   /* The account's own extra notification recipients, as the server has them. */
@@ -969,10 +970,10 @@ export default function AccountArea({ section }: { section: AccountSection }) {
           : state === 'unconfigured' ? 'Not configured' : 'Available',
       ctaLabel: state === 'connected' ? 'Disconnect' : state === 'reauth' ? 'Reconnect' : 'Connect',
       ctaStyle: state === 'connected'
-        ? btn('#fff', '#b91c1c', '#fecaca')
+        ? btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')
         /* A connector that cannot be connected does not get the primary
            colour: a faded accent button still reads as the call to action. */
-        : state === 'unconfigured' ? btn('#f1f5f9', TEXT_MUTED, '#e2e8f0') : btn(A, '#fff', A),
+        : state === 'unconfigured' ? btn('hsl(var(--color-bg-muted))', TEXT_MUTED, 'hsl(var(--color-border-default))') : btn(A, 'hsl(var(--color-fg-on-solid))', A),
       ctaDisabled: state === 'unconfigured' || busy,
       onClick: () => {
         if (state === 'connected') { void disconnectProvider(i); return; }
@@ -1125,15 +1126,15 @@ export default function AccountArea({ section }: { section: AccountSection }) {
       : { key, dir: key === 'time' ? 'desc' : 'asc' }));
 
   const auditTh = (align: 'left' | 'right' = 'left'): CSSProperties =>
-    ({ textAlign: align, padding: '10px 14px', fontSize: '.6875rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' });
-  const auditTd: CSSProperties = { padding: '11px 14px', fontSize: '.75rem', verticalAlign: 'top', borderTop: '1px solid #eef1f6' };
+    ({ textAlign: align, padding: '10px 14px', fontSize: '.6875rem', fontWeight: 600, color: 'hsl(var(--color-fg-muted))', whiteSpace: 'nowrap' });
+  const auditTd: CSSProperties = { padding: '11px 14px', fontSize: '.75rem', verticalAlign: 'top', borderTop: '1px solid hsl(var(--color-border-hairline))' };
   /** A header that is also the sort control; the arrow shows the active key. */
   const auditSortBtn: CSSProperties = { background: 'none', border: 0, padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' };
   const auditArrow = (key: 'time' | 'action' | 'document' | 'actor') =>
     auditSort.key === key ? <Icon name={auditSort.dir === 'asc' ? 'sortAsc' : 'sortDesc'} size={11} /> : null;
   const auditDate: CSSProperties = { ...inputStyle, flex: '0 0 auto', width: 'auto', minWidth: '140px' };
   const pagerBtn = (disabled: boolean): CSSProperties =>
-    ({ ...btn('#fff', '#475569', '#e3e7ee'), opacity: disabled ? 0.45 : 1, cursor: disabled ? 'default' : 'pointer' });
+    ({ ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), opacity: disabled ? 0.45 : 1, cursor: disabled ? 'default' : 'pointer' });
 
   /** A saved signature drawn as it will appear.
    *
@@ -1146,12 +1147,12 @@ export default function AccountArea({ section }: { section: AccountSection }) {
     if (src) return <img src={src} alt="" style={{ height:'34px', width:'auto', maxWidth:'160px', objectFit:'contain' }} />;
     if (row.signature_type === 'typed' && row.signature_text) {
       return (
-        <span style={{ fontFamily: typeFaceStack(row.type_face), fontSize:'1.5rem', lineHeight:1.1, color:'#0f172a' }}>
+        <span style={{ fontFamily: typeFaceStack(row.type_face), fontSize:'1.5rem', lineHeight:1.1, color:'hsl(var(--color-fg-default))' }}>
           {row.signature_text}
         </span>
       );
     }
-    return <span style={{ fontSize:'.6875rem', color:'#64748b', fontStyle:'italic' }}>No preview</span>;
+    return <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontStyle:'italic' }}>No preview</span>;
   };
 
   /* Rendered as an ordinary screen inside the app shell. This used to be a
@@ -1170,7 +1171,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
           <div style={{ maxWidth: acAudit || acOrg ? 'none' : acProfile ? '1180px' : '760px', margin:'0 auto', width:'100%', display:'flex', flexDirection:'column', gap:'18px' }}>
             <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
               <h2 style={{ margin:0, fontSize:'1.3125rem', fontWeight:700, letterSpacing:'-.5px' }}>{accountTitle}</h2>
-              <span style={{ fontSize:'.78125rem', color:'#64748b', lineHeight:1.5 }}>{accountSub}</span>
+              <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5 }}>{accountSub}</span>
             </div>
 
             {/* Adopt-a-signature. Same composer, same wording and the same
@@ -1186,15 +1187,15 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                 data-sf-modal-open=""
                 onKeyDown={(event) => { if (event.key === 'Escape') event.stopPropagation(); }}
                 style={{ position:'fixed', inset:0, zIndex:80, background:'rgba(15,23,42,.55)', display:'grid', placeItems:'center', padding:'24px' }}>
-                <div style={{ width:'680px', maxWidth:'100%', maxHeight:'90vh', overflowY:'auto', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', boxShadow:'0 24px 60px rgba(15,23,42,.24)' }}>
-                  <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'14px', padding:'16px 18px', borderBottom:'1px solid #eef1f6' }}>
+                <div style={{ width:'680px', maxWidth:'100%', maxHeight:'90vh', overflowY:'auto', background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', boxShadow:'0 24px 60px rgba(15,23,42,.24)' }}>
+                  <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'14px', padding:'16px 18px', borderBottom:'1px solid hsl(var(--color-border-hairline))' }}>
                     <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
                       <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.2px' }}>Adopt your signature</span>
-                      <span style={{ fontSize:'.75rem', color:'#64748b' }}>Draw, type or upload the signature to save to your account</span>
+                      <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-muted))' }}>Draw, type or upload the signature to save to your account</span>
                     </div>
                     <button
                       type="button" aria-label="Close" onClick={closeSigModal}
-                      style={{ width:'30px', height:'30px', borderRadius:'9px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', lineHeight:1 }}>
+                      style={{ width:'30px', height:'30px', borderRadius:'9px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', cursor:'pointer', color:'hsl(var(--color-fg-subtle))', fontSize:'.8125rem', lineHeight:1 }}>
                       <Icon name="close" size={13} />
                     </button>
                   </div>
@@ -1202,8 +1203,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     {/* No `saved` tab: this modal is where saved signatures
                         come from, so re-using one would adopt a duplicate. */}
                     <SignatureComposer accent={A} composeRef={composeRef} tabs={['draw', 'type', 'upload']} />
-                    <div style={{ display:'flex', alignItems:'center', gap:'10px', borderTop:'1px solid #eef1f6', paddingTop:'13px' }}>
-                      <span style={{ fontSize:'.6875rem', color:'#64748b', lineHeight:1.5, maxWidth:'420px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:'10px', borderTop:'1px solid hsl(var(--color-border-hairline))', paddingTop:'13px' }}>
+                      <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.5, maxWidth:'420px' }}>
                         By selecting Adopt signature, I agree this signature and initials are the
                         electronic representation of my signature for all purposes.
                       </span>
@@ -1229,7 +1230,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(420px, 1fr))', alignItems:'start', gap:'14px' }}>
                 <div style={card}>
                   <span style={railHead}>Profile</span>
-                  <div style={{ display:'flex', alignItems:'center', gap:'14px', paddingBottom:'13px', borderBottom:'1px solid #f2f4f8' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'14px', paddingBottom:'13px', borderBottom:'1px solid hsl(var(--color-border-faint))' }}>
                     {/* The avatar is the control: clicking the thing you want
                         to change is the shortest path to changing it, and the
                         named button below it says so for anyone who would not
@@ -1237,7 +1238,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     <button
                       type="button" onClick={() => photoInput.current?.click()} disabled={savingPhoto}
                       aria-label={avatarSrc ? 'Change your profile photo' : 'Add a profile photo'}
-                      style={{ width:'56px', height:'56px', borderRadius:'99px', background:'#0f172a', color:'#f8fafc', display:'grid', placeItems:'center', fontSize:'1.125rem', fontWeight:700, flex:'0 0 56px', padding:0, border:'none', overflow:'hidden', cursor: savingPhoto ? 'default' : 'pointer', opacity: savingPhoto ? .6 : 1 }}>
+                      style={{ width:'56px', height:'56px', borderRadius:'99px', background:'hsl(var(--color-bg-panel-dark))', color:'hsl(var(--color-fg-on-solid))', display:'grid', placeItems:'center', fontSize:'1.125rem', fontWeight:700, flex:'0 0 56px', padding:0, border:'none', overflow:'hidden', cursor: savingPhoto ? 'default' : 'pointer', opacity: savingPhoto ? .6 : 1 }}>
                       {avatarSrc
                         ? <img src={avatarSrc} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                         : userInitials}
@@ -1248,7 +1249,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     />
                     <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
                       <span style={{ fontSize:'.9375rem', fontWeight:700 }}>{userName}</span>
-                      <span style={{ fontSize:'.75rem', color:'#64748b' }}>{joinMeta([userRole, me?.organization_name])}</span>
+                      <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-muted))' }}>{joinMeta([userRole, me?.organization_name])}</span>
                       <span style={{ display:'flex', alignItems:'center', gap:'8px', marginTop:'2px' }}>
                         <button type="button" onClick={() => photoInput.current?.click()} disabled={savingPhoto} style={{ ...autoGhostBtn, marginLeft:0 }}>
                           <Icon name="image" size={12} />{savingPhoto ? 'Saving…' : avatarSrc ? 'Change photo' : 'Add photo'}
@@ -1268,7 +1269,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         verification round-trip lives; editing it here would
                         promise a change this form cannot complete. */}
                     <label style={lblStyle}>Email
-                      <input type="text" value={userEmail} style={{ ...mono, background:'#f8fafc', color:'#475569' }} readOnly />
+                      <input type="text" value={userEmail} style={{ ...mono, background:'hsl(var(--color-bg-subtle))', color:'hsl(var(--color-fg-subtle))' }} readOnly />
                     </label>
                     <label style={lblStyle}>Time zone
                       <input type="text" value={profileValue('timezone')} onChange={e => editProfile('timezone', e.target.value)} placeholder="e.g. Europe/London" style={mono} />
@@ -1277,8 +1278,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       <input type="text" value={profileValue('locale')} onChange={e => editProfile('locale', e.target.value)} placeholder="e.g. en-GB" style={inputStyle} />
                     </label>
                   </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:'10px', borderTop:'1px solid #f2f4f8', paddingTop:'13px' }}>
-                    <span style={{ fontSize:'.71875rem', color:'#64748b' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'10px', borderTop:'1px solid hsl(var(--color-border-faint))', paddingTop:'13px' }}>
+                    <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))' }}>
                       {failed.me ? 'Your profile could not be loaded.' : 'Your email address is managed under Email addresses.'}
                     </span>
                     {profileDirty ? (
@@ -1293,6 +1294,10 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   </div>
                 </div>
 
+                {/* Theme: colour mode and accent. Applies as you click and is
+                    saved to the account, so it has no Save button. */}
+                <AppearancePanel card={card} />
+
                 {/* Signatures. The default is the one every signing surface
                     offers first, so it is named on the row rather than left
                     to be inferred from the order of the list. */}
@@ -1300,7 +1305,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   <div style={{ display:'flex', alignItems:'flex-start', gap:'12px' }}>
                     <div style={{ display:'flex', flexDirection:'column', gap:'3px', maxWidth:'460px' }}>
                       <span style={railHead}>Signatures</span>
-                      <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>
+                      <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.55 }}>
                         Adopted signatures you can reuse. The default is offered first
                         wherever you are asked to sign.
                       </span>
@@ -1311,7 +1316,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   </div>
 
                   {signatures === null ? (
-                    <span style={{ fontSize:'.71875rem', color:'#64748b' }}>
+                    <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))' }}>
                       {failed.signatures ? 'Your saved signatures could not be loaded.' : 'Loading signatures…'}
                     </span>
                   ) : signatures.length === 0 ? (
@@ -1325,13 +1330,13 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           key={row.id}
                           style={{
                             display:'flex', alignItems:'center', gap:'14px', padding:'11px 13px',
-                            border:'1px solid ' + (row.is_default ? A : '#eef1f6'), borderRadius:'12px',
-                            background: row.is_default ? '#fbfcff' : '#fff',
+                            border:'1px solid ' + (row.is_default ? A : 'hsl(var(--color-border-hairline))'), borderRadius:'12px',
+                            background: row.is_default ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))',
                           }}>
                           <span style={{ flex:'0 0 auto', minWidth:'96px' }}>{signaturePreview(row)}</span>
                           <div style={{ display:'flex', flexDirection:'column', gap:'3px', minWidth:0 }}>
                             <span style={{ fontSize:'.78125rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.label}</span>
-                            <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
+                            <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>
                               {joinMeta([
                                 row.method || row.signature_type,
                                 'adopted ' + stamp(row.adopted_at),
@@ -1343,7 +1348,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                             {row.is_default
                               ? <span style={pill(TONE_GOOD)}>Default</span>
                               : <button type="button" onClick={() => makeDefaultSignature(row)} style={linkBtn}><Icon name="star" size={11} />Set as default</button>}
-                            <button type="button" onClick={() => removeSignature(row)} style={btn('#fff', '#b91c1c', '#fecaca')}><Icon name="trash" size={13} />Remove</button>
+                            <button type="button" onClick={() => removeSignature(row)} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}><Icon name="trash" size={13} />Remove</button>
                           </div>
                         </div>
                       ))}
@@ -1357,17 +1362,17 @@ export default function AccountArea({ section }: { section: AccountSection }) {
               <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
                 <div style={card}>
                   <span style={railHead}>Login and security</span>
-                  <div style={{ display:'flex', alignItems:'center', gap:'12px', paddingBottom:'12px', borderBottom:'1px solid #f2f4f8' }}>
-                    <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}><span style={{ fontSize:'.75rem', color:'#64748b' }}>Email</span><span style={{ fontSize:'.8125rem', fontFamily:'var(--font-sans)' }}>{userEmail}</span></div>
+                  <div style={{ display:'flex', alignItems:'center', gap:'12px', paddingBottom:'12px', borderBottom:'1px solid hsl(var(--color-border-faint))' }}>
+                    <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}><span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-muted))' }}>Email</span><span style={{ fontSize:'.8125rem', fontFamily:'var(--font-sans)' }}>{userEmail}</span></div>
                   </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:'12px', paddingBottom:'12px', borderBottom:'1px solid #f2f4f8' }}>
-                    <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}><span style={{ fontSize:'.75rem', color:'#64748b' }}>Password</span><span style={{ fontSize:'.8125rem' }}>••••••••</span></div>
+                  <div style={{ display:'flex', alignItems:'center', gap:'12px', paddingBottom:'12px', borderBottom:'1px solid hsl(var(--color-border-faint))' }}>
+                    <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}><span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-muted))' }}>Password</span><span style={{ fontSize:'.8125rem' }}>••••••••</span></div>
                     <button type="button" onClick={changePassword} style={autoGhostBtn}><Icon name="key" size={12} />Change</button>
                   </div>
                   <div style={{ display:'flex', alignItems:'flex-start', gap:'12px' }}>
                     <div style={{ display:'flex', flexDirection:'column', gap:'3px', maxWidth:'460px' }}>
                       <span style={{ fontSize:'.8125rem', fontWeight:600 }}>Two-factor authentication</span>
-                      <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>
+                      <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.55 }}>
                         {mfa === null
                           ? (failed.mfa ? 'Enrolment status could not be loaded.' : 'Checking enrolment status…')
                           : mfa.enrolled
@@ -1381,15 +1386,15 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       aria-label="Two-factor authentication"
                       disabled={mfa === null}
                       onClick={toggle2fa}
-                      style={{ marginLeft:'auto', width:'38px', height:'21px', borderRadius:'99px', background: mfa?.enrolled ? '#10b981' : BORDER_STRONG, border:'none', position:'relative', cursor: mfa === null ? 'default' : 'pointer', flex:'0 0 38px', opacity: mfa === null ? .5 : 1 }}>
-                      <span style={{ position:'absolute', top:'3px', left: mfa?.enrolled ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff' }}></span>
+                      style={{ marginLeft:'auto', width:'38px', height:'21px', borderRadius:'99px', background: mfa?.enrolled ? 'hsl(var(--color-highlight-solid))' : BORDER_STRONG, border:'none', position:'relative', cursor: mfa === null ? 'default' : 'pointer', flex:'0 0 38px', opacity: mfa === null ? .5 : 1 }}>
+                      <span style={{ position:'absolute', top:'3px', left: mfa?.enrolled ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))' }}></span>
                     </button>
                   </div>
                   {enrolment ? (
-                    <div style={{ border:'1px solid #c7d2fe', background:'#fff', borderRadius:'12px', overflow:'hidden' }}>
-                      <div style={{ background:'#eef2ff', padding:'11px 14px', borderBottom:'1px solid #c7d2fe' }}>
-                        <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#3730a3' }}>Finish setting up two-factor</span>
-                        <span style={{ display:'block', fontSize:'.6875rem', color:'#4f46e5', marginTop:'2px' }}>
+                    <div style={{ border:'1px solid hsl(var(--color-accent-border))', background:'hsl(var(--color-bg-surface))', borderRadius:'12px', overflow:'hidden' }}>
+                      <div style={{ background:'hsl(var(--color-accent-subtle))', padding:'11px 14px', borderBottom:'1px solid hsl(var(--color-accent-border))' }}>
+                        <span style={{ fontSize:'.78125rem', fontWeight:600, color:'hsl(var(--color-accent-fg))' }}>Finish setting up two-factor</span>
+                        <span style={{ display:'block', fontSize:'.6875rem', color:'hsl(var(--color-accent-solid))', marginTop:'2px' }}>
                           Three steps. Two-factor stays off until you enter a code.
                         </span>
                       </div>
@@ -1403,11 +1408,11 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                               {enrolment.otpauth_url ? (
                                 <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'5px' }}>
                                   <QrCode value={enrolment.otpauth_url} label="Scan this QR code with your authenticator app" />
-                                  <span style={{ fontSize:'.6875rem', color:'#64748b' }}>Scan with your app</span>
+                                  <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>Scan with your app</span>
                                 </div>
                               ) : null}
                               <div style={{ display:'flex', flexDirection:'column', gap:'6px', flex:'1 1 220px', minWidth:'200px' }}>
-                                <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
+                                <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>
                                   Can&rsquo;t scan? Enter this setup key by hand instead.
                                 </span>
                                 <code style={secretBox}>{groupSecret(enrolment.secret)}</code>
@@ -1428,7 +1433,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           <span style={stepNum}>2</span>
                           <div style={{ display:'flex', flexDirection:'column', gap:'9px', minWidth:0, flex:1 }}>
                             <span style={{ fontSize:'.78125rem', fontWeight:600 }}>Save your recovery codes</span>
-                            <span style={{ fontSize:'.6875rem', color:'#64748b', lineHeight:1.55 }}>
+                            <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.55 }}>
                               Each code signs you in once if you lose your phone. This is the only
                               time they are shown — store them somewhere safe now.
                             </span>
@@ -1471,11 +1476,11 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     </div>
                   ) : null}
 
-                  <div style={{ display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid #f2f4f8', paddingTop:'13px' }}>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid hsl(var(--color-border-faint))', paddingTop:'13px' }}>
                     <div style={{ display:'flex', alignItems:'flex-start', gap:'12px' }}>
                       <div style={{ display:'flex', flexDirection:'column', gap:'3px', maxWidth:'460px' }}>
                         <span style={{ fontSize:'.8125rem', fontWeight:600 }}>Passkeys</span>
-                        <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>
+                        <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.55 }}>
                           Sign in with your device instead of a password. Unlike a code, a passkey
                           cannot be phished: it only works on this site, and nothing secret is
                           stored on our servers.
@@ -1486,17 +1491,17 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       </button>
                     </div>
                     {passkeys === null ? (
-                      <span style={{ fontSize:'.71875rem', color:'#64748b' }}>
+                      <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))' }}>
                         {failed.passkeys ? 'Passkeys could not be loaded.' : 'Loading passkeys…'}
                       </span>
                     ) : passkeys.length === 0 ? (
-                      <span style={{ fontSize:'.71875rem', color:'#64748b' }}>No passkeys yet.</span>
+                      <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))' }}>No passkeys yet.</span>
                     ) : (
                       passkeys.map(row => (
                         <div key={row.id} style={{ display:'flex', alignItems:'center', gap:'12px' }}>
                           <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
                             <span style={{ fontSize:'.78125rem' }}>{row.label || 'Passkey'}</span>
-                            <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
+                            <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>
                               {joinMeta(['added ' + stamp(row.created_at), row.last_used_at ? 'last used ' + stamp(row.last_used_at) : 'never used'])}
                             </span>
                           </div>
@@ -1512,11 +1517,11 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     )}
                   </div>
 
-                  <div style={{ display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid #f2f4f8', paddingTop:'13px' }}>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid hsl(var(--color-border-faint))', paddingTop:'13px' }}>
                     <div style={{ display:'flex', alignItems:'flex-start', gap:'12px' }}>
                       <div style={{ display:'flex', flexDirection:'column', gap:'3px', maxWidth:'460px' }}>
                         <span style={{ fontSize:'.8125rem', fontWeight:600 }}>Single sign-on (SAML)</span>
-                        <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55 }}>
+                        <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.55 }}>
                           {sso === null
                             ? (failed.sso ? 'Single sign-on settings could not be loaded.' : 'Not configured. Connect your identity provider to let your team sign in with it.')
                             : joinMeta([
@@ -1532,7 +1537,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     </div>
                     {sso ? (
                       <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-                        <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.55, maxWidth:'460px' }}>
+                        <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.55, maxWidth:'460px' }}>
                           Require single sign-on. Password sign-in stops working for everyone in
                           this workspace, including you.
                         </span>
@@ -1541,8 +1546,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           aria-checked={sso.enforced}
                           aria-label="Require single sign-on"
                           onClick={toggleSsoEnforcement}
-                          style={{ marginLeft:'auto', width:'38px', height:'21px', borderRadius:'99px', background: sso.enforced ? '#10b981' : BORDER_STRONG, border:'none', position:'relative', cursor:'pointer', flex:'0 0 38px' }}>
-                          <span style={{ position:'absolute', top:'3px', left: sso.enforced ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'#fff' }}></span>
+                          style={{ marginLeft:'auto', width:'38px', height:'21px', borderRadius:'99px', background: sso.enforced ? 'hsl(var(--color-highlight-solid))' : BORDER_STRONG, border:'none', position:'relative', cursor:'pointer', flex:'0 0 38px' }}>
+                          <span style={{ position:'absolute', top:'3px', left: sso.enforced ? '20px' : '3px', width:'15px', height:'15px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))' }}></span>
                         </button>
                       </div>
                     ) : null}
@@ -1558,10 +1563,10 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   ) : devices.length === 0 ? (
                     <div style={emptyBox}>No active sessions recorded.</div>
                   ) : devices.map(d => (
-                    <div key={d.id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'9px 0', borderTop:'1px solid #f2f4f8' }}>
+                    <div key={d.id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'9px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
                       <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
                         <span style={{ fontSize:'.78125rem', fontWeight:600 }}>{d.label}</span>
-                        <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{d.meta}</span>
+                        <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{d.meta}</span>
                       </div>
                       <button type="button" onClick={d.onRemove} style={autoDangerBtn}><Icon name="signOut" size={12} />{d.isCurrent ? 'Sign out here' : 'Sign out'}</button>
                     </div>
@@ -1579,8 +1584,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   ) : notifPrefs.length === 0 ? (
                     <div style={emptyBox}>{failed.notif ? 'Preferences could not be loaded.' : 'No notification events are configured for this account.'}</div>
                   ) : notifPrefs.map(p => (
-                    <div key={p.key} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'8px 0', borderTop:'1px solid #f2f4f8' }}>
-                      <span style={{ fontSize:'.78125rem', color:'#334155' }}>{p.label}</span>
+                    <div key={p.key} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'8px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
+                      <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))' }}>{p.label}</span>
                       <button type="button" role="switch" aria-checked={p.on} aria-label={p.label} onClick={p.onToggle} style={{ ...p.switchStyle, marginLeft:'auto' }}><span style={p.knob}></span></button>
                     </div>
                   ))}
@@ -1588,16 +1593,16 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                 <div style={{ ...card, gap:'12px' }}>
                   <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
                     <span style={{ fontSize:'.84375rem', fontWeight:600 }}>Account email</span>
-                    <span style={{ fontSize:'.71875rem', color:'#64748b' }}>Where the events above are delivered</span>
+                    <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))' }}>Where the events above are delivered</span>
                   </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:'12px', padding:'11px', border:'1px solid #eef1f6', borderRadius:'12px', background:'#fbfcfd', flexWrap:'wrap' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'12px', padding:'11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'12px', background:'hsl(var(--color-bg-subtle))', flexWrap:'wrap' }}>
                     <span style={{ fontSize:'.78125rem', fontFamily:'var(--font-sans)' }}>{userEmail}</span>
                   </div>
                 </div>
                 <div style={{ ...card, gap:'12px' }}>
                   <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
                     <span style={{ fontSize:'.84375rem', fontWeight:600 }}>Additional recipients</span>
-                    <span style={{ fontSize:'.71875rem', color:'#64748b', maxWidth:'420px', lineHeight:1.5 }}>Addresses copied on this account&rsquo;s notification events.</span>
+                    <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', maxWidth:'420px', lineHeight:1.5 }}>Addresses copied on this account&rsquo;s notification events.</span>
                   </div>
                   {notifPrefsData === null ? (
                     <div style={emptyBox}>Loading…</div>
@@ -1606,7 +1611,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   ) : (
                     <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
                       {extraRecipients.map(addr => (
-                        <div key={addr} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px 11px', border:'1px solid #eef1f6', borderRadius:'11px' }}>
+                        <div key={addr} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px 11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'11px' }}>
                           <span style={{ fontSize:'.75rem', fontFamily:'var(--font-sans)' }}>{addr}</span>
                         </div>
                       ))}
@@ -1624,14 +1629,14 @@ export default function AccountArea({ section }: { section: AccountSection }) {
               ) : (
                 <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
                   {integrations.map(i => { const ex = i.export; return (
-                    <div key={i.key} style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'14px', padding:'14px', display:'flex', flexDirection:'column', gap:'10px' }}>
+                    <div key={i.key} style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'14px', padding:'14px', display:'flex', flexDirection:'column', gap:'10px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'4px', minWidth:0 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
                             <span style={{ fontSize:'.8125rem', fontWeight:600 }}>{i.label}</span>
                             <span style={i.pill}>{i.pillLabel}</span>
                           </div>
-                          <span style={{ fontSize:'.71875rem', color:'#64748b', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.meta}</span>
+                          <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.meta}</span>
                         </div>
                         {i.onDisconnect ? (
                           <button type="button" onClick={i.onDisconnect} disabled={i.busy} style={{ ...ghostBtn, marginLeft:'auto', flex:'0 0 auto', opacity: i.busy ? .55 : 1 }}>
@@ -1656,9 +1661,9 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           id={'integration-note-' + i.key}
                           style={{
                             fontSize:'.6875rem', lineHeight:1.6, borderRadius:'10px', padding:'8px 10px',
-                            background: i.state === 'reauth' ? '#fff7ed' : '#f5f6f8',
-                            color: i.state === 'reauth' ? '#9a3412' : '#64748b',
-                            border: '1px solid ' + (i.state === 'reauth' ? '#fed7aa' : '#e3e7ee'),
+                            background: i.state === 'reauth' ? 'hsl(var(--color-bg-warning-subtle))' : 'hsl(var(--color-bg-canvas))',
+                            color: i.state === 'reauth' ? 'hsl(var(--color-fg-warning))' : 'hsl(var(--color-fg-muted))',
+                            border: '1px solid ' + (i.state === 'reauth' ? 'hsl(var(--color-border-warning))' : 'hsl(var(--color-border-subtle))'),
                           }}
                         >
                           {i.problem}
@@ -1666,9 +1671,9 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       ) : null}
 
                       {ex ? (
-                        <div style={{ display:'flex', flexDirection:'column', gap:'8px', paddingTop:'10px', borderTop:'1px solid #f2f4f8' }}>
+                        <div style={{ display:'flex', flexDirection:'column', gap:'8px', paddingTop:'10px', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
                           <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-                            <span style={{ fontSize:'.71875rem', fontWeight:600, color:'#475569' }}>Export completed documents</span>
+                            <span style={{ fontSize:'.71875rem', fontWeight:600, color:'hsl(var(--color-fg-subtle))' }}>Export completed documents</span>
                             <span style={ex.pill}>{ex.pillLabel}</span>
                           </div>
                           <div style={{ display:'flex', alignItems:'flex-end', gap:'8px', flexWrap:'wrap' }}>
@@ -1702,7 +1707,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                               <Icon name={markFor(ex.ctaLabel)} size={12} />{ex.ctaLabel}
                             </button>
                           </div>
-                          <span id={'export-hint-' + i.key} style={{ fontSize:'.6875rem', color:'#64748b', lineHeight:1.6 }}>
+                          <span id={'export-hint-' + i.key} style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.6 }}>
                             {ex.enabled
                               ? 'Every completed envelope is written to ' + (ex.savedPath || 'the folder above') + '.'
                               : (ex.enableHint || 'Exports are off. Turn them on to write every completed envelope to this folder.')}
@@ -1729,14 +1734,14 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                     ) : (
                       <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
                         {exportRows.map(row => (
-                          <div key={row.id} style={{ display:'flex', flexDirection:'column', gap:'4px', padding:'9px 11px', border:'1px solid #eef1f6', borderRadius:'11px' }}>
+                          <div key={row.id} style={{ display:'flex', flexDirection:'column', gap:'4px', padding:'9px 11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'11px' }}>
                             <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
                               <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
                                 <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
                                   <span style={{ fontSize:'.75rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{row.title}</span>
                                   <span style={row.pill}>{row.pillLabel}</span>
                                 </div>
-                                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{row.meta}</span>
+                                <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{row.meta}</span>
                               </div>
                               {row.onRetry ? (
                                 <button type="button" onClick={row.onRetry} style={linkBtn}>
@@ -1745,7 +1750,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                               ) : null}
                             </div>
                             {row.error ? (
-                              <span style={{ fontSize:'.6875rem', color:'#b91c1c', lineHeight:1.6 }}>{row.error}</span>
+                              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-danger))', lineHeight:1.6 }}>{row.error}</span>
                             ) : null}
                           </div>
                         ))}
@@ -1771,13 +1776,13 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                           <span style={{ fontSize:'.84375rem', fontWeight:600 }}>{orgData.name}</span>
                           <span style={pill(TONE_GOOD)}>{userRole}</span>
                         </div>
-                        <span style={{ fontSize:'.71875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>
+                        <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>
                           {joinMeta([orgData.slug, orgData.region, orgData.seats_licensed + (orgData.seats_licensed === 1 ? ' seat' : ' seats')])}
                         </span>
                       </div>
                     </div>
                   )}
-                  <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.6 }}>
+                  <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.6 }}>
                     You belong to one organization. Membership of additional organizations is not
                     supported on this deployment.
                   </span>
@@ -1798,7 +1803,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       ><Icon name="save" size={13} />{paletteSaving ? 'Saving…' : 'Save palette'}</button>
                     ) : null}
                   </div>
-                  <span style={{ fontSize:'.71875rem', color:'#64748b', lineHeight:1.6 }}>
+                  <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))', lineHeight:1.6 }}>
                     The types an author may place in the builder. Turning a type off removes its
                     tile from the palette for everyone here; fields already placed on a document or
                     template are untouched and keep working. With every type ticked the palette
@@ -1815,8 +1820,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                             <label
                               key={t.id}
                               style={{ display:'flex', alignItems:'center', gap:'9px', padding:'8px 10px', borderRadius:'10px', fontSize:'.75rem',
-                                border:'1px solid ' + (on ? A : '#e3e7ee'), background: on ? A + '0f' : '#fbfcfd',
-                                cursor: isOrgAdmin ? 'pointer' : 'default', color:'#334155' }}
+                                border:'1px solid ' + (on ? A : 'hsl(var(--color-border-subtle))'), background: on ? A + '0f' : 'hsl(var(--color-bg-subtle))',
+                                cursor: isOrgAdmin ? 'pointer' : 'default', color:'hsl(var(--color-fg-subtle))' }}
                             >
                               <input
                                 type="checkbox"
@@ -1824,7 +1829,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                                 disabled={!isOrgAdmin}
                                 onChange={() => togglePaletteType(t.id)}
                               />
-                              <span aria-hidden="true" style={{ width:'20px', height:'20px', borderRadius:'6px', background:'#eef1f6', display:'grid', placeItems:'center', fontSize:'.625rem', color:'#475569', flex:'0 0 20px' }}>{t.svg ? <Icon name={t.svg} size={12} /> : t.icon}</span>
+                              <span aria-hidden="true" style={{ width:'20px', height:'20px', borderRadius:'6px', background:'hsl(var(--color-bg-muted))', display:'grid', placeItems:'center', fontSize:'.625rem', color:'hsl(var(--color-fg-subtle))', flex:'0 0 20px' }}>{t.svg ? <Icon name={t.svg} size={12} /> : t.icon}</span>
                               <span>{t.label}</span>
                             </label>
                           );
@@ -1836,7 +1841,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                         <button type="button" onClick={() => setPaletteDraft(null)} style={{ ...linkBtn, alignSelf:'flex-start' }}><Icon name="undo" size={11} />Offer every field type</button>
                       ) : null}
                       {!isOrgAdmin ? (
-                        <span style={{ fontSize:'.6875rem', color:'#64748b' }}>Only an organization administrator can change which field types are offered.</span>
+                        <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>Only an organization administrator can change which field types are offered.</span>
                       ) : null}
                     </>
                   )}
@@ -1857,12 +1862,12 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   ) : membersData.length === 0 ? (
                     <div style={emptyBox}>No members recorded.</div>
                   ) : membersData.map(m => (
-                    <div key={m.id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'8px 0', borderTop:'1px solid #f2f4f8' }}>
+                    <div key={m.id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'8px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
                       <div style={{ display:'flex', flexDirection:'column', gap:'1px', minWidth:0 }}>
                         <span style={{ fontSize:'.78125rem', fontWeight:600 }}>
                           {m.name}{m.id === me?.id ? ' · you' : ''}
                         </span>
-                        <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.email}</span>
+                        <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.email}</span>
                       </div>
                       {/* Role and its control sit together on the right: the
                           pill says what the row is, the link changes it. A
@@ -1878,18 +1883,18 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   ))}
 
                   {pendingInvites.length ? (
-                    <div style={{ display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid #f2f4f8', paddingTop:'13px' }}>
+                    <div style={{ display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid hsl(var(--color-border-faint))', paddingTop:'13px' }}>
                       <span style={railHead}>Invited, not yet accepted</span>
                       {pendingInvites.map(i => (
                         <div key={i.id} style={{ display:'flex', alignItems:'center', gap:'12px' }}>
                           <div style={{ display:'flex', flexDirection:'column', gap:'1px', minWidth:0 }}>
                             <span style={{ fontSize:'.78125rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{i.email}</span>
-                            <span style={{ fontSize:'.6875rem', color:'#64748b' }}>invited {stamp(i.created_at)} · expires {stamp(i.expires_at)}</span>
+                            <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>invited {stamp(i.created_at)} · expires {stamp(i.expires_at)}</span>
                           </div>
                           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flex:'0 0 auto' }}>
                             <span style={pill(TONE_MUTED)}>{i.role}</span>
                             {isOrgAdmin ? (
-                              <button type="button" onClick={() => { void revokeInvite(i); }} style={{ ...linkBtn, color:'#b91c1c' }}><Icon name="cancel" size={11} />Revoke</button>
+                              <button type="button" onClick={() => { void revokeInvite(i); }} style={{ ...linkBtn, color:'hsl(var(--color-fg-danger))' }}><Icon name="cancel" size={11} />Revoke</button>
                             ) : null}
                           </div>
                         </div>
@@ -1912,7 +1917,7 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                   ) : teams.length === 0 ? (
                     <div style={emptyBox}>{failed.teams ? 'Teams could not be loaded.' : 'This organization has no teams yet.'}</div>
                   ) : teams.map(t => (
-                    <div key={t.key} style={{ display:'flex', flexDirection:'column', gap:'9px', padding:'11px 0', borderTop:'1px solid #f2f4f8' }}>
+                    <div key={t.key} style={{ display:'flex', flexDirection:'column', gap:'9px', padding:'11px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap' }}>
                         <div style={{ display:'flex', flexDirection:'column', gap:'3px', minWidth:0 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
@@ -1920,9 +1925,9 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                             <span style={t.pill}>{t.role}</span>
                           </div>
                           {t.description ? (
-                            <span style={{ fontSize:'.75rem', color:'#475569' }}>{t.description}</span>
+                            <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-subtle))' }}>{t.description}</span>
                           ) : null}
-                          <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{t.counts}</span>
+                          <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{t.counts}</span>
                         </div>
                         <button
                           type="button"
@@ -1934,9 +1939,9 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       </div>
 
                       {t.open ? (
-                        <div style={{ display:'flex', flexDirection:'column', gap:'8px', paddingLeft:'11px', borderLeft:'2px solid #f2f4f8' }}>
+                        <div style={{ display:'flex', flexDirection:'column', gap:'8px', paddingLeft:'11px', borderLeft:'2px solid hsl(var(--color-border-faint))' }}>
                           {t.team.members.length === 0 ? (
-                            <span style={{ fontSize:'.71875rem', color:'#64748b' }}>Nobody is in this team yet.</span>
+                            <span style={{ fontSize:'.71875rem', color:'hsl(var(--color-fg-muted))' }}>Nobody is in this team yet.</span>
                           ) : t.team.members.map(m => (
                             <div key={m.user_id} style={{ display:'flex', alignItems:'center', gap:'10px' }}>
                               <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
@@ -1944,12 +1949,12 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                                   <span style={{ fontSize:'.75rem', fontWeight:600 }}>{m.name}</span>
                                   <span style={pill(m.role === 'lead' ? TONE_INDIGO : TONE_MUTED)}>{m.role}</span>
                                 </div>
-                                <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{m.email}</span>
+                                <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{m.email}</span>
                               </div>
                               {isOrgAdmin ? (
                                 <>
                                   <button type="button" onClick={() => { void changeTeamRole(t.team, m); }} style={autoGhostBtn}><Icon name="pencil" size={12} />Role</button>
-                                  <button type="button" onClick={() => { void removeTeamMember(t.team, m); }} style={{ ...btn('#fff', '#b91c1c', '#fecaca'), flex:'0 0 auto' }}><Icon name="trash" size={12} />Remove</button>
+                                  <button type="button" onClick={() => { void removeTeamMember(t.team, m); }} style={{ ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))'), flex:'0 0 auto' }}><Icon name="trash" size={12} />Remove</button>
                                 </>
                               ) : null}
                             </div>
@@ -1958,10 +1963,10 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                             <div style={{ display:'flex', gap:'8px', flexWrap:'wrap', paddingTop:'2px' }}>
                               <button type="button" onClick={() => { void addTeamMember(t.team); }} style={ghostBtn}><Icon name="addUser" size={13} />Add member</button>
                               <button type="button" onClick={() => { void renameTeam(t.team); }} style={ghostBtn}><Icon name="pencil" size={13} />Rename team</button>
-                              <button type="button" onClick={() => { void deleteTeam(t.team); }} style={btn('#fff', '#b91c1c', '#fecaca')}><Icon name="trash" size={13} />Delete team</button>
+                              <button type="button" onClick={() => { void deleteTeam(t.team); }} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}><Icon name="trash" size={13} />Delete team</button>
                             </div>
                           ) : (
-                            <span style={{ fontSize:'.6875rem', color:'#64748b' }}>Only an organization administrator can change who is in a team.</span>
+                            <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>Only an organization administrator can change who is in a team.</span>
                           )}
                         </div>
                       ) : null}
@@ -1977,8 +1982,8 @@ export default function AccountArea({ section }: { section: AccountSection }) {
               ) : failed.audit ? (
                 <div style={emptyBox}>Your audit log could not be loaded. Nothing is shown rather than a partial record.</div>
               ) : (
-                <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-                  <div style={{ padding:'12px 14px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
+                <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+                  <div style={{ padding:'12px 14px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
                     <input
                       type="search"
                       value={auditQuery}
@@ -2005,20 +2010,20 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                       <option value="all">All users</option>
                       {(auditData.actors ?? []).map(a => <option key={a} value={a}>{a}</option>)}
                     </select>
-                    <label style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'.6875rem', color:'#64748b' }}>
+                    <label style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>
                       From
                       <input type="date" value={auditFrom} max={auditTo || undefined} onChange={e => setAuditFrom(e.target.value)} aria-label="Events from date" style={auditDate} />
                     </label>
-                    <label style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'.6875rem', color:'#64748b' }}>
+                    <label style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>
                       To
                       <input type="date" value={auditTo} min={auditFrom || undefined} onChange={e => setAuditTo(e.target.value)} aria-label="Events to date" style={auditDate} />
                     </label>
                     {auditFiltered ? (
-                      <button type="button" onClick={clearAuditFilters} style={btn('#fff', '#475569', '#e3e7ee')}><Icon name="close" size={13} />Clear filters</button>
+                      <button type="button" onClick={clearAuditFilters} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}><Icon name="close" size={13} />Clear filters</button>
                     ) : null}
                   </div>
                   {audit.length === 0 ? (
-                    <div style={{ padding:'28px 14px', textAlign:'center', fontSize:'.75rem', color:'#64748b' }}>
+                    <div style={{ padding:'28px 14px', textAlign:'center', fontSize:'.75rem', color:'hsl(var(--color-fg-muted))' }}>
                       {auditFiltered ? 'No events match those filters.' : 'No account events have been recorded yet.'}
                     </div>
                   ) : (
@@ -2051,25 +2056,25 @@ export default function AccountArea({ section }: { section: AccountSection }) {
                                   {a.action}
                                 </span>
                               </td>
-                              <td style={{ ...auditTd, color:'#64748b', fontFamily:'var(--font-sans)', fontSize:'.6875rem', whiteSpace:'nowrap' }}>{a.actor}</td>
-                              <td style={{ ...auditTd, color:'#475569', lineHeight:1.6, minWidth:'240px' }}>{a.message}</td>
-                              <td style={{ ...auditTd, color:'#475569' }}>{a.document || '—'}</td>
-                              <td style={{ ...auditTd, color:'#64748b', fontFamily:'var(--font-sans)', fontSize:'.6875rem', whiteSpace:'nowrap' }}>{a.ip || '—'}</td>
-                              <td style={{ ...auditTd, textAlign:'right', color:'#64748b', fontFamily:'var(--font-sans)', fontSize:'.6875rem', whiteSpace:'nowrap' }}>{a.time}</td>
+                              <td style={{ ...auditTd, color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', fontSize:'.6875rem', whiteSpace:'nowrap' }}>{a.actor}</td>
+                              <td style={{ ...auditTd, color:'hsl(var(--color-fg-subtle))', lineHeight:1.6, minWidth:'240px' }}>{a.message}</td>
+                              <td style={{ ...auditTd, color:'hsl(var(--color-fg-subtle))' }}>{a.document || '—'}</td>
+                              <td style={{ ...auditTd, color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', fontSize:'.6875rem', whiteSpace:'nowrap' }}>{a.ip || '—'}</td>
+                              <td style={{ ...auditTd, textAlign:'right', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', fontSize:'.6875rem', whiteSpace:'nowrap' }}>{a.time}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   )}
-                  <div style={{ padding:'11px 14px', borderTop:'1px solid #eef1f6', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
-                    <span style={{ fontSize:'.6875rem', color:'#64748b' }}>
+                  <div style={{ padding:'11px 14px', borderTop:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
+                    <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>
                       {auditTotal === 0
                         ? 'No events'
                         : 'Showing ' + auditFirst + '–' + auditLast + ' of ' + auditTotal + (auditFiltered ? ' matching events' : ' events')}
                     </span>
                     <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'8px' }}>
-                      <span style={{ fontSize:'.6875rem', color:'#64748b' }}>Page {auditPage + 1} of {auditPages}</span>
+                      <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))' }}>Page {auditPage + 1} of {auditPages}</span>
                       <button
                         type="button"
                         onClick={() => setAuditPage(p => Math.max(0, p - 1))}

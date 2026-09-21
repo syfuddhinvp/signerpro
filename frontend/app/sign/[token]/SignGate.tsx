@@ -37,7 +37,7 @@ export function OtpGate({ token, email, brand }: { token: string; email: string;
   const brandColor = accent();
   const brandText = brand?.primary_text_color ?? '#fff';
   const primary = btn(brandColor, brandText, brandColor);
-  const ghost = btn('#fff', '#475569', '#e3e7ee');
+  const ghost = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   const send = () => startTransition(async () => {
     const result = await sendOtp(token);
@@ -90,7 +90,7 @@ export function ConsentGate({
   const [message, setMessage] = useState<string | null>(null);
 
   const brandColor = accent();
-  const primary = btn(brandColor, brand?.primary_text_color ?? '#fff', brandColor);
+  const primary = btn(brandColor, brand?.primary_text_color ?? 'hsl(var(--color-fg-on-solid))', brandColor);
 
   const accept = () => startTransition(async () => {
     const result = await acceptConsent(token);
@@ -107,7 +107,7 @@ export function ConsentGate({
       body={signerName + ', before you can open ' + documentTitle + ' you need to agree to sign electronically. Your electronic signature has the same legal effect as a handwritten one, and every action is recorded in a tamper-evident audit trail with its own SHA-256 checksum.'}
     >
       <div style={stack}>
-        <label style={{ display: 'flex', gap: '9px', alignItems: 'flex-start', textAlign: 'left', fontSize: '.78125rem', color: '#475569', lineHeight: 1.6 }}>
+        <label style={{ display: 'flex', gap: '9px', alignItems: 'flex-start', textAlign: 'left', fontSize: '.78125rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.6 }}>
           <input
             type="checkbox"
             checked={agreed}

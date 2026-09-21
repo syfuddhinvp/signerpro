@@ -58,7 +58,7 @@ type DetailPair = { label: string; value: string; href?: string | null; wide?: b
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', paddingBottom: '10px', marginBottom: '14px', borderBottom: '1px solid #eef1f6' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', paddingBottom: '10px', marginBottom: '14px', borderBottom: '1px solid hsl(var(--color-border-hairline))' }}>
         <span style={{ ...railHead, fontWeight: 600 }}>{title}</span>
         {action ? <span style={{ marginLeft: 'auto' }}>{action}</span> : null}
       </div>
@@ -81,9 +81,9 @@ function PairGrid({ rows }: { rows: DetailPair[] }) {
             {unset ? (
               <span style={{ fontSize: '.8125rem', color: TEXT_MUTED }}>Not set</span>
             ) : r.href ? (
-              <a href={r.href} style={{ fontSize: '.8125rem', fontWeight: 500, color: '#0f172a', wordBreak: 'break-word' }}>{r.value}</a>
+              <a href={r.href} style={{ fontSize: '.8125rem', fontWeight: 500, color: 'hsl(var(--color-fg-default))', wordBreak: 'break-word' }}>{r.value}</a>
             ) : (
-              <span style={{ fontSize: '.8125rem', fontWeight: 500, color: '#0f172a', wordBreak: 'break-word', lineHeight: 1.55 }}>{r.value}</span>
+              <span style={{ fontSize: '.8125rem', fontWeight: 500, color: 'hsl(var(--color-fg-default))', wordBreak: 'break-word', lineHeight: 1.55 }}>{r.value}</span>
             )}
           </div>
         );
@@ -100,8 +100,8 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
   const { go } = useNav();
   const router = useRouter();
   const A = accent();
-  const primaryBtn = btn(A, '#fff', A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   const [tab, setTab] = useState<TabKey>('details');
   const [editing, setEditing] = useState(false);
@@ -158,8 +158,8 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
     });
   };
 
-  const avatar: CSSProperties = { width: '44px', height: '44px', borderRadius: '99px', background: ct.color, color: '#fff', display: 'grid', placeItems: 'center', fontSize: '.9375rem', fontWeight: 700, flex: '0 0 44px' };
-  const card: CSSProperties = { background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', overflow: 'hidden' };
+  const avatar: CSSProperties = { width: '44px', height: '44px', borderRadius: '99px', background: ct.color, color: 'hsl(var(--color-fg-on-solid))', display: 'grid', placeItems: 'center', fontSize: '.9375rem', fontWeight: 700, flex: '0 0 44px' };
+  const card: CSSProperties = { background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', overflow: 'hidden' };
 
   const tabs: [TabKey, string, string][] = [
     ['documents', 'Documents', String(history.length)],
@@ -207,7 +207,7 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
           <span style={avatar}>{initials(ct.name)}</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, flex: 1 }}>
             <h1 style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '-.3px', margin: 0 }}>{ct.name}</h1>
-            <span style={{ fontSize: '.75rem', color: '#64748b' }}>{ct.email}{ct.company === EMPTY ? '' : ' · ' + ct.company}</span>
+            <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))' }}>{ct.email}{ct.company === EMPTY ? '' : ' · ' + ct.company}</span>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button type="button" onClick={addAsRecipient} style={primaryBtn}><Icon name="addUser" size={13} />Add as recipient</button>
@@ -217,7 +217,7 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
       </div>
 
       <div style={card}>
-        <div role="tablist" aria-label="Contact sections" style={{ display: 'flex', gap: '4px', padding: '10px 14px 0', borderBottom: '1px solid #eef1f6', flexWrap: 'wrap' }}>
+        <div role="tablist" aria-label="Contact sections" style={{ display: 'flex', gap: '4px', padding: '10px 14px 0', borderBottom: '1px solid hsl(var(--color-border-hairline))', flexWrap: 'wrap' }}>
           {tabs.map(([key, label, count]) => {
             const on = tab === key;
             return (
@@ -228,7 +228,7 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
                 aria-selected={on}
                 onClick={() => setTab(key)}
                 style={{ height: '34px', padding: '0 12px', border: 'none', background: 'transparent', cursor: 'pointer',
-                  fontSize: '.8125rem', fontWeight: on ? 700 : 500, color: on ? '#0f172a' : '#64748b',
+                  fontSize: '.8125rem', fontWeight: on ? 700 : 500, color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
                   borderBottom: '2px solid ' + (on ? A : 'transparent'), marginBottom: '-1px' }}
               >
                 {label}{count ? <span style={{ color: TEXT_MUTED, fontWeight: 500 }}> ({count})</span> : null}
@@ -240,19 +240,19 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
         {tab === 'documents' ? (
           <div style={{ padding: '6px 14px 14px' }}>
             {history.length === 0 ? (
-              <div style={{ padding: '18px 0', fontSize: '.78125rem', color: '#64748b', lineHeight: 1.6 }}>
+              <div style={{ padding: '18px 0', fontSize: '.78125rem', color: 'hsl(var(--color-fg-muted))', lineHeight: 1.6 }}>
                 {historyFailed ? 'This contact’s documents could not be loaded.' : 'No envelopes involving this contact yet.'}
               </div>
             ) : history.map((h, i) => {
               const done = h.status === 'completed';
               return (
-                <div key={h.document_id + i} style={{ display: 'flex', alignItems: 'center', gap: '11px', padding: '11px 0', borderTop: i ? '1px solid #f2f4f8' : 'none', flexWrap: 'wrap' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '99px', background: done ? '#10b981' : A, flex: '0 0 8px' }} />
+                <div key={h.document_id + i} style={{ display: 'flex', alignItems: 'center', gap: '11px', padding: '11px 0', borderTop: i ? '1px solid hsl(var(--color-border-faint))' : 'none', flexWrap: 'wrap' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '99px', background: done ? 'hsl(var(--color-highlight-solid))' : A, flex: '0 0 8px' }} />
                   <Link href={documentPathFor('audit', h.document_id)} style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: '1 1 200px', minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
                     <span style={{ fontSize: '.8125rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.title}</span>
-                    <span style={{ fontSize: '.6875rem', color: '#64748b' }}>{h.event} · {historyDate(h.occurred_at)}</span>
+                    <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))' }}>{h.event} · {historyDate(h.occurred_at)}</span>
                   </Link>
-                  <span style={pill(done ? { bg: '#ecfdf5', fg: '#047857', bd: '#a7f3d0' } : { bg: '#eef2ff', fg: '#4338ca', bd: '#c7d2fe' })}>{h.status}</span>
+                  <span style={pill(done ? { bg: 'hsl(var(--color-bg-success-subtle))', fg: 'hsl(var(--color-fg-success))', bd: 'hsl(var(--color-border-success))' } : { bg: 'hsl(var(--color-accent-subtle))', fg: 'hsl(var(--color-fg-info))', bd: 'hsl(var(--color-accent-border))' })}>{h.status}</span>
                 </div>
               );
             })}
@@ -291,7 +291,7 @@ export default function ContactRecord({ contact: ct, history, groupLabels, draft
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', marginTop: '14px' }}>
                       <span style={{ ...railHead, marginRight: '2px' }}>Tags</span>
                       {ct.tags.map((t, i) => (
-                        <span key={t + i} style={{ padding: '4px 9px', borderRadius: '99px', border: '1px solid #e3e7ee', background: '#fbfcfd', fontSize: '.65625rem', color: '#475569' }}>{t}</span>
+                        <span key={t + i} style={{ padding: '4px 9px', borderRadius: '99px', border: '1px solid hsl(var(--color-border-subtle))', background: 'hsl(var(--color-bg-subtle))', fontSize: '.65625rem', color: 'hsl(var(--color-fg-subtle))' }}>{t}</span>
                       ))}
                     </div>
                   ) : null}

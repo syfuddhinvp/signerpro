@@ -37,9 +37,9 @@ export default function ResetPasswordForm() {
 
   const score = passwordScore(password);
   const strengthBars = [0, 1, 2, 3].map(i => ({
-    style: { flex: '1', height: '4px', borderRadius: '99px', background: i < score ? STRENGTH_COLORS[score] : '#eef1f6' } as CSSProperties,
+    style: { flex: '1', height: '4px', borderRadius: '99px', background: i < score ? STRENGTH_COLORS[score] : 'hsl(var(--color-bg-muted))' } as CSSProperties,
   }));
-  const strengthLabelStyle: CSSProperties = { fontSize: '.6875rem', color: score >= 3 ? '#047857' : (score === 0 ? TEXT_MUTED : '#c2410c') };
+  const strengthLabelStyle: CSSProperties = { fontSize: '.6875rem', color: score >= 3 ? 'hsl(var(--color-fg-success))' : (score === 0 ? TEXT_MUTED : 'hsl(var(--color-fg-warning))') };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

@@ -7,7 +7,7 @@ import { btn, pill, railHead, TEXT_MUTED } from '@/lib/sf/ui';
 import { INVOICE_FILTERS } from '@/lib/sf/data';
 import { apiCall, proxyPath } from '@/lib/api/browser';
 import { invoices as invoicesApi, platformInvoices as platformInvoicesApi } from '@/lib/api/resources';
-import { EMPTY, declineNotice, toInvoiceRow, type InvoiceRow } from '@/lib/sf/adapters';
+import { EMPTY, declineFields, declineNotice, toInvoiceRow, type InvoiceRow } from '@/lib/sf/adapters';
 import Icon from '@/components/sf/Icon';
 
 /**
@@ -31,8 +31,8 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
   const pathname = usePathname();
   const A = accent();
 
-  const primaryBtn = btn(A, '#fff', A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   /* The rail selection is UI state; `openInvoice` holds the invoice id. */
   const selected = rows.find(i => i.id === s.openInvoice) || rows[0];
@@ -62,7 +62,7 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
         router.replace(id === 'all' ? pathname : pathname + '?status=' + id);
       },
       style: { height:'26px', padding:'0 10px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: on ? 600 : 500,
-        background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties
+        background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' } as CSSProperties
     };
   });
 
@@ -74,8 +74,8 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
     statusLabel: i.statusLabel, total: i.total, due: i.due,
     pill: pill(i.tone),
     onOpen: () => set({ openInvoice: i.id }),
-    rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'12px 15px', borderTop: idx ? '1px solid #f2f4f8' : 'none', width:'100%',
-      background: selectedId === i.id ? '#f8faff' : 'transparent', border:'none', borderLeft:'3px solid ' + (selectedId === i.id ? A : 'transparent'), cursor:'pointer', flexWrap:'wrap' } as CSSProperties
+    rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'12px 15px', borderTop: idx ? '1px solid hsl(var(--color-border-faint))' : 'none', width:'100%',
+      background: selectedId === i.id ? 'hsl(var(--color-bg-subtle))' : 'transparent', border:'none', borderLeft:'3px solid ' + (selectedId === i.id ? A : 'transparent'), cursor:'pointer', flexWrap:'wrap' } as CSSProperties
   }));
 
   /* The prototype always had rows; a fresh tenant (or a filter with no hits)
@@ -83,16 +83,16 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
   if (!selected) {
     return (
       <section data-screen-label="Invoices" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.6fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
-        <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-          <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
+        <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+          <div style={{ padding:'12px 15px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
             <div style={railHead}>{scopeName + ' · 0 invoices'}</div>
-            <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px' }}>
+            <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'10px' }}>
               {invoiceFilters.map(f => (
                 <button key={f.id} type="button" onClick={f.onClick} aria-pressed={f.selected} style={f.style}>{f.label}</button>
               ))}
             </div>
           </div>
-          <div style={{ padding:'22px 15px', fontSize:'.78125rem', color:'#64748b' }}>No invoices in this view yet.</div>
+          <div style={{ padding:'22px 15px', fontSize:'.78125rem', color:'hsl(var(--color-fg-muted))' }}>No invoices in this view yet.</div>
         </div>
         <div />
       </section>
@@ -105,7 +105,7 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
     { k:'Subtotal', v: inv.subtotal, bold:false },
     { k:'Tax', v: inv.tax, bold:false },
     { k:'Total', v: inv.total, bold:true }
-  ].map(t => ({ k:t.k, v:t.v, style: { fontFamily:'var(--font-sans)', fontWeight: t.bold ? 700 : 500, fontSize: t.bold ? '.875rem' : '.78125rem', color:'#0f172a' } as CSSProperties }));
+  ].map(t => ({ k:t.k, v:t.v, style: { fontFamily:'var(--font-sans)', fontWeight: t.bold ? 700 : 500, fontSize: t.bold ? '.875rem' : '.78125rem', color:'hsl(var(--color-fg-default))' } as CSSProperties }));
   const invMetaRows = [
     { k:'Payment intent', v:inv.pi }, { k:'Payment method', v:inv.method },
     { k:'Customer', v:inv.tenant }, { k:'Hosted invoice', v:inv.hostedUrl },
@@ -124,9 +124,15 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
     if (target) window.open(target, '_blank', 'noopener');
   };
 
-  /* A decline is a 402 whose body carries `decline_code`; `ApiError` keeps only
-     the message, so the invoice is re-read to report its dunning state. */
-  const reportDecline = (id: string, number: string) => {
+  /* A decline is a 402 whose body carries `decline_code` and the dunning state;
+     the invoice is re-read only when that body told us nothing. */
+  const reportDecline = (id: string, number: string, detail?: Record<string, unknown>) => {
+    const { declineCode, invoiceStatus } = declineFields(detail);
+    if (declineCode || invoiceStatus) {
+      flash(declineNotice(number, declineCode, invoiceStatus));
+      router.refresh();
+      return;
+    }
     void invoicesApi.get(apiCall, id).then(res => {
       flash(declineNotice(number, null, res.ok ? res.data.status : null));
       router.refresh();
@@ -147,7 +153,10 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
     flash('Retrying ' + inv.number + ' · ' + inv.total);
     void platformInvoicesApi.retryPayment(apiCall, inv.id).then(res => {
       if (!res.ok) {
-        if (res.status === 402) { reportDecline(inv.id, inv.number); return; }
+        if (res.status === 402) {
+          reportDecline(inv.id, inv.number, res.error.kind === 'client' ? res.error.detail : undefined);
+          return;
+        }
         flash('Could not collect ' + inv.number + ' · ' + res.error.message);
         return;
       }
@@ -166,10 +175,10 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
 
   return (
     <section data-screen-label="Invoices" style={{ padding:'22px 22px 40px', display:'grid', gridTemplateColumns:'minmax(0,1.6fr) minmax(0,1fr)', gap:'16px', alignItems:'start' }}>
-      <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', overflow:'hidden' }}>
-        <div style={{ padding:'12px 15px', borderBottom:'1px solid #eef1f6', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
+      <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', overflow:'hidden' }}>
+        <div style={{ padding:'12px 15px', borderBottom:'1px solid hsl(var(--color-border-hairline))', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
           <div style={railHead}>{invoiceScopeLabel}</div>
-          <div style={{ display:'flex', gap:'4px', background:'#f5f6f8', padding:'4px', borderRadius:'10px' }}>
+          <div style={{ display:'flex', gap:'4px', background:'hsl(var(--color-bg-canvas))', padding:'4px', borderRadius:'10px' }}>
             {invoiceFilters.map(f => (
               <button key={f.id} type="button" onClick={f.onClick} aria-pressed={f.selected} style={f.style}>{f.label}</button>
             ))}
@@ -178,8 +187,8 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
         {invoices.map(i => (
           <button key={i.id} type="button" onClick={i.onOpen} style={i.rowStyle}>
             <span style={{ display:'flex', flexDirection:'column', gap:'3px', textAlign:'left', flex:'1 1 190px', minWidth:'170px' }}>
-              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.number} · {i.who}</span>
-              <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.period} · {i.pi}</span>
+              <span style={{ fontSize:'.8125rem', fontWeight:600, color:'hsl(var(--color-fg-default))', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.number} · {i.who}</span>
+              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{i.period} · {i.pi}</span>
             </span>
             <span style={i.pill}>{i.statusLabel}</span>
             <span style={{ fontSize:'.8125rem', fontWeight:600, fontFamily:'var(--font-sans)', flex:'0 0 auto', width:'96px', textAlign:'right' }}>{i.total}</span>
@@ -188,33 +197,33 @@ export default function Invoices({ rows, filter, platform: plat, scopeName }: In
         ))}
       </div>
 
-      <div style={{ background:'#fff', border:'1px solid #e3e7ee', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'14px' }}>
+      <div style={{ background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'16px', padding:'18px', display:'flex', flexDirection:'column', gap:'14px' }}>
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px' }}>
           <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
             <span style={{ fontSize:'.9375rem', fontWeight:700, letterSpacing:'-.2px' }}>{invNumber}</span>
-            <span style={{ fontSize:'.6875rem', color:'#64748b', fontFamily:'var(--font-sans)' }}>{invMeta}</span>
+            <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-muted))', fontFamily:'var(--font-sans)' }}>{invMeta}</span>
           </div>
           <span style={invPill}>{invStatus}</span>
         </div>
         <div style={{ display:'flex', flexDirection:'column', gap:'2px' }}>
           {invLines.map((l, li: number) => (
-            <div key={li} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.78125rem', padding:'8px 0', borderTop:'1px solid #f2f4f8' }}>
-              <span style={{ color:'#334155', minWidth:0 }}>{l.d}</span>
+            <div key={li} style={{ display:'flex', justifyContent:'space-between', gap:'12px', fontSize:'.78125rem', padding:'8px 0', borderTop:'1px solid hsl(var(--color-border-faint))' }}>
+              <span style={{ color:'hsl(var(--color-fg-subtle))', minWidth:0 }}>{l.d}</span>
               <span style={{ fontFamily:'var(--font-sans)', flex:'0 0 auto' }}>{l.amt}</span>
             </div>
           ))}
         </div>
-        <div style={{ display:'flex', flexDirection:'column', gap:'6px', borderTop:'1px solid #e3e7ee', paddingTop:'11px' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:'6px', borderTop:'1px solid hsl(var(--color-border-subtle))', paddingTop:'11px' }}>
           {invTotals.map(t => (
             <div key={t.k} style={{ display:'flex', justifyContent:'space-between', fontSize:'.78125rem' }}>
-              <span style={{ color:'#64748b' }}>{t.k}</span><span style={t.style}>{t.v}</span>
+              <span style={{ color:'hsl(var(--color-fg-muted))' }}>{t.k}</span><span style={t.style}>{t.v}</span>
             </div>
           ))}
         </div>
-        <div style={{ display:'flex', flexDirection:'column', gap:'7px', borderTop:'1px solid #eef1f6', paddingTop:'12px' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:'7px', borderTop:'1px solid hsl(var(--color-border-hairline))', paddingTop:'12px' }}>
           {invMetaRows.map(m => (
             <div key={m.k} style={{ display:'flex', justifyContent:'space-between', gap:'10px', fontSize:'.71875rem' }}>
-              <span style={{ color:'#64748b' }}>{m.k}</span><span style={{ fontFamily:'var(--font-sans)', color:'#334155', textAlign:'right', wordBreak:'break-all' }}>{m.v}</span>
+              <span style={{ color:'hsl(var(--color-fg-muted))' }}>{m.k}</span><span style={{ fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-subtle))', textAlign:'right', wordBreak:'break-all' }}>{m.v}</span>
             </div>
           ))}
         </div>

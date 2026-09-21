@@ -80,14 +80,14 @@ export type MailComposerProps = {
 
 const ROW: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: '10px',
-  borderBottom: '1px solid #eef1f6', padding: '0 16px', minHeight: '42px',
+  borderBottom: '1px solid hsl(var(--color-border-hairline))', padding: '0 16px', minHeight: '42px',
 };
 
 /* Underlined-row fields, not bordered boxes: the header of a compose window is
    a list of addresses, and boxing each one makes it read as a form. */
 const FIELD: CSSProperties = {
   flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
-  fontSize: '.8125rem', color: '#0f172a', fontFamily: 'inherit', padding: '10px 0',
+  fontSize: '.8125rem', color: 'hsl(var(--color-fg-default))', fontFamily: 'inherit', padding: '10px 0',
 };
 
 const FIELD_LABEL: CSSProperties = {
@@ -177,7 +177,7 @@ export default function MailComposer({ onClose, onSent }: MailComposerProps) {
 
   const toggle = (on: boolean): CSSProperties => ({
     border: 'none', background: 'transparent', cursor: 'pointer', padding: '0 2px',
-    fontSize: '.75rem', fontWeight: on ? 600 : 500, color: on ? '#0f172a' : TEXT_MUTED,
+    fontSize: '.75rem', fontWeight: on ? 600 : 500, color: on ? 'hsl(var(--color-fg-default))' : TEXT_MUTED,
     display: 'inline-flex', alignItems: 'center', gap: '3px',
   });
 
@@ -195,7 +195,7 @@ export default function MailComposer({ onClose, onSent }: MailComposerProps) {
         aria-modal="true"
         aria-labelledby="compose-title"
         style={{
-          background: '#fff', borderRadius: '16px', border: '1px solid #e3e7ee',
+          background: 'hsl(var(--color-bg-surface))', borderRadius: '16px', border: '1px solid hsl(var(--color-border-subtle))',
           width: 'min(720px, 100%)', maxHeight: 'min(88vh, 860px)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
           boxShadow: '0 24px 60px rgba(15,23,42,.24)',
@@ -203,13 +203,13 @@ export default function MailComposer({ onClose, onSent }: MailComposerProps) {
       >
         <header style={{
           display: 'flex', alignItems: 'center', gap: '10px',
-          padding: '12px 16px', background: '#f4f6fb', borderBottom: '1px solid #e3e7ee',
+          padding: '12px 16px', background: 'hsl(var(--color-bg-muted))', borderBottom: '1px solid hsl(var(--color-border-subtle))',
         }}>
-          <h2 id="compose-title" style={{ margin: 0, flex: 1, fontSize: '.875rem', fontWeight: 600, color: '#0f172a' }}>
+          <h2 id="compose-title" style={{ margin: 0, flex: 1, fontSize: '.875rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>
             New message
           </h2>
           <button type="button" onClick={close} aria-label="Close composer"
-            style={{ ...btn('#fff', '#475569', '#e3e7ee'), padding: '0 10px' }}>
+            style={{ ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), padding: '0 10px' }}>
             <Icon name="close" size={13} />Close
           </button>
         </header>
@@ -248,7 +248,7 @@ export default function MailComposer({ onClose, onSent }: MailComposerProps) {
             placeholder={'Hello,\n\nA blank line starts a new paragraph.'}
             style={{
               flex: 1, border: 'none', outline: 'none', resize: 'none', padding: '14px 16px',
-              fontSize: '.8125rem', lineHeight: 1.7, color: '#0f172a', background: '#fff',
+              fontSize: '.8125rem', lineHeight: 1.7, color: 'hsl(var(--color-fg-default))', background: 'hsl(var(--color-bg-surface))',
               fontFamily: 'inherit', textTransform: 'none', letterSpacing: 'normal',
             }} />
         </div>
@@ -256,13 +256,13 @@ export default function MailComposer({ onClose, onSent }: MailComposerProps) {
         {files.length ? (
           <ul style={{
             listStyle: 'none', margin: 0, padding: '10px 16px', display: 'flex', flexWrap: 'wrap',
-            gap: '8px', borderTop: '1px solid #eef1f6',
+            gap: '8px', borderTop: '1px solid hsl(var(--color-border-hairline))',
           }}>
             {files.map((file, i) => (
               <li key={`${file.filename}-${i}`} style={{
                 display: 'inline-flex', alignItems: 'center', gap: '8px', maxWidth: '100%',
-                border: '1px solid #e3e7ee', borderRadius: '9px', padding: '5px 8px 5px 10px',
-                background: '#f8fafc', fontSize: '.71875rem', color: '#334155',
+                border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '9px', padding: '5px 8px 5px 10px',
+                background: 'hsl(var(--color-bg-subtle))', fontSize: '.71875rem', color: 'hsl(var(--color-fg-subtle))',
               }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.filename}</span>
                 <span style={{ color: TEXT_MUTED, flex: '0 0 auto' }}>{humanSize(file.size)}</span>
@@ -277,8 +277,8 @@ export default function MailComposer({ onClose, onSent }: MailComposerProps) {
 
         {error ? (
           <p role="alert" style={{
-            margin: 0, padding: '9px 16px', background: '#fef2f2', borderTop: '1px solid #fecaca',
-            color: '#b91c1c', fontSize: '.75rem', lineHeight: 1.6,
+            margin: 0, padding: '9px 16px', background: 'hsl(var(--color-bg-danger-subtle))', borderTop: '1px solid hsl(var(--color-border-danger))',
+            color: 'hsl(var(--color-fg-danger))', fontSize: '.75rem', lineHeight: 1.6,
           }}>
             {error}
           </p>
@@ -286,21 +286,21 @@ export default function MailComposer({ onClose, onSent }: MailComposerProps) {
 
         <footer style={{
           display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
-          padding: '12px 16px', borderTop: '1px solid #e3e7ee', background: '#fafbfd',
+          padding: '12px 16px', borderTop: '1px solid hsl(var(--color-border-subtle))', background: '#fafbfd',
         }}>
           <button type="button" onClick={send} disabled={sending}
-            style={{ ...btn(A, '#fff', A), opacity: sending ? .6 : 1 }}>
+            style={{ ...btn(A, 'hsl(var(--color-fg-on-solid))', A), opacity: sending ? .6 : 1 }}>
             <Icon name="send" size={13} />{sending ? 'Sending…' : 'Send'}
           </button>
 
           <input ref={fileInput} type="file" multiple onChange={attach}
             style={{ display: 'none' }} data-testid="compose-file-input" />
           <button type="button" onClick={() => fileInput.current?.click()}
-            style={{ ...btn('#fff', '#475569', '#e3e7ee'), padding: '0 12px' }}>
+            style={{ ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), padding: '0 12px' }}>
             <Icon name="upload" size={13} />Attach files
           </button>
 
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '.75rem', color: '#334155' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '.75rem', color: 'hsl(var(--color-fg-subtle))' }}>
             <input type="checkbox" checked={sendHtml} onChange={e => setSendHtml(e.target.checked)} />
             Also send a branded HTML part
           </label>

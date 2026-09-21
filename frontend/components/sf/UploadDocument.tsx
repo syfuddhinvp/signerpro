@@ -48,9 +48,9 @@ export default function UploadDocument({ documentId, label = 'Upload & prepare',
   const A = accent();
 
   const style = variant === 'primary'
-    ? btn(A, '#fff', A)
+    ? btn(A, 'hsl(var(--color-fg-on-solid))', A)
     : variant === 'ghost'
-      ? btn('#fff', '#475569', '#e3e7ee')
+      ? btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')
       : btn('transparent', A, 'transparent');
 
   const onPick = useCallback(async (file: File | null | undefined) => {

@@ -112,17 +112,17 @@ export default function ResizableRail({
     persist({ width, collapsed: next });
   };
 
-  const border = side === 'left' ? { borderRight: '1px solid #e3e7ee' } : { borderLeft: '1px solid #e3e7ee' };
+  const border = side === 'left' ? { borderRight: '1px solid hsl(var(--color-border-subtle))' } : { borderLeft: '1px solid hsl(var(--color-border-subtle))' };
   const chevron = <Icon name={(side === 'left') === collapsed ? 'chevronRight' : 'chevronLeft'} size={13} />;
 
   if (collapsed) {
     return (
-      <div style={{ flex: '0 0 34px', width: '34px', background: '#fff', ...border, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '10px 0' }}>
+      <div style={{ flex: '0 0 34px', width: '34px', background: 'hsl(var(--color-bg-surface))', ...border, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '10px 0' }}>
         <button
           type="button" onClick={toggle} title={'Show ' + label} aria-label={'Show ' + label} aria-expanded={false}
-          style={{ width: '24px', height: '24px', borderRadius: '7px', border: '1px solid #e3e7ee', background: '#fff', color: '#475569', cursor: 'pointer', fontSize: '.8125rem', lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: '24px', height: '24px', borderRadius: '7px', border: '1px solid hsl(var(--color-border-subtle))', background: 'hsl(var(--color-bg-surface))', color: 'hsl(var(--color-fg-subtle))', cursor: 'pointer', fontSize: '.8125rem', lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
         >{chevron}</button>
-        <span aria-hidden="true" style={{ writingMode: 'vertical-rl', fontSize: '.6875rem', color: '#64748b', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{label}</span>
+        <span aria-hidden="true" style={{ writingMode: 'vertical-rl', fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{label}</span>
       </div>
     );
   }
@@ -136,22 +136,22 @@ export default function ResizableRail({
       onDoubleClick={() => { setWidth(defaultWidth); persist({ width: defaultWidth, collapsed }); }}
       title={'Drag to resize ' + label + ' — double-click to reset'}
       style={{
-        flex: '0 0 ' + HANDLE + 'px', width: HANDLE + 'px', cursor: 'col-resize', background: dragging ? '#c7d2fe' : 'transparent',
+        flex: '0 0 ' + HANDLE + 'px', width: HANDLE + 'px', cursor: 'col-resize', background: dragging ? 'hsl(var(--color-accent-muted))' : 'transparent',
         outlineOffset: '-2px', touchAction: 'none',
       }}
     />
   );
 
   return (
-    <div style={{ flex: '0 0 ' + (width + HANDLE) + 'px', width: (width + HANDLE) + 'px', display: 'flex', background: '#fff', ...border, minHeight: 0, position: 'relative' }}>
+    <div style={{ flex: '0 0 ' + (width + HANDLE) + 'px', width: (width + HANDLE) + 'px', display: 'flex', background: 'hsl(var(--color-bg-surface))', ...border, minHeight: 0, position: 'relative' }}>
       {/* Anchored to the frame rather than the scrolling content, so folding the
           rail away stays one click from anywhere in a long inspector. */}
       <button
         type="button" onClick={toggle} title={'Hide ' + label} aria-label={'Hide ' + label} aria-expanded={true}
         style={{
           position: 'absolute', top: '8px', right: (side === 'left' ? HANDLE + 8 : 8) + 'px', zIndex: 2,
-          width: '22px', height: '22px', borderRadius: '7px', border: '1px solid #e3e7ee', background: '#fff',
-          color: '#475569', cursor: 'pointer', fontSize: '.8125rem', lineHeight: 1,
+          width: '22px', height: '22px', borderRadius: '7px', border: '1px solid hsl(var(--color-border-subtle))', background: 'hsl(var(--color-bg-surface))',
+          color: 'hsl(var(--color-fg-subtle))', cursor: 'pointer', fontSize: '.8125rem', lineHeight: 1,
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         }}
       >{chevron}</button>

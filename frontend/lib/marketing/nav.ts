@@ -9,7 +9,7 @@
 
 /** The marketing pages run pre-authentication, so there is no tenant accent to
  *  read; the mark uses the product's own indigo. */
-export const BRAND_ACCENT = '#4f46e5';
+export const BRAND_ACCENT = 'hsl(var(--color-accent-solid))';
 
 export const MARKETING_NAV: { href: string; label: string }[] = [
   { href: '/product/payments', label: 'Payments' },

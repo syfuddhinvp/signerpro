@@ -52,9 +52,9 @@ export default function Catalog({ items, loadError }: CatalogProps) {
   const router = useRouter();
   const A = accent();
 
-  const primaryBtn = btn(A, '#fff', A);
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
-  const dangerBtn = btn('#fff', '#b91c1c', '#fecaca');
+  const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const dangerBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))');
 
   /** The entry whose file picker is open, so one hidden input serves every row. */
   const pendingUpload = useRef<string | null>(null);
@@ -184,7 +184,7 @@ export default function Catalog({ items, loadError }: CatalogProps) {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
-          <span data-testid="catalog-summary" style={{ fontSize: '.75rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>
+          <span data-testid="catalog-summary" style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>
             {items.length} form{items.length === 1 ? '' : 's'} · {published} published
             {missingFile ? ' · ' + missingFile + ' waiting for a PDF' : ''}
           </span>
@@ -198,8 +198,8 @@ export default function Catalog({ items, loadError }: CatalogProps) {
       </div>
 
       {items.length === 0 ? (
-        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '28px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-          <span style={{ fontSize: '.84375rem', fontWeight: 600, color: '#0f172a' }}>No forms in the catalog yet</span>
+        <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '28px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <span style={{ fontSize: '.84375rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>No forms in the catalog yet</span>
           <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>
             Add the built-in blueprints (W-9, I-9, W-4, mutual NDA, offer letter), then upload each form’s PDF and publish it.
           </span>
@@ -218,19 +218,19 @@ export default function Catalog({ items, loadError }: CatalogProps) {
           <div
             key={entry.id}
             style={{
-              background: '#fff', border: '1px solid #e3e7ee', borderRadius: '14px', padding: '13px 14px',
+              background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '14px', padding: '13px 14px',
               display: 'flex', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap',
             }}
           >
             <div style={{ flex: '1 1 320px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '.84375rem', fontWeight: 600, color: '#0f172a' }}>{entry.title}</span>
+                <span style={{ fontSize: '.84375rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>{entry.title}</span>
                 <span style={pill(tone)}>{state}</span>
               </div>
               {entry.description ? (
                 <span style={{ fontSize: '.71875rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>{entry.description}</span>
               ) : null}
-              <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>
+              <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>
                 {[
                   CATEGORY_LABEL[entry.category] ?? entry.category,
                   entry.authority,

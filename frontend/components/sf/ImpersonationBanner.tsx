@@ -26,7 +26,7 @@ const bar: CSSProperties = {
 };
 
 const chip: CSSProperties = {
-  padding: '3px 8px', borderRadius: '6px', background: '#f59e0b', color: '#3b1d00',
+  padding: '3px 8px', borderRadius: '6px', background: 'hsl(var(--color-bg-warning-solid))', color: '#3b1d00',
   fontSize: '.65625rem', fontWeight: 700, letterSpacing: '.06em',
   fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
 };
@@ -87,17 +87,17 @@ export default function ImpersonationBanner() {
         {impersonation.expiresAt ? ` · ${remaining(impersonation.expiresAt)}` : ''}
       </span>
       {expired ? (
-        <span style={{ fontSize: '.71875rem', color: '#fed7aa' }}>
+        <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-border-warning))' }}>
           The session has expired — the next page load returns you to your own account.
         </span>
       ) : null}
-      <button type="button" onClick={stop} disabled={busy} style={btn('#fff', '#7c2d12', '#fff')}>
+      <button type="button" onClick={stop} disabled={busy} style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-warning))', 'hsl(var(--color-bg-surface))')}>
         <Icon name="signOut" size={13} />{busy ? 'Ending…' : 'End impersonation'}
       </button>
       <button
         type="button"
         onClick={() => router.refresh()}
-        style={btn('transparent', '#fff7ed', '#c2410c')}
+        style={btn('transparent', '#fff7ed', 'hsl(var(--color-fg-warning))')}
       >
         <Icon name="refresh" size={13} />Refresh view
       </button>

@@ -58,14 +58,14 @@ export default function AuthAlternatives() {
   useEffect(() => { if (panel) fieldRef.current?.focus(); }, [panel]);
 
   const buttonStyle = (active: boolean): CSSProperties => ({
-    height: '38px', borderRadius: '10px', background: active ? '#eef2ff' : '#f8fafc',
-    border: '1px solid ' + (active ? A : '#eceff4'), color: active ? A : TEXT_MUTED,
+    height: '38px', borderRadius: '10px', background: active ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-subtle))',
+    border: '1px solid ' + (active ? A : 'hsl(var(--color-border-default))'), color: active ? A : TEXT_MUTED,
     fontSize: '.78125rem', fontWeight: 600, cursor: pending ? 'progress' : 'pointer',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
   });
 
   const continueStyle: CSSProperties = {
-    height: '34px', borderRadius: '9px', border: 'none', background: A, color: '#fff',
+    height: '34px', borderRadius: '9px', border: 'none', background: A, color: 'hsl(var(--color-fg-on-solid))',
     fontSize: '.75rem', fontWeight: 600, cursor: pending ? 'progress' : 'pointer', padding: '0 14px',
   };
 
@@ -152,9 +152,9 @@ export default function AuthAlternatives() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <span style={{ height: '1px', flex: 1, background: '#e3e7ee' }}></span>
+        <span style={{ height: '1px', flex: 1, background: 'hsl(var(--color-border-subtle))' }}></span>
         <span style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)' }}>OR</span>
-        <span style={{ height: '1px', flex: 1, background: '#e3e7ee' }}></span>
+        <span style={{ height: '1px', flex: 1, background: 'hsl(var(--color-border-subtle))' }}></span>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>

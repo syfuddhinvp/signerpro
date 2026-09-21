@@ -158,6 +158,13 @@ export type FieldFavoritesResponse = {
   types: string[];
 };
 
+/* `GET|PUT /api/me/appearance` — the theme this account chose. Values mirror
+   `lib/theme/themes.ts`; the backend rejects anything outside them. */
+export type AppearanceResponse = {
+  mode: 'system' | 'light' | 'dark';
+  palette: 'indigo' | 'ocean' | 'emerald' | 'rose' | 'amber' | 'graphite';
+};
+
 /**
  * A cloud storage connector as this deployment has it. Four of these fields
  * exist so the card can be honest rather than binary: `configured` says the

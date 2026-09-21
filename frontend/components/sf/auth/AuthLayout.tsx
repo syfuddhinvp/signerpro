@@ -42,7 +42,7 @@ export function authErrorMessage(code: string | undefined, error?: string): stri
 
 /** Inline error line shown above a form's submit button. */
 export const authErrorStyle: CSSProperties = {
-  fontSize: '.71875rem', color: '#9f1239', background: '#fff1f2', border: '1px solid #fecdd3',
+  fontSize: '.71875rem', color: 'hsl(var(--color-fg-danger))', background: 'hsl(var(--color-bg-danger-subtle))', border: '1px solid hsl(var(--color-border-danger))',
   borderRadius: '10px', padding: '10px 11px', lineHeight: 1.55,
 };
 
@@ -56,7 +56,7 @@ const AUTH_PROOF = [
 const AUTH_CERTS = ['SOC 2 Type II', 'ISO 27001', 'HIPAA', '21 CFR Part 11', 'eIDAS'];
 
 const certStyle: CSSProperties = {
-  padding: '5px 10px', borderRadius: '99px', border: '1px solid #1e293b', background: '#111c33',
+  padding: '5px 10px', borderRadius: '99px', border: '1px solid hsl(var(--color-bg-panel-dark-raised))', background: 'hsl(var(--color-bg-panel-dark-raised))',
   color: TEXT_MUTED_ON_DARK, fontSize: '.65625rem', fontFamily: 'var(--font-sans)',
 };
 
@@ -88,7 +88,7 @@ export default function AuthLayout({
       id, label, href: TAB_PATH[id] || AUTH_PATHS.signin, selected: on,
       style: {
         flex: '1', height: '36px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontSize: '.8125rem',
-        fontWeight: on ? 600 : 500, background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b',
+        fontWeight: on ? 600 : 500, background: on ? 'hsl(var(--color-bg-surface))' : 'transparent', color: on ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-muted))',
         boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
         display: 'grid', placeItems: 'center', textDecoration: 'none',
       } as CSSProperties,
@@ -108,24 +108,24 @@ export default function AuthLayout({
   const authSwitchHref = mode === 'signup' ? AUTH_PATHS.signin : AUTH_PATHS.signup;
 
   return (
-    <div data-screen-label="Auth" style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', background: '#f5f6f8' }}>
+    <div data-screen-label="Auth" style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', background: 'hsl(var(--color-bg-canvas))' }}>
 
-      <div style={{ background: '#0f172a', padding: 'clamp(40px, 5vh, 64px) clamp(32px, 4vw, 56px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', gap: '40px', overflow: 'auto' }}>
+      <div style={{ background: 'hsl(var(--color-bg-panel-dark))', padding: 'clamp(40px, 5vh, 64px) clamp(32px, 4vw, 56px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', gap: '40px', overflow: 'auto' }}>
         <div style={{ width: '100%', maxWidth: '480px', display: 'flex', alignItems: 'center', gap: '11px' }}>
           <BrandMark size={30} accent={A} radius={9} />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-            <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: '.875rem', letterSpacing: '-.2px' }}>SignerPro</span>
+            <span style={{ color: 'hsl(var(--color-fg-on-solid))', fontWeight: 700, fontSize: '.875rem', letterSpacing: '-.2px' }}>SignerPro</span>
             <span style={{ color: TEXT_MUTED_ON_DARK, fontSize: '.625rem', fontFamily: 'var(--font-sans)' }}>ENTERPRISE E-SIGNATURE</span>
           </div>
         </div>
 
         <div style={{ width: '100%', maxWidth: '480px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <h2 style={{ margin: 0, color: '#f8fafc', fontSize: 'clamp(1.75rem, 2.4vw, 2.375rem)', lineHeight: 1.16, letterSpacing: '-1px', fontWeight: 700, textWrap: 'pretty' } as CSSProperties}>Agreements that execute themselves — and prove it.</h2>
+          <h2 style={{ margin: 0, color: 'hsl(var(--color-fg-on-solid))', fontSize: 'clamp(1.75rem, 2.4vw, 2.375rem)', lineHeight: 1.16, letterSpacing: '-1px', fontWeight: 700, textWrap: 'pretty' } as CSSProperties}>Agreements that execute themselves — and prove it.</h2>
           <p style={{ margin: 0, color: TEXT_MUTED_ON_DARK, fontSize: '.875rem', lineHeight: 1.7, maxWidth: '44ch' }}>Prepare, route and seal legally binding agreements with a tamper-evident audit trail on every field, signature and view.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {AUTH_PROOF.map(p => (
               <div key={p.label} style={{ display: 'flex', gap: '11px', alignItems: 'flex-start' }}>
-                <span style={{ width: '7px', height: '7px', borderRadius: '99px', background: '#10b981', marginTop: '6px', flex: '0 0 7px' }}></span>
+                <span style={{ width: '7px', height: '7px', borderRadius: '99px', background: 'hsl(var(--color-highlight-solid))', marginTop: '6px', flex: '0 0 7px' }}></span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <span style={{ color: '#e2e8f0', fontSize: '.78125rem', fontWeight: 600 }}>{p.label}</span>
                   <span style={{ color: TEXT_MUTED_ON_DARK, fontSize: '.71875rem', lineHeight: 1.5 }}>{p.meta}</span>
@@ -146,14 +146,14 @@ export default function AuthLayout({
         <div style={{ width: '100%', maxWidth: '424px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
           {authTabsVisible ? (
-            <div role="tablist" aria-label="Authentication" style={{ display: 'flex', gap: '4px', background: '#eceff4', padding: '4px', borderRadius: '12px' }}>
+            <div role="tablist" aria-label="Authentication" style={{ display: 'flex', gap: '4px', background: 'hsl(var(--color-bg-muted))', padding: '4px', borderRadius: '12px' }}>
               {authTabs.map(t => (
                 <Link key={t.id} href={t.href} role="tab" aria-selected={t.selected} style={t.style}>{t.label}</Link>
               ))}
             </div>
           ) : null}
 
-          <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: 'clamp(22px, 2.2vw, 28px)', display: 'flex', flexDirection: 'column', gap: '20px', boxShadow: '0 1px 2px rgba(15,23,42,.04)' }}>
+          <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: 'clamp(22px, 2.2vw, 28px)', display: 'flex', flexDirection: 'column', gap: '20px', boxShadow: '0 1px 2px rgba(15,23,42,.04)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               <span style={{ fontSize: '1.1875rem', fontWeight: 700, letterSpacing: '-.4px' }}>{authTitle}</span>
               <span style={{ fontSize: '.78125rem', color: TEXT_MUTED, lineHeight: 1.5 }}>{authSub}</span>

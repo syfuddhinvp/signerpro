@@ -59,6 +59,10 @@ export const account = {
   /** Replaces the whole starred set; the palette is the source of truth. */
   updateFieldFavorites: (c: Caller, types: string[]) =>
     put<T.FieldFavoritesResponse>(c, '/api/me/field-favorites', { types }),
+  appearance: (c: Caller) => get<T.AppearanceResponse>(c, '/api/me/appearance'),
+  /** Replaces both halves; the provider is the source of truth. */
+  updateAppearance: (c: Caller, body: T.AppearanceResponse) =>
+    put<T.AppearanceResponse>(c, '/api/me/appearance', body),
   auditTrail: (
     c: Caller,
     params?: {
@@ -633,7 +637,10 @@ export const platformInvoices = {
     post<T.PlatformInvoiceResponse>(c, `/api/saas/invoices/${id}/mark-paid`, { amount_cents: amount_cents ?? null }),
   void: (c: Caller, id: string, reason?: string) =>
     post<T.PlatformInvoiceResponse>(c, `/api/saas/invoices/${id}/void`, { reason: reason ?? null }),
-  retryPayment: (c: Caller, id: string) => post<T.PlatformInvoiceResponse>(c, `/api/saas/invoices/${id}/retry-payment`),
+  retryPayment: (c: Caller, id: string, payment_method_id?: string) =>
+    post<T.PlatformInvoiceResponse>(c, `/api/saas/invoices/${id}/retry-payment`, {
+      payment_method_id: payment_method_id ?? null,
+    }),
 };
 
 /* ── developer: api keys ────────────────────────────────────────────────── */

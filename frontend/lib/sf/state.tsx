@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { workspaceForPath } from './routes';
 /* SignerPro state container — ported from the prototype app.js `state` object and helper methods. */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useOptionalTheme } from '@/lib/theme/ThemeProvider';
 import { ACCENT_DEFAULT, RECIPIENTS, RETIRED_TYPES, STATUS, TYPES, type Dict } from './data';
 
 export type Recipient = { id: string; name: string; email: string; role: string; color: string; order: number; status: string };
@@ -277,7 +278,7 @@ export function recipsOf(s: SFState): Recipient[] { return s.recipients || RECIP
  * the "This view failed to load" boundary.
  */
 export const UNASSIGNED_RECIPIENT: Recipient = {
-  id: '', name: 'Unassigned', email: '', role: 'sign', color: '#8492a6', order: 1, status: 'draft',
+  id: '', name: 'Unassigned', email: '', role: 'sign', color: 'hsl(var(--color-fg-muted))', order: 1, status: 'draft',
 };
 
 export function recipOf(s: SFState, id: string): Recipient {
@@ -361,6 +362,10 @@ export type SFContextValue = {
 const SFContext = createContext<SFContextValue | null>(null);
 
 export function SFProvider({ children, accent }: { children: React.ReactNode; accent?: string }) {
+  /* A tenant's branding colour (the signing surface) beats the user's palette;
+     the palette beats the built-in default. */
+  const theme = useOptionalTheme();
+  const paletteAccent = theme?.accentHex;
   const pathname = usePathname() || '/';
   const [s, setS] = useState<SFState>(INITIAL_STATE);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -383,7 +388,7 @@ export function SFProvider({ children, accent }: { children: React.ReactNode; ac
       s,
       set,
       flash,
-      accent: () => accentOf(accent),
+      accent: () => accentOf(accent || paletteAccent),
       recips: () => recipsOf(s),
       recip: (id: string) => recipOf(s, id),
       meta: metaOf,
@@ -402,7 +407,7 @@ export function SFProvider({ children, accent }: { children: React.ReactNode; ac
         if (next) set({ recipients: next });
       }
     };
-  }, [s, set, flash, accent]);
+  }, [s, set, flash, accent, paletteAccent]);
 
   return <SFContext.Provider value={value}>{children}</SFContext.Provider>;
 }

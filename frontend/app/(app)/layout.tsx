@@ -19,7 +19,10 @@ import Modals from '@/components/sf/Modals';
 import ImpersonationBanner from '@/components/sf/ImpersonationBanner';
 import Tour from '@/components/sf/Tour';
 import { serverCallerSoft } from '@/lib/api/client';
+import AppearanceSync from '@/lib/theme/AppearanceSync';
+import { normalizeAppearance, type Appearance } from '@/lib/theme/themes';
 import {
+  account as accountApi,
   billing as billingApi,
   documents as documentsApi,
   folders as foldersApi,
@@ -115,6 +118,13 @@ async function loadShellData(): Promise<ShellData> {
   };
 }
 
+/** The account's saved theme, or null when the endpoint is unavailable so the
+ *  browser's own memory of the choice is left alone. */
+async function loadAppearance(): Promise<Appearance | null> {
+  const result = await accountApi.appearance(serverCallerSoft());
+  return result.ok ? normalizeAppearance(result.data) : null;
+}
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
 
@@ -129,10 +139,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     impersonation: session.impersonation,
   };
 
-  const shellData = await loadShellData();
+  const [shellData, appearance] = await Promise.all([loadShellData(), loadAppearance()]);
 
   return (
     <SessionProvider session={clientSession}>
+      <AppearanceSync appearance={appearance} />
       <Shell data={shellData}>{children}</Shell>
       <Modals />
       <Tour />

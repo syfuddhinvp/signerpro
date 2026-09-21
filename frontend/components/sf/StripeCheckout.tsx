@@ -39,9 +39,9 @@ function stripePromise(): Promise<Stripe | null> {
 const noticeStyle = {
   fontSize: '.78125rem',
   lineHeight: 1.6,
-  color: '#7c2d12',
-  background: '#fff7ed',
-  border: '1px solid #fed7aa',
+  color: 'hsl(var(--color-fg-warning))',
+  background: 'hsl(var(--color-bg-warning-subtle))',
+  border: '1px solid hsl(var(--color-border-warning))',
   borderRadius: '10px',
   padding: '12px 13px',
 } as const;
@@ -92,7 +92,7 @@ export default function StripeCheckoutPanel({ clientSecret, error, livemode }: S
         <span
           style={{
             alignSelf: 'flex-start', padding: '3px 8px', borderRadius: '999px',
-            border: '1px solid #fcd34d', background: '#fffbeb', color: '#92400e',
+            border: '1px solid hsl(var(--color-border-warning))', background: 'hsl(var(--color-bg-warning-subtle))', color: 'hsl(var(--color-fg-warning))',
             fontSize: '.65625rem', fontWeight: 700, letterSpacing: '.3px', textTransform: 'uppercase',
           }}
         >

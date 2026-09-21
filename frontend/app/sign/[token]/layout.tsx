@@ -47,7 +47,7 @@ export default async function SignLayout({
       : null;
 
   const name = brand?.organization_name ?? 'SignerPro';
-  const mark = brand?.primary_color ?? '#4f46e5';
+  const mark = brand?.primary_color ?? 'hsl(var(--color-accent-solid))';
   const markText = brand?.primary_text_color ?? '#fff';
   const align = ALIGN[brand?.logo_position ?? 'left'];
 
@@ -57,8 +57,8 @@ export default async function SignLayout({
      *window* scrolled instead — and anything the surface pins to its own
      bottom edge, the next-field guide included, sat below the fold. */
   return (
-    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: '#eceff4', fontFamily: SF_FONT, color: '#0f172a' }}>
-      <header style={{ flex: '0 0 auto', background: '#fff', borderBottom: '1px solid #e3e7ee', padding: '11px 18px', display: 'flex', alignItems: 'center', gap: '11px' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'hsl(var(--color-bg-muted))', fontFamily: SF_FONT, color: 'hsl(var(--color-fg-default))' }}>
+      <header style={{ flex: '0 0 auto', background: 'hsl(var(--color-bg-surface))', borderBottom: '1px solid hsl(var(--color-border-subtle))', padding: '11px 18px', display: 'flex', alignItems: 'center', gap: '11px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '11px', flex: 1, minWidth: 0, justifyContent: align }}>
           {brand?.logo_url ? (
             <img
@@ -78,7 +78,7 @@ export default async function SignLayout({
         {/* Stays whatever the brand is: the guarantee is ours, not the
             sender's, and a recipient checking whether a link is trustworthy is
             entitled to see who is actually sealing the document. */}
-        <span style={{ marginLeft: 'auto', fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)', flex: '0 0 auto' }}>
+        <span style={{ marginLeft: 'auto', fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)', flex: '0 0 auto' }}>
           {brand ? 'Sent via SignerPro · ' : ''}Secure signing session · SHA-256 sealed · tamper-evident audit trail
         </span>
       </header>

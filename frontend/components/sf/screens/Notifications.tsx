@@ -43,7 +43,7 @@ const TONES: [NotificationTone, string][] = [
 
 const TONE_PILL = { bad: TONE_BAD, warn: TONE_WARN, good: TONE_GOOD, info: TONE_INFO };
 const TONE_DOT: Record<NotificationTone, string> = {
-  bad: '#f43f5e', warn: '#f59e0b', good: '#10b981', info: '#64748b',
+  bad: 'hsl(var(--color-bg-danger-solid))', warn: 'hsl(var(--color-bg-warning-solid))', good: 'hsl(var(--color-highlight-solid))', info: 'hsl(var(--color-fg-muted))',
 };
 const TONE_LABEL: Record<NotificationTone, string> = {
   bad: 'Problem', warn: 'Warning', good: 'Completion', info: 'Update',
@@ -155,16 +155,16 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
      the notification feed and its preferences does not shift the page. */
   const wrap: CSSProperties = { padding:'20px 22px', maxWidth:'1180px', margin:'0 auto', width:'100%', display:'flex', flexDirection:'column', gap:'13px' };
   const headRow: CSSProperties = { display:'flex', alignItems:'center', gap:'9px', flexWrap:'wrap' };
-  const groupStyle: CSSProperties = { display:'flex', gap:'3px', background:'#f1f3f7', padding:'3px', borderRadius:'9px' };
+  const groupStyle: CSSProperties = { display:'flex', gap:'3px', background:'hsl(var(--color-bg-muted))', padding:'3px', borderRadius:'9px' };
   const countStyle: CSSProperties = { marginLeft:'5px', fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' };
   const rowStyle = (read: boolean, isSelected: boolean): CSSProperties => ({
     display:'flex', alignItems:'flex-start', gap:'11px', padding:'12px 14px',
-    borderTop:'1px solid #f2f4f8',
-    background: isSelected ? '#eef2ff' : read ? '#fff' : '#f7f9ff',
+    borderTop:'1px solid hsl(var(--color-border-faint))',
+    background: isSelected ? 'hsl(var(--color-accent-subtle))' : read ? 'hsl(var(--color-bg-surface))' : '#f7f9ff',
   });
   const iconAction: CSSProperties = {
-    height:'26px', padding:'0 9px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff',
-    cursor:'pointer', fontSize:'.71875rem', color:'#475569',
+    height:'26px', padding:'0 9px', borderRadius:'8px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))',
+    cursor:'pointer', fontSize:'.71875rem', color:'hsl(var(--color-fg-subtle))',
     display:'inline-flex', alignItems:'center', gap:'5px',
   };
 
@@ -246,14 +246,14 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
             type="button"
             onClick={() => run(notificationsApi.markAllRead(apiCall))}
             disabled={busy || facets.unread === 0}
-            style={{ ...btn('#fff', '#475569', '#e3e7ee'), opacity: facets.unread === 0 ? .5 : 1 }}
+            style={{ ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), opacity: facets.unread === 0 ? .5 : 1 }}
           ><Icon name="check" size={13} />Mark all read</button>
           <button
             type="button"
             onClick={() => run(notificationsApi.clearRead(apiCall))}
             disabled={busy || facets.read === 0}
             title="Deletes read notifications. Unread ones are kept."
-            style={{ ...btn('#fff', '#475569', '#e3e7ee'), opacity: facets.read === 0 ? .5 : 1 }}
+            style={{ ...btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), opacity: facets.read === 0 ? .5 : 1 }}
           ><Icon name="trash" size={13} />Clear read</button>
         </div>
       </div>
@@ -269,7 +269,7 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
             type="button"
             onClick={() => applyBulk('delete')}
             disabled={busy}
-            style={{ ...iconAction, marginLeft:'auto', borderColor:'#fecaca', color:'#b91c1c' }}
+            style={{ ...iconAction, marginLeft:'auto', borderColor:'hsl(var(--color-border-danger))', color:'hsl(var(--color-fg-danger))' }}
           ><Icon name="trash" size={12} />Delete</button>
           <button type="button" onClick={() => setSelected([])} style={iconAction}><Icon name="close" size={12} />Clear selection</button>
         </div>
@@ -293,7 +293,7 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
         </div>
 
         {rows.length === 0 ? (
-          <div style={{ borderTop:'1px solid #f2f4f8', padding:'34px 16px', textAlign:'center', fontSize:'.78125rem', color:TEXT_MUTED }}>
+          <div style={{ borderTop:'1px solid hsl(var(--color-border-faint))', padding:'34px 16px', textAlign:'center', fontSize:'.78125rem', color:TEXT_MUTED }}>
             {fetchError
               ? 'We could not load your notifications.'
               : filtered
@@ -320,7 +320,7 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
                     <button
                       type="button"
                       onClick={() => openRow(row)}
-                      style={{ border:'none', background:'transparent', padding:0, cursor:'pointer', fontSize:'.8125rem', fontWeight: row.read_at ? 500 : 600, color:'#0f172a', textAlign:'left' }}
+                      style={{ border:'none', background:'transparent', padding:0, cursor:'pointer', fontSize:'.8125rem', fontWeight: row.read_at ? 500 : 600, color:'hsl(var(--color-fg-default))', textAlign:'left' }}
                     >{row.title}</button>
                   ) : (
                     <span style={{ fontSize:'.8125rem', fontWeight: row.read_at ? 500 : 600 }}>{row.title}</span>
@@ -331,7 +331,7 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
                   )}
                 </div>
                 {row.detail ? (
-                  <span style={{ fontSize:'.75rem', color:'#475569' }}>{row.detail}</span>
+                  <span style={{ fontSize:'.75rem', color:'hsl(var(--color-fg-subtle))' }}>{row.detail}</span>
                 ) : null}
                 <span title={formatDateTimeShort(row.created_at)} style={{ fontSize:'.6875rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)' }}>
                   {formatRelative(row.created_at)}
@@ -349,7 +349,7 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
                   onClick={() => run(notificationsApi.remove(apiCall, row.id))}
                   disabled={busy}
                   aria-label={`Delete "${row.title}"`}
-                  style={{ ...iconAction, padding:'0 7px', borderColor:'#fecaca', color:'#b91c1c' }}
+                  style={{ ...iconAction, padding:'0 7px', borderColor:'hsl(var(--color-border-danger))', color:'hsl(var(--color-fg-danger))' }}
                 ><Icon name="close" size={12} /></button>
               </div>
             </div>
@@ -357,11 +357,11 @@ export default function Notifications({ feed, loadError = null }: NotificationsP
         })}
 
         {rows.length < data.total ? (
-          <div style={{ borderTop:'1px solid #f2f4f8', padding:'11px 14px', display:'flex', justifyContent:'center' }}>
+          <div style={{ borderTop:'1px solid hsl(var(--color-border-faint))', padding:'11px 14px', display:'flex', justifyContent:'center' }}>
             <button
               type="button"
               onClick={() => setLimit(value => value + PAGE_SIZE)}
-              style={btn('#fff', '#475569', '#e3e7ee')}
+              style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}
             ><Icon name="caretDown" size={13} />Show more</button>
           </div>
         ) : null}

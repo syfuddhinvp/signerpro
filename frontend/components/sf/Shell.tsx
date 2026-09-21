@@ -138,14 +138,14 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
       display:'flex', alignItems:'center', gap:'10px', width:'100%', borderRadius:'10px',
       padding: folded ? '8px 0' : '8px 10px', justifyContent: folded ? 'center' : 'flex-start',
       border:'none', cursor:'pointer', textAlign:'left', textDecoration:'none',
-      background: area.active ? '#eef2ff' : 'transparent',
-      color: area.active ? '#0f172a' : '#334155',
+      background: area.active ? 'hsl(var(--color-accent-subtle))' : 'transparent',
+      color: area.active ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-subtle))',
       fontSize:'.8125rem', fontWeight: area.active ? 600 : 500,
       position:'relative',
     } as CSSProperties,
     glyph: {
       width:'26px', height:'26px', borderRadius:'8px', display:'grid', placeItems:'center', flex:'0 0 26px',
-      background: area.active ? A : '#f1f3f7', color: area.active ? '#fff' : '#64748b',
+      background: area.active ? A : 'hsl(var(--color-bg-muted))', color: area.active ? 'hsl(var(--color-fg-on-solid))' : 'hsl(var(--color-fg-muted))',
       boxShadow: area.active ? '0 1px 2px rgba(79,70,229,.35)' : 'none', transition:'background .12s ease, color .12s ease',
     } as CSSProperties,
     /* Folded, the count has no room beside the label, so it becomes a small
@@ -158,7 +158,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   /** Shared look of the area badge; `countStyle` supplies only its placement,
    *  which differs folded and unfolded. */
   const areaCountBase: CSSProperties = {
-    borderRadius:'99px', background:'#f43f5e', color:'#fff', fontSize:'.625rem', fontWeight:700,
+    borderRadius:'99px', background:'hsl(var(--color-bg-danger-solid))', color:'hsl(var(--color-fg-on-solid))', fontSize:'.625rem', fontWeight:700,
     display:'grid', placeItems:'center', fontFamily:'var(--font-sans)',
   };
 
@@ -169,7 +169,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   const rowStyle = (active: boolean): CSSProperties => ({
     display:'flex', alignItems:'center', gap:'9px', width:'100%', padding:'6px 9px', borderRadius:'8px',
     border:'none', cursor:'pointer', textAlign:'left', textDecoration:'none',
-    background: active ? '#eef2ff' : 'transparent', color: active ? '#0f172a' : '#475569',
+    background: active ? 'hsl(var(--color-accent-subtle))' : 'transparent', color: active ? 'hsl(var(--color-fg-default))' : 'hsl(var(--color-fg-subtle))',
     fontSize:'.78125rem', fontWeight: active ? 600 : 500,
   });
   const rowDot = (active: boolean, tone?: string): CSSProperties => ({
@@ -210,23 +210,23 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
       set({ helpOpen: false });
       if (target) go(target as ScreenKey);
     },
-    style: { display:'block', width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:'8px', border:'none', background:'transparent', cursor:'pointer', fontSize:'.78125rem', color:'#334155' } as CSSProperties }));
+    style: { display:'block', width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:'8px', border:'none', background:'transparent', cursor:'pointer', fontSize:'.78125rem', color:'hsl(var(--color-fg-subtle))' } as CSSProperties }));
 
   /* ── header / chrome styles ── */
   const titles = TITLES(s.fields.length, isPlat);
   const pageTitle = titles[screen] ? titles[screen][0] : '';
   const pageSub = titles[screen] ? titles[screen][1] : '';
 
-  const openBuilderBtn: CSSProperties = Object.assign({}, btn('#fff', '#475569', '#e3e7ee'), { display: s.wide ? 'inline-flex' : 'none' });
-  const primaryBtn: CSSProperties = btn(A, '#fff', A);
-  const ghostBtn: CSSProperties = btn('#fff', '#475569', '#e3e7ee');
-  const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid #e3e7ee', background:'#fff', cursor:'pointer', color:'#475569', display:'grid', placeItems:'center', padding:0, lineHeight:1 };
-  const helpStyle: CSSProperties = { width:'32px', height:'32px', borderRadius:'9px', border:'1px solid #e3e7ee', background: s.helpOpen ? '#eef2ff' : '#fff', cursor:'pointer', color:'#475569', fontSize:'.8125rem', display:'inline-flex', alignItems:'center', justifyContent:'center' };
+  const openBuilderBtn: CSSProperties = Object.assign({}, btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))'), { display: s.wide ? 'inline-flex' : 'none' });
+  const primaryBtn: CSSProperties = btn(A, 'hsl(var(--color-fg-on-solid))', A);
+  const ghostBtn: CSSProperties = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
+  const iconBtn: CSSProperties = { width:'28px', height:'28px', borderRadius:'8px', border:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', cursor:'pointer', color:'hsl(var(--color-fg-subtle))', display:'grid', placeItems:'center', padding:0, lineHeight:1 };
+  const helpStyle: CSSProperties = { width:'32px', height:'32px', borderRadius:'9px', border:'1px solid hsl(var(--color-border-subtle))', background: s.helpOpen ? 'hsl(var(--color-accent-subtle))' : 'hsl(var(--color-bg-surface))', cursor:'pointer', color:'hsl(var(--color-fg-subtle))', fontSize:'.8125rem', display:'inline-flex', alignItems:'center', justifyContent:'center' };
   const wsTenantStyle: CSSProperties = { flex:'1', height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: isPlat ? 500 : 600,
-    background: isPlat ? 'transparent' : '#fff', color: isPlat ? '#64748b' : '#0f172a', boxShadow: isPlat ? 'none' : '0 1px 2px rgba(15,23,42,.12)',
+    background: isPlat ? 'transparent' : 'hsl(var(--color-bg-surface))', color: isPlat ? 'hsl(var(--color-fg-muted))' : 'hsl(var(--color-fg-default))', boxShadow: isPlat ? 'none' : '0 1px 2px rgba(15,23,42,.12)',
     display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'5px' };
   const wsPlatformStyle: CSSProperties = { flex:'1', height:'26px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'.75rem', fontWeight: isPlat ? 600 : 500,
-    background: isPlat ? '#fff' : 'transparent', color: isPlat ? '#92400e' : '#64748b', boxShadow: isPlat ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
+    background: isPlat ? 'hsl(var(--color-bg-surface))' : 'transparent', color: isPlat ? 'hsl(var(--color-fg-warning))' : 'hsl(var(--color-fg-muted))', boxShadow: isPlat ? '0 1px 2px rgba(15,23,42,.12)' : 'none',
     display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'5px' };
   // Identity line under the signed-in user: which tenant (or the whole
   // platform) the session is currently acting on.
@@ -235,12 +235,12 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   /* ── embedded-session bar ── */
   const embed = s.embedSession;
   const hasEmbed = !!embed;
-  const embedBarStyle: CSSProperties = { flex:'0 0 auto', display:'flex', alignItems:'center', gap:'12px', padding:'9px 22px', background:'#eef2ff', borderBottom:'1px solid #c7d2fe' };
-  const embedChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background: A, color:'#fff', fontSize:'.625rem', fontWeight:700, letterSpacing:'.06em', fontFamily:'var(--font-sans)', flex:'0 0 auto' };
+  const embedBarStyle: CSSProperties = { flex:'0 0 auto', display:'flex', alignItems:'center', gap:'12px', padding:'9px 22px', background:'hsl(var(--color-accent-subtle))', borderBottom:'1px solid hsl(var(--color-accent-border))' };
+  const embedChip: CSSProperties = { padding:'4px 9px', borderRadius:'7px', background: A, color:'hsl(var(--color-fg-on-solid))', fontSize:'.625rem', fontWeight:700, letterSpacing:'.06em', fontFamily:'var(--font-sans)', flex:'0 0 auto' };
   const embedTitle = embed ? embed.title : '';
   const embedMeta = embed ? embed.host + ' · session ' + embed.id + ' · external_id ' + embed.externalId : '';
   const embedContacts = embed ? embed.contacts.join(' · ') : '';
-  const embedContactsChip: CSSProperties = { padding:'4px 9px', borderRadius:'99px', background:'#fff', border:'1px solid #c7d2fe', fontSize:'.65625rem', color:'#3730a3', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', flex:'0 0 auto' };
+  const embedContactsChip: CSSProperties = { padding:'4px 9px', borderRadius:'99px', background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-accent-border))', fontSize:'.65625rem', color:'hsl(var(--color-accent-fg))', fontFamily:'var(--font-sans)', whiteSpace:'nowrap', flex:'0 0 auto' };
 
   /* ── ghost + toast ── */
   const gt = s.dragTool ? sf.meta(s.dragTool) : null;
@@ -249,7 +249,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   const ghostStyle: CSSProperties = s.ghost ? { position:'fixed', left:(s.ghost.x - (gt ? gt.w : 80) / 2) + 'px', top:(s.ghost.y - (gt ? gt.h : 20) / 2) + 'px',
     width:(gt ? gt.w : 80) + 'px', height:(gt ? gt.h : 20) + 'px', border:'1.5px dashed ' + sf.recip(s.activeRecipient).color,
     background: sf.recip(s.activeRecipient).color + '26', borderRadius:'6px', display:'grid', placeItems:'center',
-    fontSize:'.6875rem', fontWeight:600, color:'#0f172a', pointerEvents:'none', zIndex:70 } : {};
+    fontSize:'.6875rem', fontWeight:600, color:'hsl(var(--color-fg-default))', pointerEvents:'none', zIndex:70 } : {};
 
   /* ── handlers ── */
   /* A full page load, not `router.replace`: the App Router's client cache still
@@ -269,17 +269,17 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   const embedEnd = () => set({ embedSession: null });
 
   return (
-    <div style={{ display:'flex', height:'100vh', width:'100%', overflow:'hidden', fontFamily:'var(--font-sans)', color:'#0f172a', background:'#f5f6f8', WebkitFontSmoothing:'antialiased' } as CSSProperties}>
+    <div style={{ display:'flex', height:'100vh', width:'100%', overflow:'hidden', fontFamily:'var(--font-sans)', color:'hsl(var(--color-fg-default))', background:'hsl(var(--color-bg-canvas))', WebkitFontSmoothing:'antialiased' } as CSSProperties}>
 
       <aside
         data-tour="sidebar"
         data-folded={folded ? '1' : '0'}
-        style={{ width: folded ? '62px' : '252px', flex: folded ? '0 0 62px' : '0 0 252px', background:'#fff', borderRight:'1px solid #e3e7ee', display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0, transition:'width .16s ease, flex-basis .16s ease' }}
+        style={{ width: folded ? '62px' : '252px', flex: folded ? '0 0 62px' : '0 0 252px', background:'hsl(var(--color-bg-surface))', borderRight:'1px solid hsl(var(--color-border-subtle))', display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0, transition:'width .16s ease, flex-basis .16s ease' }}
       >
 
         {/* Brand rail: its own band, the same height as the header next to it so
             the two bottom borders read as one line across the top of the app. */}
-        <div style={{ height:'60px', flex:'0 0 60px', borderBottom:'1px solid #e3e7ee', display:'flex', flexDirection:'row', alignItems:'center', justifyContent: folded ? 'center' : 'flex-start', gap:'9px', padding: folded ? '0 9px' : '0 14px' }}>
+        <div style={{ height:'60px', flex:'0 0 60px', borderBottom:'1px solid hsl(var(--color-border-subtle))', display:'flex', flexDirection:'row', alignItems:'center', justifyContent: folded ? 'center' : 'flex-start', gap:'9px', padding: folded ? '0 9px' : '0 14px' }}>
           <BrandMark size={30} accent={A} radius={9} />
           {folded ? null : <span style={{ fontSize:'.8125rem', fontWeight:700, letterSpacing:'-.3px' }}>SignerPro</span>}
           {folded ? null : (
@@ -310,7 +310,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
           ><Icon name="chevronRight" size={14} /></button>
         ) : (
           session.isPlatformAdmin ? (
-            <div data-tour="workspace" style={{ display:'flex', gap:'3px', background:'#f1f3f7', padding:'3px', borderRadius:'9px' }}>
+            <div data-tour="workspace" style={{ display:'flex', gap:'3px', background:'hsl(var(--color-bg-muted))', padding:'3px', borderRadius:'9px' }}>
               <button type="button" onClick={setTenantWs} style={wsTenantStyle}><Icon name="home" size={12} />Tenant</button>
               <button type="button" onClick={setPlatformWs} style={wsPlatformStyle}><Icon name="tenants" size={12} />Platform</button>
             </div>
@@ -354,25 +354,25 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
           ))}
         </nav>
 
-        <div style={{ marginTop:'auto', display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid #eef1f6', paddingTop:'12px', alignItems: folded ? 'center' : 'stretch' }}>
+        <div style={{ marginTop:'auto', display:'flex', flexDirection:'column', gap:'9px', borderTop:'1px solid hsl(var(--color-border-hairline))', paddingTop:'12px', alignItems: folded ? 'center' : 'stretch' }}>
           {folded ? null : (
-          <div style={{ border:'1px solid #eef1f6', borderRadius:'11px', padding:'11px', background:'#fbfcfd' }}>
+          <div style={{ border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'11px', padding:'11px', background:'hsl(var(--color-bg-subtle))' }}>
             <div style={{ fontSize:'.625rem', color:TEXT_MUTED, fontFamily:'var(--font-sans)', letterSpacing:'.04em' }}>ENVELOPE QUOTA</div>
             <div style={{ display:'flex', alignItems:'baseline', gap:'6px', marginTop:'5px' }}>
-              <span style={{ color:'#0f172a', fontSize:'1.0625rem', fontWeight:700 }}>{quotaUsed}</span>
+              <span style={{ color:'hsl(var(--color-fg-default))', fontSize:'1.0625rem', fontWeight:700 }}>{quotaUsed}</span>
               <span style={{ color:TEXT_MUTED, fontSize:'.6875rem' }}>{quotaLimit}</span>
             </div>
-            <div style={{ height:'4px', borderRadius:'99px', background:'#eef1f6', marginTop:'8px', overflow:'hidden' }}>
-              <div style={{ width:quotaWidth, height:'100%', background:'#10b981', borderRadius:'99px' }}></div>
+            <div style={{ height:'4px', borderRadius:'99px', background:'hsl(var(--color-bg-muted))', marginTop:'8px', overflow:'hidden' }}>
+              <div style={{ width:quotaWidth, height:'100%', background:'hsl(var(--color-highlight-solid))', borderRadius:'99px' }}></div>
             </div>
           </div>
           )}
           <div style={{ display:'flex', alignItems:'center', gap:'9px', flexDirection: folded ? 'column' : 'row' }}>
-            <span title={folded ? userName + ' · ' + accountScope + ' · ' + userRole : undefined} style={{ width:'26px', height:'26px', borderRadius:'99px', background:'#eef1f6', color:'#475569', display:'grid', placeItems:'center', fontSize:'.625rem', fontWeight:700, flex:'0 0 26px' }}>{initials(userName)}</span>
+            <span title={folded ? userName + ' · ' + accountScope + ' · ' + userRole : undefined} style={{ width:'26px', height:'26px', borderRadius:'99px', background:'hsl(var(--color-bg-muted))', color:'hsl(var(--color-fg-subtle))', display:'grid', placeItems:'center', fontSize:'.625rem', fontWeight:700, flex:'0 0 26px' }}>{initials(userName)}</span>
             {folded ? null : (
             <div style={{ display:'flex', flexDirection:'column', lineHeight:1.25, minWidth:0 }}>
-              <span style={{ color:'#0f172a', fontSize:'.75rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{userName}</span>
-              <span title={accountScope} style={{ color:'#475569', fontSize:'.6875rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{accountScope}</span>
+              <span style={{ color:'hsl(var(--color-fg-default))', fontSize:'.75rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{userName}</span>
+              <span title={accountScope} style={{ color:'hsl(var(--color-fg-subtle))', fontSize:'.6875rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{accountScope}</span>
               <span style={{ color:TEXT_MUTED, fontSize:'.65625rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{userRole}</span>
             </div>
             )}
@@ -385,11 +385,11 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
 
       <main style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column' }}>
 
-        <header style={{ height:'60px', flex:'0 0 60px', borderBottom:'1px solid #e3e7ee', background:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 22px', gap:'16px' }}>
+        <header style={{ height:'60px', flex:'0 0 60px', borderBottom:'1px solid hsl(var(--color-border-subtle))', background:'hsl(var(--color-bg-surface))', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 22px', gap:'16px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'12px', flex:'1 1 220px', minWidth:'180px' }}>
             <h1 style={{ margin:0, fontSize:'.9375rem', fontWeight:600, letterSpacing:'-0.2px', whiteSpace:'nowrap', flex:'0 0 auto' }}>{pageTitle}</h1>
-            <span style={{ width:'1px', height:'18px', background:'#e3e7ee', flex:'0 0 1px' }}></span>
-            <span style={{ fontSize:'.78125rem', color:'#64748b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:'1 1 auto', minWidth:0 }}>{pageSub}</span>
+            <span style={{ width:'1px', height:'18px', background:'hsl(var(--color-border-subtle))', flex:'0 0 1px' }}></span>
+            <span style={{ fontSize:'.78125rem', color:'hsl(var(--color-fg-muted))', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:'1 1 auto', minWidth:0 }}>{pageSub}</span>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:'8px', flex:'0 1 auto', minWidth:0, justifyContent:'flex-end' }}>
             {/* Both actions are about one envelope, so they only belong on a
@@ -409,7 +409,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
             <div style={{ position:'relative', display:'flex', gap:'6px', alignItems:'center' }}>
               <button type="button" aria-label="Help" aria-expanded={s.helpOpen} onClick={toggleHelp} style={helpStyle}><Icon name="support" size={14} /></button>
               {s.helpOpen ? (
-                <div role="menu" style={{ position:'absolute', right:0, top:'40px', width:'212px', background:'#fff', border:'1px solid #e3e7ee', borderRadius:'13px', boxShadow:'0 22px 50px -20px rgba(15,23,42,.4)', padding:'6px', zIndex:40, animation:'sfIn .12s ease' }}>
+                <div role="menu" style={{ position:'absolute', right:0, top:'40px', width:'212px', background:'hsl(var(--color-bg-surface))', border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'13px', boxShadow:'0 22px 50px -20px rgba(15,23,42,.4)', padding:'6px', zIndex:40, animation:'sfIn .12s ease' }}>
                   {helpItems.map((h, i) => (
                     <button key={h.label + i} type="button" role="menuitem" onClick={h.onClick} style={h.style}>{h.label}</button>
                   ))}
@@ -423,8 +423,8 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
           <div style={embedBarStyle}>
             <span style={embedChip}>EMBEDDED</span>
             <div style={{ display:'flex', flexDirection:'column', gap:'2px', minWidth:0 }}>
-              <span style={{ fontSize:'.78125rem', fontWeight:600, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{embedTitle}</span>
-              <span style={{ fontSize:'.6875rem', color:'#475569', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{embedMeta}</span>
+              <span style={{ fontSize:'.78125rem', fontWeight:600, color:'hsl(var(--color-fg-default))', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{embedTitle}</span>
+              <span style={{ fontSize:'.6875rem', color:'hsl(var(--color-fg-subtle))', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{embedMeta}</span>
             </div>
             <div style={{ display:'flex', gap:'6px', marginLeft:'auto', flex:'0 0 auto', alignItems:'center' }}>
               <span style={embedContactsChip}>{embedContacts}</span>
@@ -444,7 +444,7 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
       ) : null}
 
       {s.toast ? (
-        <div role="status" style={{ position:'fixed', bottom:'20px', left:'50%', transform:'translateX(-50%)', zIndex:90, background:'#0f172a', color:'#f1f5f9', padding:'11px 16px', borderRadius:'11px', fontSize:'.78125rem', boxShadow:'0 18px 40px -18px rgba(15,23,42,.6)', animation:'sfIn .16s ease' }}>{s.toast}</div>
+        <div role="status" style={{ position:'fixed', bottom:'20px', left:'50%', transform:'translateX(-50%)', zIndex:90, background:'hsl(var(--color-bg-panel-dark))', color:'hsl(var(--color-fg-on-solid))', padding:'11px 16px', borderRadius:'11px', fontSize:'.78125rem', boxShadow:'0 18px 40px -18px rgba(15,23,42,.6)', animation:'sfIn .16s ease' }}>{s.toast}</div>
       ) : null}
     </div>
   );

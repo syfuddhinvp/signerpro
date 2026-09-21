@@ -94,7 +94,7 @@ function buildQrCells(seedText: string): { style: CSSProperties }[] {
       const m = Math.max(Math.abs(x - cx), Math.abs(y - cy));
       on = m === 3 || m === 1 || m === 0;
     } else on = rnd() > 0.52;
-    cells.push({ style: { background: on ? '#0f172a' : 'transparent', borderRadius: '1px' } });
+    cells.push({ style: { background: on ? 'hsl(var(--color-bg-panel-dark))' : 'transparent', borderRadius: '1px' } });
   }
   return cells;
 }
@@ -228,24 +228,24 @@ export default function Audit({
 
   const audit = useMemo(() => entries.map((a, i) => ({
     action: a.action, actor: a.actor, meta: a.meta, checksum: a.checksum, time: a.time,
-    rowStyle: { display: 'flex', justifyContent: 'space-between', gap: '14px', padding: '13px 15px', borderTop: i ? '1px solid #eef1f6' : 'none' } as CSSProperties,
+    rowStyle: { display: 'flex', justifyContent: 'space-between', gap: '14px', padding: '13px 15px', borderTop: i ? '1px solid hsl(var(--color-border-hairline))' : 'none' } as CSSProperties,
     dot: { width: '9px', height: '9px', borderRadius: '99px', marginTop: '5px', flex: '0 0 9px',
-      background: a.kind === 'good' ? '#10b981' : a.kind === 'info' ? A : a.kind === 'bad' ? '#ef4444' : BORDER_STRONG } as CSSProperties,
-    actorStyle: { fontSize: '.65625rem', fontFamily: 'var(--font-sans)', color: '#64748b', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '6px', padding: '2px 6px' } as CSSProperties,
+      background: a.kind === 'good' ? 'hsl(var(--color-highlight-solid))' : a.kind === 'info' ? A : a.kind === 'bad' ? 'hsl(var(--color-bg-danger-solid))' : BORDER_STRONG } as CSSProperties,
+    actorStyle: { fontSize: '.65625rem', fontFamily: 'var(--font-sans)', color: 'hsl(var(--color-fg-muted))', background: 'hsl(var(--color-bg-canvas))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '6px', padding: '2px 6px' } as CSSProperties,
   })), [entries, A]);
 
   const qrCells = useMemo(() => buildQrCells(verifyUrl), [verifyUrl]);
 
   const rail = attestations.map(r => ({
     name: r.name, email: r.email, initials: initials(r.name), meta: r.meta,
-    chip: { width: '28px', height: '28px', borderRadius: '99px', background: r.color, color: '#fff', display: 'grid', placeItems: 'center', fontSize: '.6875rem', fontWeight: 700, flex: '0 0 28px' } as CSSProperties,
-    sigStyle: { fontFamily: typeFaceStack('Caveat'), fontSize: '1.25rem', color: '#0f172a' } as CSSProperties,
+    chip: { width: '28px', height: '28px', borderRadius: '99px', background: r.color, color: 'hsl(var(--color-fg-on-solid))', display: 'grid', placeItems: 'center', fontSize: '.6875rem', fontWeight: 700, flex: '0 0 28px' } as CSSProperties,
+    sigStyle: { fontFamily: typeFaceStack('Caveat'), fontSize: '1.25rem', color: 'hsl(var(--color-fg-default))' } as CSSProperties,
   }));
 
-  const qrWrap: CSSProperties = { width: '118px', height: '118px', padding: '7px', background: '#fff', border: '1px solid #e3e7ee', borderRadius: '10px', display: 'grid', gridTemplateColumns: 'repeat(23, 1fr)', gridTemplateRows: 'repeat(23, 1fr)', gap: '0px' };
+  const qrWrap: CSSProperties = { width: '118px', height: '118px', padding: '7px', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '10px', display: 'grid', gridTemplateColumns: 'repeat(23, 1fr)', gridTemplateRows: 'repeat(23, 1fr)', gap: '0px' };
   const certPill = pill(STATUS[certificate?.statusKey ?? 'draft'] ?? STATUS.draft);
-  const primaryBtnWide: CSSProperties = Object.assign(btn(A, '#fff', A), { flex: '1', justifyContent: 'center', height: '36px' });
-  const ghostBtn = btn('#fff', '#475569', '#e3e7ee');
+  const primaryBtnWide: CSSProperties = Object.assign(btn(A, 'hsl(var(--color-fg-on-solid))', A), { flex: '1', justifyContent: 'center', height: '36px' });
+  const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
 
   const documentHash = certificate?.documentHash ?? 'sha256 pending · no PDF sealed yet';
   const chainNote = chain
@@ -298,10 +298,10 @@ export default function Audit({
   if (!documentTitle) {
     return (
       <section data-screen-label="Audit" style={{ padding: '22px' }}>
-        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '32px', display: 'flex', flexDirection: 'column', gap: '9px', alignItems: 'center', textAlign: 'center' }}>
+        <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '32px', display: 'flex', flexDirection: 'column', gap: '9px', alignItems: 'center', textAlign: 'center' }}>
           <div style={railHead}>Audit trail &amp; certificate</div>
           <span style={{ fontSize: '.875rem', fontWeight: 700, letterSpacing: '-.2px' }}>No envelope to audit yet</span>
-          <span style={{ fontSize: '.75rem', color: '#64748b', maxWidth: '420px', lineHeight: 1.6 }}>Every envelope you send builds a tamper-evident event log and a certificate of completion. Send your first envelope and its trail appears here.</span>
+          <span style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-muted))', maxWidth: '420px', lineHeight: 1.6 }}>Every envelope you send builds a tamper-evident event log and a certificate of completion. Send your first envelope and its trail appears here.</span>
         </div>
       </section>
     );
@@ -309,17 +309,17 @@ export default function Audit({
 
   return (
     <section data-screen-label="Audit" style={{ padding: '22px', display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(0,1fr)', gap: '16px', alignItems: 'start' }}>
-      <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', overflow: 'hidden' }}>
-        <div style={{ padding: '13px 15px', borderBottom: '1px solid #eef1f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+      <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', overflow: 'hidden' }}>
+        <div style={{ padding: '13px 15px', borderBottom: '1px solid hsl(var(--color-border-hairline))', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
           <div style={railHead}>Immutable event log</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>append-only · {String(chain?.entryCount ?? audit.length)} events{chainNote}</span>
+            <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>append-only · {String(chain?.entryCount ?? audit.length)} events{chainNote}</span>
             {canVoid ? (
               <button
                 type="button"
                 onClick={() => void voidEnvelope()}
                 disabled={voiding}
-                style={btn('#fff', '#b91c1c', '#fecaca')}
+                style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}
               >
                 <Icon name="cancel" size={13} />{voiding ? 'Voiding…' : 'Void envelope'}
               </button>
@@ -336,27 +336,27 @@ export default function Audit({
                     <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>{a.action}</span>
                     <span style={a.actorStyle}>{a.actor}</span>
                   </div>
-                  <div style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)', lineHeight: 1.7, wordBreak: 'break-all' }}>{a.meta}</div>
+                  <div style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)', lineHeight: 1.7, wordBreak: 'break-all' }}>{a.meta}</div>
                   <div style={{ fontSize: '.65625rem', color: TEXT_MUTED, fontFamily: 'var(--font-sans)', wordBreak: 'break-all' }}>checksum {a.checksum}</div>
                 </div>
               </div>
-              <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>{a.time}</span>
+              <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>{a.time}</span>
             </div>
           )) : (
             <div style={{ padding: '28px 15px', display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'center', textAlign: 'center' }}>
               <span style={{ fontSize: '.8125rem', fontWeight: 600 }}>No events recorded yet</span>
-              <span style={{ fontSize: '.71875rem', color: '#64748b', lineHeight: 1.6, maxWidth: '360px' }}>The log starts the moment this envelope is created and appends every view, field and signature.</span>
+              <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))', lineHeight: 1.6, maxWidth: '360px' }}>The log starts the moment this envelope is created and appends every view, field and signature.</span>
             </div>
           )}
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <span style={{ fontSize: '.875rem', fontWeight: 700, letterSpacing: '-.2px' }}>Certificate of Completion</span>
-              <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{(certificate?.envelopeRef ?? '—') + ' · ' + (certificate?.issued ?? 'not sealed yet')}</span>
+              <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>{(certificate?.envelopeRef ?? '—') + ' · ' + (certificate?.issued ?? 'not sealed yet')}</span>
             </div>
             <span style={certPill}>{certificate?.statusLabel ?? 'Draft'}</span>
           </div>
@@ -365,7 +365,7 @@ export default function Audit({
               {qrCells.map((c, i) => <span key={i} style={c.style}></span>)}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-              <span style={{ fontSize: '.71875rem', color: '#475569', lineHeight: 1.5 }}>
+              <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-subtle))', lineHeight: 1.5 }}>
                 {verifyUrl
                   ? 'Anyone holding this link can verify the document without an account. Verification re-hashes the stored file and re-checks the audit chain.'
                   : 'A public verification link is issued when the envelope is sealed.'}
@@ -378,13 +378,13 @@ export default function Audit({
                   Open public verification →
                 </a>
               )}
-              <span style={{ fontSize: '.65625rem', fontFamily: 'var(--font-sans)', color: '#0f172a', background: '#f5f6f8', border: '1px solid #e3e7ee', borderRadius: '8px', padding: '7px 8px', wordBreak: 'break-all' }}>{documentHash}</span>
+              <span style={{ fontSize: '.65625rem', fontFamily: 'var(--font-sans)', color: 'hsl(var(--color-fg-default))', background: 'hsl(var(--color-bg-canvas))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '8px', padding: '7px 8px', wordBreak: 'break-all' }}>{documentHash}</span>
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid #eef1f6', paddingTop: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid hsl(var(--color-border-hairline))', paddingTop: '12px' }}>
             {(certificate?.rows ?? []).map(c => (
               <div key={c.k} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '.75rem' }}>
-                <span style={{ color: '#64748b' }}>{c.k}</span>
+                <span style={{ color: 'hsl(var(--color-fg-muted))' }}>{c.k}</span>
                 <span style={{ fontWeight: 500, fontFamily: 'var(--font-sans)', textAlign: 'right' }}>{c.v}</span>
               </div>
             ))}
@@ -401,13 +401,13 @@ export default function Audit({
           <div style={cardStyle} data-testid="payments-panel">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
               <div style={railHead}>Payments</div>
-              <span style={{ fontSize: '.78125rem', fontWeight: 600, color: '#0f172a' }}>
+              <span style={{ fontSize: '.78125rem', fontWeight: 600, color: 'hsl(var(--color-fg-default))' }}>
                 {formatCents(paymentSummary.collected_cents, paymentSummary.currency)} of {formatCents(paymentSummary.total_cents, paymentSummary.currency)}
                 {' · '}{paymentSummary.paid_count} of {paymentSummary.allocation_count} paid
               </span>
             </div>
             {heldPayments.length ? (
-              <div style={{ fontSize: '.75rem', color: '#c2410c', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px', padding: '9px 11px', lineHeight: 1.5 }}>
+              <div style={{ fontSize: '.75rem', color: 'hsl(var(--color-fg-warning))', background: 'hsl(var(--color-bg-warning-subtle))', border: '1px solid hsl(var(--color-border-warning))', borderRadius: '10px', padding: '9px 11px', lineHeight: 1.5 }}>
                 {formatCents(heldCents, heldCurrency)} collected and not refunded. Voiding or declining this envelope will not return it automatically.
               </div>
             ) : null}
@@ -416,10 +416,10 @@ export default function Audit({
                 const remaining = p.amount_cents - p.refunded_amount_cents;
                 const fullyRefunded = p.status === 'refunded';
                 return (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '9px', border: '1px solid #eef1f6', borderRadius: '11px', flexWrap: 'wrap' }}>
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '9px', border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '11px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
                       <span style={{ fontSize: '.78125rem', fontWeight: 600 }}>{payerName(p.recipient_id)}</span>
-                      <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>
+                      <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>
                         {formatCents(p.amount_cents, p.currency)}
                         {p.refunded_amount_cents > 0 ? ' · ' + formatCents(p.refunded_amount_cents, p.currency) + ' refunded' : ''}
                         {p.provider_payment_intent_id ? ' · ' + p.provider_payment_intent_id : ''}
@@ -444,7 +444,7 @@ export default function Audit({
                             checksum must say so rather than be shown as an
                             ordinary one. */}
                         {p.receipt && !p.receipt.verified ? (
-                          <span style={{ fontSize: '.6875rem', color: '#b91c1c' }}>checksum mismatch</span>
+                          <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-danger))' }}>checksum mismatch</span>
                         ) : null}
                         {p.receipt_url ? (
                           <a href={p.receipt_url} target="_blank" rel="noreferrer" style={{ fontSize: '.6875rem', color: TEXT_MUTED, textDecoration: 'none' }}>Stripe receipt →</a>
@@ -458,7 +458,7 @@ export default function Audit({
                           type="button"
                           onClick={() => void refundPayment(p)}
                           disabled={refundingId === p.id}
-                          style={btn('#fff', '#b91c1c', '#fecaca')}
+                          style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-danger))', 'hsl(var(--color-border-danger))')}
                         >
                           <Icon name="undo" size={13} />{refundingId === p.id ? 'Refunding…' : 'Refund'}
                         </button>
@@ -467,19 +467,19 @@ export default function Audit({
                   </div>
                 );
               }) : (
-                <span style={{ fontSize: '.71875rem', color: '#64748b' }}>No payment attempts yet.</span>
+                <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))' }}>No payment attempts yet.</span>
               )}
             </div>
           </div>
         ) : null}
-        <div style={{ background: '#fff', border: '1px solid #e3e7ee', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
+        <div style={{ background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '11px' }}>
           <div style={railHead}>Signer attestations</div>
           {rail.length ? rail.map((a, i) => (
-            <div key={a.name + i} style={{ display: 'flex', alignItems: 'center', gap: '11px', padding: '9px', border: '1px solid #eef1f6', borderRadius: '11px' }}>
+            <div key={a.name + i} style={{ display: 'flex', alignItems: 'center', gap: '11px', padding: '9px', border: '1px solid hsl(var(--color-border-hairline))', borderRadius: '11px' }}>
               <span style={a.chip}>{a.initials}</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flex: 1, minWidth: 0 }}>
                 <span style={{ fontSize: '.78125rem', fontWeight: 600 }}>{a.name}</span>
-                <span style={{ fontSize: '.6875rem', color: '#64748b', fontFamily: 'var(--font-sans)' }}>{a.meta}</span>
+                <span style={{ fontSize: '.6875rem', color: 'hsl(var(--color-fg-muted))', fontFamily: 'var(--font-sans)' }}>{a.meta}</span>
               </div>
               <span style={a.sigStyle}>{a.name}</span>
               {canCopyLinkFor(a.email) ? (
@@ -487,14 +487,14 @@ export default function Audit({
                   type="button"
                   onClick={() => void copySigningLink(a.email, a.name)}
                   disabled={mintingId === payerForLink(a.email)?.id}
-                  style={btn('#fff', '#475569', '#e3e7ee')}
+                  style={btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))')}
                 >
                   <Icon name="link" size={13} />{mintingId === payerForLink(a.email)?.id ? 'Copying…' : 'Copy link'}
                 </button>
               ) : null}
             </div>
           )) : (
-            <span style={{ fontSize: '.71875rem', color: '#64748b', lineHeight: 1.6 }}>No recipients on this envelope yet.</span>
+            <span style={{ fontSize: '.71875rem', color: 'hsl(var(--color-fg-muted))', lineHeight: 1.6 }}>No recipients on this envelope yet.</span>
           )}
         </div>
       </div>
