@@ -55,7 +55,6 @@ function mount(props: Partial<AuditProps> = {}) {
 }
 
 const ok = <T,>(data: T) => ({ ok: true as const, data });
-const fail = (message = 'boom') => ({ ok: false as const, error: { kind: 'server', status: 500, message } });
 
 const attestation = (over: Partial<import('@/lib/sf/adapters').AttestationRow> = {}) => ({
   name: 'Alice Signer', email: 'alice@example.com', meta: 'alice@example.com · waiting', color: '#4f46e5',

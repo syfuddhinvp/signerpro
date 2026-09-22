@@ -34,12 +34,12 @@ vi.mock('@/lib/api/browser', () => ({
 /** Three pages, each rendering its own overlay, so a field can be on any of them. */
 vi.mock('@/components/sf/pdf/LazyPdfPages', () => ({
   __esModule: true,
-  default: ({ pages, renderOverlay, pageBoxProps, onGeometry }: {
+  default: function MockPdfPages({ pages, renderOverlay, pageBoxProps, onGeometry }: {
     pages: number[];
     onGeometry?: (sizes: { widthPt: number; heightPt: number }[]) => void;
     renderOverlay?: (g: { page: number; widthPt: number; heightPt: number; scale: number; widthPx: number; heightPx: number }) => React.ReactNode;
     pageBoxProps?: (g: { page: number }) => Record<string, unknown>;
-  }) => {
+  }) {
     // The real viewer reports each page's size once it has parsed the PDF.
     React.useEffect(() => {
       if (onGeometry) onGeometry(pages.map(() => ({ widthPt: 612, heightPt: 792 })));

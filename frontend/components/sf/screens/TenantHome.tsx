@@ -118,7 +118,7 @@ export default function TenantHome({
   /* A template is a blueprint: using one mints a *new* document and the
      builder opens that, so the template itself is never edited by accident.
      Same call the library's "Use template" row action makes. */
-  const useTemplate = (t: TemplateCard) => {
+  const startFromTemplate = (t: TemplateCard) => {
     setMenuTemplate(null);
     flash('Starting from ' + t.title + '…');
     void templatesApi.use(apiCall, t.templateId).then(res => {
@@ -189,7 +189,7 @@ export default function TenantHome({
             {templates.map(t => (
               <div key={t.templateId} style={templateCard}>
                 {/* One click on the card starts an envelope from the template. */}
-                <button type="button" onClick={() => useTemplate(t)} title={'Start an envelope from ' + t.title} style={templateOpen}>
+                <button type="button" onClick={() => startFromTemplate(t)} title={'Start an envelope from ' + t.title} style={templateOpen}>
                   <span style={previewSheet}>
                     {/* A sketch of the form, drawn from its own shape — no
                         thumbnail endpoint serves a real page image. */}
@@ -211,7 +211,7 @@ export default function TenantHome({
                   </span>
                 </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <button type="button" onClick={() => useTemplate(t)} style={{ ...primaryBtn, height: '28px', flex: 1, justifyContent: 'center' }}>
+                  <button type="button" onClick={() => startFromTemplate(t)} style={{ ...primaryBtn, height: '28px', flex: 1, justifyContent: 'center' }}>
                     <Icon name="send" size={12} />Use
                   </button>
                   <div style={{ position: 'relative', flex: '0 0 auto' }} ref={menuTemplate === t.templateId ? menuAnchor : undefined}>

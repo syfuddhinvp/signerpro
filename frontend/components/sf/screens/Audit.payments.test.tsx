@@ -56,7 +56,6 @@ function mount(props: Partial<AuditProps> = {}) {
 }
 
 const ok = <T,>(data: T) => ({ ok: true as const, data });
-const fail = (message = 'boom') => ({ ok: false as const, error: { kind: 'server', status: 500, message } });
 
 const payers: PayerRef[] = [
   { id: 'r1', name: 'Alice Signer', email: 'alice@example.com' },

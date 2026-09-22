@@ -9,7 +9,7 @@
 import type { CSSProperties } from 'react';
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import { type ScreenKey, SECTION_PARAM, accountSectionForPath, isDocumentScreen, sectionFor } from '@/lib/sf/routes';
@@ -58,7 +58,6 @@ export default function Shell({ children, data = EMPTY_SHELL_DATA }: { children?
   const { screen, href, go, switchWorkspace } = nav;
   const isPlat = nav.isPlat;
   const session = useSession();
-  const router = useRouter();
   const areaActive = nav.area;
   const userName = session.name;
   const userRole = session.role;

@@ -9,7 +9,7 @@
  */
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SFProvider } from '@/lib/sf/state';
 import ImageCropDialog, { cropToParam, isWholeImage } from './ImageCropDialog';
 import type { CropRect } from './ImageCropDialog';
