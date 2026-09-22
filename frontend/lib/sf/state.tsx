@@ -8,7 +8,10 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { useOptionalTheme } from '@/lib/theme/ThemeProvider';
 import { ACCENT_DEFAULT, RECIPIENTS, RETIRED_TYPES, STATUS, TYPES, type Dict } from './data';
 
-export type Recipient = { id: string; name: string; email: string; role: string; color: string; order: number; status: string };
+export type Recipient = { id: string; name: string; email: string; role: string; color: string; order: number; status: string;
+  /** The template role this slot came from ('Employee'), when it came from one.
+   *  Optional because only a document descended from a template has them. */
+  roleName?: string };
 export type SFField = {
   id: string; page: number; type: string; x: number; y: number; w: number; h: number; to: string;
   required: boolean; readOnly: boolean; label: string; placeholder: string; validation: string;

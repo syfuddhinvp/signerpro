@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import { documentPathFor, type ScreenKey } from '@/lib/sf/routes';
+import { useMenuPlacement } from '@/lib/sf/menuPlacement';
 import { btn, pill, linkBtn, BORDER_STRONG, TEXT_MUTED } from '@/lib/sf/ui';
 import {
   QUICK_ACCESS, LIB_FOLDERS, LIB_FILTER_DEFS, LIB_SORT_OPTIONS, ROW_ACTIONS,
@@ -24,7 +25,7 @@ import { apiCall, apiDownload, saveBlob } from '@/lib/api/browser';
 import type { ApiResult } from '@/lib/api/result';
 import type { DocumentCounts } from '@/lib/api/types';
 import { audit as auditApi, documents as documentsApi, folders as foldersApi, templates as templatesApi } from '@/lib/api/resources';
-import { useDialogs } from '@/components/sf/DialogProvider';
+import { useDialogs, type AskConfirmOptions } from '@/components/sf/DialogProvider';
 import UploadDocument from '@/components/sf/UploadDocument';
 import CatalogBrowser from '@/components/sf/CatalogBrowser';
 import Icon, { markFor } from '@/components/sf/Icon';
@@ -71,7 +72,12 @@ export default function Library(props: LibraryProps) {
   const { go } = useNav();
   const router = useRouter();
   const A = accent();
-  const { askText, askChoice } = useDialogs();
+  const { askText, askChoice, askConfirm } = useDialogs();
+  /* The row menu opens upwards when the row it belongs to is near the bottom of
+     the window — the last rows of a long list had theirs cut off by the edge. */
+  const { anchorRef: menuAnchor, menuStyle } = useMenuPlacement(s.menuDoc, {
+    onDismiss: () => set({ menuDoc: null }),
+  });
 
   const primaryBtn = btn(A, 'hsl(var(--color-fg-on-solid))', A);
   const ghostBtn = btn('hsl(var(--color-bg-surface))', 'hsl(var(--color-fg-subtle))', 'hsl(var(--color-border-subtle))');
@@ -115,6 +121,17 @@ export default function Library(props: LibraryProps) {
       router.refresh();
     });
   }, [flash, router]);
+
+  /* Archiving, trashing and purging all take a document out of the list the
+     user is looking at, and a purge cannot be undone at all — each asks first.
+     Restoring and unarchiving put a document back, so they stay one click. */
+  const confirmRun = useCallback((
+    opts: AskConfirmOptions,
+    optimistic: string,
+    call: () => Promise<ApiResult<unknown>>,
+  ) => {
+    void askConfirm(opts).then(ok => { if (ok) run(optimistic, call); });
+  }, [askConfirm, run]);
 
   const libFolderLabel = libraryFolderLabel(
     filters.folder,
@@ -289,7 +306,13 @@ export default function Library(props: LibraryProps) {
           case 'Archive':
             return isArchiveFolder
               ? () => run(d.title + ' restored', () => templatesApi.restore(apiCall, uid))
-              : () => run(d.title + ' archived', () => templatesApi.archive(apiCall, uid));
+              : () => confirmRun(
+                {
+                  title: 'Archive this template?',
+                  message: d.title + ' moves to Archive. You can restore it from there.',
+                  cta: 'Archive', danger: true,
+                },
+                d.title + ' archived', () => templatesApi.archive(apiCall, uid));
           default:
             return null;
         }
@@ -314,13 +337,31 @@ export default function Library(props: LibraryProps) {
         case 'Archive':
           if (isArchiveFolder) return () => run(d.title + ' unarchived', () => documentsApi.unarchive(apiCall, uid));
           if (isTrashFolder) return () => run(d.title + ' restored', () => documentsApi.restore(apiCall, uid));
-          return () => run(d.title + ' archived', () => documentsApi.archive(apiCall, uid));
+          return () => confirmRun(
+            {
+              title: 'Archive this document?',
+              message: d.title + ' moves to Archive. You can unarchive it from there.',
+              cta: 'Archive', danger: true,
+            },
+            d.title + ' archived', () => documentsApi.archive(apiCall, uid));
         case 'Delete':
           if (isTrashFolder) {
-            return () => run(d.title + ' deleted permanently',
+            return () => confirmRun(
+              {
+                title: 'Delete this document permanently?',
+                message: d.title + ' will be erased. This cannot be undone.',
+                cta: 'Delete permanently', danger: true,
+              },
+              d.title + ' deleted permanently',
               () => documentsApi.bulk(apiCall, { document_ids: [uid], action: 'purge' }));
           }
-          return () => run(d.title + ' moved to Trash', () => documentsApi.trash(apiCall, uid));
+          return () => confirmRun(
+            {
+              title: 'Move this document to Trash?',
+              message: d.title + ' moves to Trash. You can restore it from there.',
+              cta: 'Move to Trash', danger: true,
+            },
+            d.title + ' moved to Trash', () => documentsApi.trash(apiCall, uid));
         default:
           return null;
       }
@@ -519,6 +560,16 @@ export default function Library(props: LibraryProps) {
     });
   };
 
+  /* The bulk bar's counterpart to `confirmRun` — same question, asked of a
+     whole selection, and the same clearing of it once the call settles. */
+  const confirmBulk = (
+    opts: AskConfirmOptions,
+    optimistic: string,
+    call: () => Promise<ApiResult<unknown>>,
+  ) => {
+    void askConfirm(opts).then(ok => { if (ok) bulkRun(optimistic, call); });
+  };
+
   const downloadSelection = (ids: string[]) => {
     flash('Download — ' + ids.length + ' item(s)');
     // The proxy streams the zip's bytes and `content-disposition` through, so
@@ -549,6 +600,7 @@ export default function Library(props: LibraryProps) {
         });
         return;
       }
+      const count = ids.length + ' document' + (ids.length === 1 ? '' : 's');
       if (label === 'Archive') {
         if (isArchiveFolder) {
           bulkRun('Unarchived' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'unarchive' }));
@@ -558,14 +610,32 @@ export default function Library(props: LibraryProps) {
           bulkRun('Restored' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'restore' }));
           return;
         }
-        bulkRun('Archived' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'archive' }));
+        confirmBulk(
+          {
+            title: 'Archive ' + count + '?',
+            message: 'They move to Archive. You can unarchive them from there.',
+            cta: 'Archive', danger: true,
+          },
+          'Archived' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'archive' }));
         return;
       }
       if (isTrashFolder) {
-        bulkRun('Deleted permanently' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'purge' }));
+        confirmBulk(
+          {
+            title: 'Delete ' + count + ' permanently?',
+            message: 'They will be erased. This cannot be undone.',
+            cta: 'Delete permanently', danger: true,
+          },
+          'Deleted permanently' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'purge' }));
         return;
       }
-      bulkRun('Moved to Trash' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'delete' }));
+      confirmBulk(
+        {
+          title: 'Move ' + count + ' to Trash?',
+          message: 'They move to Trash. You can restore them from there.',
+          cta: 'Move to Trash', danger: true,
+        },
+        'Moved to Trash' + suffix, () => documentsApi.bulk(apiCall, { document_ids: ids, action: 'delete' }));
     },
     style: btn('hsl(var(--color-bg-surface))', label === 'Delete' ? 'hsl(var(--color-fg-danger))' : 'hsl(var(--color-fg-subtle))', label === 'Delete' ? 'hsl(var(--color-border-danger))' : 'hsl(var(--color-border-subtle))'),
   }));
@@ -781,10 +851,13 @@ export default function Library(props: LibraryProps) {
                 ? { display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'stretch', marginTop: 'auto' }
                 : { display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 auto' }}>
                 <button type="button" onClick={d.onPrimary} style={isGrid ? { ...primaryBtn, flex: 1 } : primaryBtn}><Icon name={markFor(d.primaryLabel)} size={13} />{d.primaryLabel}</button>
-                <div style={{ position: 'relative' }}>
+                {/* One menu is open at a time, so the row showing it is the
+                    one that holds the placement anchor. */}
+                <div style={{ position: 'relative' }} ref={d.menuOpen ? menuAnchor : undefined}>
                   <button
                     type="button"
                     aria-label="More actions"
+                    aria-haspopup="menu"
                     aria-expanded={d.menuOpen}
                     onClick={d.onMenu}
                     style={d.menuBtn}
@@ -793,7 +866,7 @@ export default function Library(props: LibraryProps) {
                     <div
                       role="menu"
                       data-sf-scroll="1"
-                      style={{ position: 'absolute', right: 0, top: '32px', width: '230px', maxHeight: '320px', overflow: 'auto', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '12px', boxShadow: '0 18px 40px -18px rgba(15,23,42,.35)', padding: '6px', zIndex: 30, animation: 'sfIn .12s ease' }}
+                      style={{ position: 'absolute', right: 0, width: '230px', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '12px', boxShadow: '0 18px 40px -18px rgba(15,23,42,.35)', padding: '6px', zIndex: 30, animation: 'sfIn .12s ease', ...menuStyle }}
                     >
                       {d.actions.map(ac => (
                         <button key={ac.label} type="button" role="menuitem" onClick={ac.onClick} style={ac.style}><Icon name={markFor(ac.label)} size={12} />{ac.label}</button>

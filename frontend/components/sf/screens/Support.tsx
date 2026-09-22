@@ -8,6 +8,7 @@ import {
   MoreVertical, Search, X,
 } from 'lucide-react';
 import { useSF } from '@/lib/sf/state';
+import { useMenuPlacement } from '@/lib/sf/menuPlacement';
 import { useNav } from '@/lib/sf/nav';
 import {
   TICKET_FILTERS, TK_STATUS_TONE, TK_STATUS_LABEL, TK_PRIO_TONE, TK_PRIO_LABEL
@@ -88,6 +89,10 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   /** Which row's action menu is open, by ticket id. */
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  /* A ticket row near the bottom of the table had its kebab menu cut off by
+     the window; it opens upwards from there. */
+  const { anchorRef: menuAnchor, menuStyle: menuPlacement } =
+    useMenuPlacement<HTMLSpanElement>(menuFor, { maxHeight: 220, offset: 0, onDismiss: () => setMenuFor(null) });
   /* The thread is a drawer now, so it is shut until a row is opened. It is not
      open on mount: a dialog that traps focus the moment a screen loads takes
      the keyboard away from a reader who only wanted the queue. */
@@ -463,7 +468,7 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
   const avatarChip: CSSProperties = { width:'24px', height:'24px', borderRadius:'99px', display:'grid', placeItems:'center', flex:'0 0 24px',
     background:'#f1f5f9', color:'hsl(var(--color-fg-subtle))', fontSize:'.5625rem', fontWeight:700, fontFamily:'var(--font-sans)' };
   const kebabStyle: CSSProperties = { border:'1px solid transparent', background:'none', borderRadius:'7px', padding:'3px', cursor:'pointer', color:TEXT_MUTED, display:'inline-flex' };
-  const menuStyle: CSSProperties = { position:'absolute', top:'100%', right:0, zIndex:5, minWidth:'168px', background:'hsl(var(--color-bg-surface))',
+  const menuStyle: CSSProperties = { position:'absolute', right:0, zIndex:5, minWidth:'168px', background:'hsl(var(--color-bg-surface))',
     border:'1px solid hsl(var(--color-border-subtle))', borderRadius:'11px', boxShadow:'0 8px 24px rgba(15,23,42,.14)', padding:'5px', display:'flex', flexDirection:'column' };
   const menuItem: CSSProperties = { border:'none', background:'none', textAlign:'left', padding:'7px 9px', borderRadius:'7px', fontSize:'.71875rem', color:'hsl(var(--color-fg-subtle))', cursor:'pointer',
     display:'inline-flex', alignItems:'center', gap:'6px' };
@@ -640,13 +645,13 @@ export default function Support({ page, detail, agents, stats, quickReplies, sco
                       </span>
                     </td>
                     <td style={{ ...tdStyle, textAlign:'right' }}>
-                      <span style={{ position:'relative', display:'inline-block' }}>
+                      <span style={{ position:'relative', display:'inline-block' }} ref={menuFor === t.id ? menuAnchor : undefined}>
                         <button type="button" aria-label={'Actions for ' + t.reference} aria-expanded={menuFor === t.id}
                           onClick={() => setMenuFor(id => (id === t.id ? null : t.id))} style={kebabStyle}>
                           <MoreVertical width={15} height={15} aria-hidden="true" />
                         </button>
                         {menuFor === t.id ? (
-                          <span style={menuStyle} role="menu">
+                          <span style={{ ...menuStyle, ...menuPlacement }} role="menu">
                             <button type="button" role="menuitem" style={menuItem} onClick={() => { setMenuFor(null); t.onOpen(); }}><Icon name="eye" size={12} />Open thread</button>
                             <button type="button" role="menuitem" style={menuItem} disabled={busy}
                               onClick={() => { setMenuFor(null); setSelectedIds([t.id]); }}><Icon name="checkbox" size={12} />Select</button>

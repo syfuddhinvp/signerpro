@@ -113,7 +113,7 @@ describe('recipients on the prepare screen', { timeout: 20_000 }, () => {
     const [, init] = callsTo('/api/documents/doc-7/recipients')[0];
     // No `id` for a row the server has not seen — that is what makes it a create.
     expect(init.body.recipients).toEqual([
-      { name: 'Sarah Mitchell', email: 'sarah.mitchell@acme.io', signing_order: 1, role: 'sign', color: expect.any(String) },
+      { name: 'Sarah Mitchell', email: 'sarah.mitchell@acme.io', signing_order: 1, role: 'sign', color: expect.any(String), role_name: null },
     ]);
     expect(await screen.findByText('Sarah Mitchell')).toBeTruthy();
   });

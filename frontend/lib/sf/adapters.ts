@@ -1017,6 +1017,10 @@ export function toBuilderRecipient(api: RecipientResponse, index = 0): Recipient
     color: api.color || CONTACT_PALETTE[index % CONTACT_PALETTE.length],
     order: api.signing_order,
     status: builderRecipientStatusLabel(api.status),
+    // Kept so the full-list replace can hand it back: `set_all` treats a role
+    // label the client omits as "leave it alone", but a client that round-trips
+    // recipients should not depend on that to hold on to 'Employer representative'.
+    roleName: api.role_name ?? '',
   };
 }
 
@@ -1068,6 +1072,61 @@ export function newBuilderRecipient(name: string, email: string, existing: Recip
   };
 }
 
+/**
+ * An inherited template role nobody has been assigned to yet.
+ *
+ * A document created from a template copies the blueprint's role placeholders
+ * ("Employee", "Employer representative") along with the fields already placed
+ * for them, and those rows carry no address until the sender says who signs.
+ */
+export function isUnassignedRecipient(r: Recipient): boolean {
+  return !String(r.email ?? '').trim();
+}
+
+/** What to call a recipient in the rail, a toast or a confirm dialog. An
+ *  unassigned placeholder has no name to show, so its role stands in. */
+export function recipientDisplayName(r: Recipient): string {
+  const name = String(r.name ?? '').trim();
+  if (name) return name;
+  const email = String(r.email ?? '').trim();
+  if (email) return email;
+  const role = String(r.roleName ?? '').trim();
+  return role ? role + ' (unassigned)' : 'Unassigned recipient';
+}
+
+/**
+ * Put a person on the envelope: fill the first unassigned role if there is one,
+ * otherwise add a row at the end.
+ *
+ * Filling rather than appending is what makes a template usable. The fields are
+ * already placed against the placeholder, so appending would leave the person
+ * the sender just typed with nothing to sign and the form's own fields pointing
+ * at nobody. `claimPlaceholder` is off while *authoring* a template, where the
+ * empty roles are the deliverable and must survive.
+ */
+export function addRecipientToList(
+  list: Recipient[],
+  name: string,
+  email: string,
+  options: { claimPlaceholder?: boolean } = {},
+): { next: Recipient[]; recipient: Recipient; claimed: boolean } {
+  const claimPlaceholder = options.claimPlaceholder !== false;
+  const typed = String(name ?? '').trim();
+  const address = String(email ?? '').trim().toLowerCase();
+  const slot = claimPlaceholder
+    ? [...list].sort((a, b) => a.order - b.order).find(isUnassignedRecipient)
+    : undefined;
+  if (slot) {
+    const filled: Recipient = Object.assign({}, slot, {
+      name: typed || displayNameFromEmail(address),
+      email: address,
+    });
+    return { next: list.map(r => (r.id === slot.id ? filled : r)), recipient: filled, claimed: true };
+  }
+  const created = newBuilderRecipient(typed, address, list);
+  return { next: list.concat([created]), recipient: created, claimed: false };
+}
+
 /** Whether an id was minted by `newBuilderRecipient` and not yet persisted. */
 export function isLocalRecipientId(id: string): boolean {
   return String(id ?? '').startsWith('local-');
@@ -1088,6 +1147,7 @@ export function toRecipientSetItems(list: Recipient[], serverIds: (id: string) =
         signing_order: index + 1,
         role: (r.role || 'sign') as RecipientRole,
         color: r.color || null,
+        role_name: r.roleName || null,
       };
       if (serverIds(r.id)) item.id = r.id;
       return item;

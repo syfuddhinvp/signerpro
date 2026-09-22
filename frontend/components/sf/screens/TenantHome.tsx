@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useSF } from '@/lib/sf/state';
 import { useNav } from '@/lib/sf/nav';
 import type { ScreenKey } from '@/lib/sf/routes';
+import { useMenuPlacement } from '@/lib/sf/menuPlacement';
 import { tourSteps } from '@/lib/sf/data';
 import { useOptionalSession } from '@/components/sf/SessionProvider';
 import { btn, railHead, TEXT_MUTED } from '@/lib/sf/ui';
@@ -57,7 +58,7 @@ const sheetBack: CSSProperties = { position: 'absolute', width: '58%', height: '
 const sheetFace: CSSProperties = { position: 'absolute', left: '12%', top: '8%', width: '60%', height: '84%', background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '4px', padding: '7px 6px', display: 'flex', flexDirection: 'column', gap: '4px' };
 const sheetLine: CSSProperties = { height: '3px', borderRadius: '99px', background: 'hsl(var(--color-border-subtle))' };
 const fieldChip: CSSProperties = { width: '16px', height: '7px', borderRadius: '2px' };
-const templateMenu: CSSProperties = { position: 'absolute', right: 0, top: '32px', zIndex: 20, background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '10px', padding: '5px', display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '160px', boxShadow: '0 10px 28px rgba(15,23,42,.13)' };
+const templateMenu: CSSProperties = { position: 'absolute', right: 0, zIndex: 20, background: 'hsl(var(--color-bg-surface))', border: '1px solid hsl(var(--color-border-subtle))', borderRadius: '10px', padding: '5px', display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '160px', boxShadow: '0 10px 28px rgba(15,23,42,.13)' };
 const menuItem: CSSProperties = { display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 9px', border: 0, borderRadius: '7px', background: 'none', color: 'hsl(var(--color-fg-default))', fontSize: '.75rem', fontWeight: 500, cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap' };
 
 export default function TenantHome({
@@ -68,6 +69,11 @@ export default function TenantHome({
   const session = useOptionalSession();
   /** The template card whose "…" menu is open, if any. */
   const [menuTemplate, setMenuTemplate] = useState<string | null>(null);
+  // Template cards sit low on the home screen; their menu flips up there.
+  const { anchorRef: menuAnchor, menuStyle } = useMenuPlacement(menuTemplate, {
+    maxHeight: 240,
+    onDismiss: () => setMenuTemplate(null),
+  });
   const { go } = useNav();
   const router = useRouter();
   const A = accent();
@@ -208,7 +214,7 @@ export default function TenantHome({
                   <button type="button" onClick={() => useTemplate(t)} style={{ ...primaryBtn, height: '28px', flex: 1, justifyContent: 'center' }}>
                     <Icon name="send" size={12} />Use
                   </button>
-                  <div style={{ position: 'relative', flex: '0 0 auto' }}>
+                  <div style={{ position: 'relative', flex: '0 0 auto' }} ref={menuTemplate === t.templateId ? menuAnchor : undefined}>
                     <button
                       type="button"
                       aria-label={'More actions for ' + t.title}
@@ -217,7 +223,7 @@ export default function TenantHome({
                       style={{ ...ghostBtn, height: '28px', padding: '0 8px' }}
                     ><Icon name="caretDown" size={12} /></button>
                     {menuTemplate === t.templateId ? (
-                      <div role="menu" style={templateMenu}>
+                      <div role="menu" style={{ ...templateMenu, ...menuStyle }}>
                         <button type="button" role="menuitem" onClick={() => editTemplate(t)} style={menuItem}>
                           <Icon name="pencil" size={12} />Edit the template
                         </button>

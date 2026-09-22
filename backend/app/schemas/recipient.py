@@ -69,8 +69,23 @@ class RecipientResponse(BaseModel):
 
 class RecipientSetItem(RecipientCreate):
     """One recipient in a full-list replace. ``id`` keeps the existing row
-    (and its signing progress); omitting it creates a new recipient."""
+    (and its signing progress); omitting it creates a new recipient.
 
+    ``name``/``email`` are relaxed here for the same reason
+    ``RecipientResponse.email`` is: a template's role placeholders ("Employee",
+    "Employer representative") carry no person until the sender assigns one,
+    and a document created from a template inherits those blanks. This endpoint
+    is a read-modify-write of what ``GET /recipients`` just returned, so it has
+    to be able to echo a placeholder back untouched -- inheriting a bare
+    ``EmailStr`` made every recipient save on such a document a 422 the moment
+    the sender added anybody. Blank is still refused where it actually matters:
+    ``document_service.validate_for_send`` will not let an unassigned role out
+    the door, and ``RecipientCreate``/``RecipientUpdate`` still demand a real
+    address, so no single-recipient write can introduce one.
+    """
+
+    name: str = Field(default="", max_length=255)
+    email: EmailStr | Literal[""]
     id: str | None = None
 
 

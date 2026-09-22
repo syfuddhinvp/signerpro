@@ -76,6 +76,33 @@ class CatalogService:
                 detail=f"Fields placed beyond page {page_count}: {', '.join(over)}",
             )
 
+    def _pull_fields_onto(self, entry: CatalogTemplate, *, page_count: int) -> list[str]:
+        """Move fields past ``page_count`` onto the last page. Returns their labels.
+
+        Used only when the entry's *first* PDF arrives. Until then its
+        ``page_count`` is an assertion nobody has checked against a file --
+        the seeded blueprints declare one, and a curator typing an entry by
+        hand guesses another -- so the arriving file is the better authority
+        and the placement bends to it rather than the other way round.
+
+        The box keeps its x/y, which is a position on the wrong page, not a
+        correct one. That is why the labels come back: the caller says which
+        fields moved so the curator re-places them, instead of the entry
+        quietly looking finished.
+        """
+        moved: list[str] = []
+        rewritten: list[dict] = []
+        for field in entry.fields or []:
+            if int(field.get("page_number", 1)) > page_count:
+                moved.append(str(field.get("label", "")))
+                field = {**field, "page_number": page_count}
+            rewritten.append(field)
+        # Reassign rather than mutate: ``fields`` is a plain JSON column, so an
+        # in-place edit is invisible to the session and would never be written.
+        if moved:
+            entry.fields = rewritten
+        return moved
+
     # ---------- lookup ----------
 
     def _roles(self, entry: CatalogTemplate) -> list[CatalogRole]:
@@ -249,7 +276,9 @@ class CatalogService:
         db.delete(entry)
         db.commit()
 
-    async def attach_file(self, db: Session, *, entry: CatalogTemplate, upload: UploadFile) -> CatalogTemplate:
+    async def attach_file(
+        self, db: Session, *, entry: CatalogTemplate, upload: UploadFile
+    ) -> tuple[CatalogTemplate, list[str]]:
         """Store the authoritative form behind a catalog entry.
 
         Mirrors ``document_service.upload_pdf``: same conversion, same size
@@ -278,9 +307,15 @@ class CatalogService:
         if page_count < 1:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF must contain at least one page")
 
-        # Refuse a file that would strand fields past its last page rather
-        # than silently keeping placements no signer can ever reach.
-        self._check_pages(fields=self._fields(entry), page_count=page_count)
+        # A file already sits behind this entry, so its placement was built
+        # against real pages: a shorter replacement would strand fields no
+        # signer can reach, and only the curator can say which page they
+        # belong on now. Refuse, and let them re-place first.
+        moved: list[str] = []
+        if entry.file_path:
+            self._check_pages(fields=self._fields(entry), page_count=page_count)
+        else:
+            moved = self._pull_fields_onto(entry, page_count=page_count)
 
         relative_path = f"catalog/{entry.id}/form.pdf"
         storage.write_bytes(relative_path, content)
@@ -289,7 +324,7 @@ class CatalogService:
         entry.page_count = page_count
         db.commit()
         db.refresh(entry)
-        return entry
+        return entry, moved
 
     # ---------- import into a tenant ----------
 

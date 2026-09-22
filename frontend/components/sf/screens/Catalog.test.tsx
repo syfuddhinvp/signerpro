@@ -144,6 +144,33 @@ describe('the platform form catalog', () => {
     });
   });
 
+  it('names the fields the upload had to pull onto the last page', async () => {
+    /* The seeded blueprints declare a page count with no file behind them, so
+       a shorter PDF is accepted and the stranded boxes come back onto its last
+       page — at coordinates meant for a page that does not exist. Saying so is
+       the whole point: the entry would otherwise look finished. */
+    mount([entry({ page_count: 2, field_count: 5 })]);
+    apiCall.mockResolvedValue(ok({
+      ...entry(), page_count: 1, has_file: true,
+      fields_moved: ['Accepted by', 'Date accepted', 'On behalf of the company', 'Date'],
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload PDF' }));
+    choose(pdf());
+
+    await waitFor(() => expect(toast()).toMatch(/4 fields moved to page 1/));
+    expect(toast()).toMatch(/re-place Accepted by, Date accepted, On behalf of the company, Date/);
+  });
+
+  it('says nothing about moved fields when the PDF fits the blueprint', async () => {
+    mount([entry()]);
+    apiCall.mockResolvedValue(ok({ ...entry(), has_file: true, fields_moved: [] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload PDF' }));
+    choose(pdf());
+
+    await waitFor(() => expect(toast()).toMatch(/attached/));
+    expect(toast()).not.toMatch(/moved/);
+  });
+
   it('offers to replace a PDF that is already attached', () => {
     mount([entry({ has_file: true })]);
     expect(screen.getByRole('button', { name: 'Replace PDF' })).toBeTruthy();

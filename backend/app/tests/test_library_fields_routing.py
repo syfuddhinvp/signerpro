@@ -813,3 +813,86 @@ def test_copy_link_issues_a_link_without_emailing(client: TestClient, pdf_bytes:
     trail = client.get(f"/api/documents/{document_id}/audit-logs", headers=headers)
     assert trail.status_code == 200
     assert any(entry["event_type"] == "signing_link_issued" for entry in trail.json())
+
+
+def test_unassigned_template_roles_survive_a_replace_but_never_reach_send(
+    client: TestClient, pdf_bytes: bytes
+) -> None:
+    """A role placeholder round-trips through the recipient list, and stops at send.
+
+    A document created from a template inherits roles with no name and no
+    address (catalog_service / document_service.use_template). The builder does
+    a full replace of the list every time the sender adds or removes somebody,
+    which means echoing those blanks back — a strict ``EmailStr`` on the write
+    side made that a 422 and left such a document unable to take a recipient at
+    all. Accepting the blank is only safe because `validate_for_send` refuses to
+    mint a signing link for a role nobody has been assigned to.
+    """
+    headers = auth_headers(client)
+    document_id = create_uploaded_document(client, pdf_bytes, headers)
+
+    saved = client.put(
+        f"/api/documents/{document_id}/recipients",
+        headers=headers,
+        json={"recipients": [
+            {"name": "Dana Ruiz", "email": "dana@example.com", "role_name": "Employee", "signing_order": 1},
+            {"name": "", "email": "", "role_name": "Employer representative", "role": "approve", "signing_order": 2},
+        ]},
+    )
+    assert saved.status_code == 200, saved.text
+    employee, employer = (item["id"] for item in saved.json())
+    assert saved.json()[1]["email"] == ""
+
+    # Two unassigned roles are not duplicates of each other.
+    both_blank = client.put(
+        f"/api/documents/{document_id}/recipients",
+        headers=headers,
+        json={"recipients": [
+            {"id": employee, "name": "", "email": "", "role_name": "Employee", "signing_order": 1},
+            {"id": employer, "name": "", "email": "", "role_name": "Employer representative", "signing_order": 2},
+        ]},
+    )
+    assert both_blank.status_code == 200, both_blank.text
+
+    # A client that does not model role labels must not wipe them.
+    kept = client.put(
+        f"/api/documents/{document_id}/recipients",
+        headers=headers,
+        json={"recipients": [
+            {"id": employee, "name": "Dana Ruiz", "email": "dana@example.com", "signing_order": 1},
+            {"id": employer, "name": "", "email": "", "signing_order": 2},
+        ]},
+    ).json()
+    assert [item["role_name"] for item in kept] == ["Employee", "Employer representative"]
+
+    add_field(client, document_id, headers, employee, "signature", "Employee signature", 400)
+    add_field(client, document_id, headers, employer, "signature", "Employer signature", 500)
+
+    blocked = client.post(f"/api/documents/{document_id}/send", headers=headers)
+    assert blocked.status_code == 400
+    # Named by the role, which is the only thing the sender can recognise it by.
+    assert "Employer representative" in blocked.json()["detail"]
+
+    client.patch(
+        f"/api/documents/{document_id}/recipients/{employer}",
+        headers=headers,
+        json={"name": "Sam Lee", "email": "sam@example.com"},
+    )
+    sent = client.post(f"/api/documents/{document_id}/send", headers=headers)
+    assert sent.status_code == 200, sent.text
+
+
+def test_single_recipient_writes_still_demand_a_real_address(client: TestClient, pdf_bytes: bytes) -> None:
+    """The relaxation is scoped to the full-list replace. Nothing else may
+    introduce a blank address — a placeholder is something a template creates,
+    not something a caller can ask for."""
+    headers = auth_headers(client)
+    document_id = create_uploaded_document(client, pdf_bytes, headers)
+    recipient_id = add_recipient(client, document_id, headers, "Dana Ruiz", "dana@example.com")
+
+    assert client.post(
+        f"/api/documents/{document_id}/recipients", headers=headers, json={"name": "", "email": ""}
+    ).status_code == 422
+    assert client.patch(
+        f"/api/documents/{document_id}/recipients/{recipient_id}", headers=headers, json={"email": ""}
+    ).status_code == 422

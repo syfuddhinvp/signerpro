@@ -401,8 +401,11 @@ export const platformCatalog = {
   /**
    * `POST /api/platform/catalog-templates/{id}/file` — multipart. Attaches
    * (or replaces) the authoritative PDF behind an entry. Converts office and
-   * image formats server-side, and refuses a file with fewer pages than the
-   * entry's field placement needs.
+   * image formats server-side.
+   *
+   * The first file decides the page count: fields the blueprint placed past
+   * its last page come back onto that page and are named in `fields_moved`.
+   * A *replacement* shorter than the existing placement is refused instead.
    */
   uploadFile: (c: Caller, id: string, file: File) => {
     const formData = new FormData();

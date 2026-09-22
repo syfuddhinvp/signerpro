@@ -10,13 +10,21 @@
  * WCAG 2.2's 2.4.11 (focus not obscured) is why the sticky header carries
  * `scroll-margin` on the sections it links to — a focused heading must not end
  * up underneath it.
+ *
+ * The header is the one piece of the marketing site that reads the session
+ * cookie. `/` already sends a signed-in visitor to their workspace, but pricing,
+ * solutions and the rest are reachable while signed in, and a header that
+ * offers "Sign in" to someone who already is reads as broken. So a signed-in
+ * visitor gets a single "Open workspace" action instead of the sign-in pair.
  */
 import Link from 'next/link';
 import BrandMark from '@/components/sf/BrandMark';
+import { getSession } from '@/lib/auth/session';
 import { Cta } from './Cta';
 import { MARKETING_NAV, BRAND_ACCENT } from '@/lib/marketing/nav';
 
-export default function Nav() {
+export default async function Nav() {
+  const session = await getSession();
   return (
     <header className="sticky top-0 z-sticky-header border-b border-mk-hairline bg-mk-canvas/90 backdrop-blur">
       <div className="mx-auto flex max-w-mk-wide items-center gap-6 px-mk-gutter py-3">
@@ -41,10 +49,16 @@ export default function Nav() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2 lg:ml-0">
-          <Cta href="/login" variant="ghost" className="hidden sm:inline-flex">
-            Sign in
-          </Cta>
-          <Cta href="/register">Start free</Cta>
+          {session ? (
+            <Cta href="/overview">Open workspace</Cta>
+          ) : (
+            <>
+              <Cta href="/login" variant="ghost" className="hidden sm:inline-flex">
+                Sign in
+              </Cta>
+              <Cta href="/register">Start free</Cta>
+            </>
+          )}
         </div>
       </div>
 

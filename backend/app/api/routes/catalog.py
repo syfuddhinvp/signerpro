@@ -173,9 +173,18 @@ async def upload_catalog_file(
 
     Entries seed unpublished precisely because this step has not happened yet:
     publishing one with no file would let tenants import an empty template.
+
+    On the *first* upload the file decides the page count, and any field the
+    blueprint placed past its last page comes back onto that page --
+    ``fields_moved`` names them so the curator re-places them. Replacing an
+    existing PDF with a shorter one is refused instead: that placement was
+    built against real pages.
     """
     entry = catalog_service.get(db, catalog_id=catalog_id, published_only=False)
-    return catalog_service.detail(await catalog_service.attach_file(db, entry=entry, upload=upload))
+    entry, moved = await catalog_service.attach_file(db, entry=entry, upload=upload)
+    detail = catalog_service.detail(entry)
+    detail.fields_moved = moved
+    return detail
 
 
 @platform_router.post("/{catalog_id}/draft-template", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)

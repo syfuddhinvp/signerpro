@@ -123,6 +123,10 @@ class CatalogTemplateResponse(BaseModel):
 class CatalogTemplateDetail(CatalogTemplateResponse):
     roles: list[CatalogRole]
     fields: list[CatalogField]
+    #: Labels of fields the request just pulled back onto the last page,
+    #: because the PDF that arrived is shorter than the blueprint assumed.
+    #: Only the file upload ever fills this; every read returns it empty.
+    fields_moved: list[str] = []
 
 
 class CatalogListResponse(BaseModel):

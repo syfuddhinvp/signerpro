@@ -859,9 +859,14 @@ export function useDocumentPersistence({ documentId, serverFields, serverRecipie
        recipient is rejected by `bulk_save` ("Recipient … does not belong to
        this document"), so the next field autosave would fail. */
     const idByEmail: Dict<string> = {};
-    for (const row of saved) idByEmail[row.email.toLowerCase()] = row.id;
+    for (const row of saved) if (row.email) idByEmail[row.email.toLowerCase()] = row.id;
     const remap: Dict<string> = {};
     for (const r of current) {
+      /* An unassigned template role has no address to match on, and every one
+         of them would key to the same `''` — so they are left alone. They are
+         never `local-` rows either (only the server mints a placeholder), so
+         their ids already agree with the server's. */
+      if (!r.email) continue;
       const next = idByEmail[r.email.toLowerCase()];
       if (next && next !== r.id) remap[r.id] = next;
     }

@@ -5,7 +5,7 @@ import { reorderRecips, useDocumentTitle, useSF, type Recipient } from '@/lib/sf
 import { useNav } from '@/lib/sf/nav';
 import { btn, pill, inputStyle, lbl, railHead, TONE_NEUTRAL, TEXT_MUTED_ON_DARK } from '@/lib/sf/ui';
 import { useDocumentPersistence } from '@/lib/sf/builderInteractions';
-import { newBuilderRecipient, toBuilderRecipients, type BuilderRouting } from '@/lib/sf/adapters';
+import { addRecipientToList, recipientDisplayName, toBuilderRecipients, type BuilderRouting } from '@/lib/sf/adapters';
 import AddRecipient from '@/components/sf/parts/AddRecipient';
 import { rememberContact } from '@/lib/sf/recipientContacts';
 import { useDialogs } from '@/components/sf/DialogProvider';
@@ -99,14 +99,16 @@ export default function Routing({ documentId, title, recipients, routing, brandi
       flash(name + ' is already on this envelope');
       return false;
     }
-    const created = newBuilderRecipient(name, email, current);
-    const next = current.concat([created]);
+    /* Fills an inherited template role before appending, exactly as the prepare
+       screen does — this screen routes envelopes, never templates. */
+    const { next, recipient: created, claimed } = addRecipientToList(current, name, email);
     set({ recipients: next });
     const saved = await P.saveRecipients(next);
     if (!saved) { set({ recipients: current }); return false; }
     // Same address-book rule as the prepare screen; never fails the add.
     const remembered = await rememberContact(created.name, created.email);
-    flash(created.name + ' added as signer ' + created.order + (
+    const role = claimed && created.roleName ? created.roleName : 'signer ' + created.order;
+    flash(created.name + (claimed ? ' assigned as ' : ' added as ') + role + (
       remembered === 'created' ? ' · saved to contacts'
         : remembered === 'failed' ? ' · not saved to contacts' : ''
     ));
@@ -118,7 +120,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
     const target = current.find(r => r.id === id);
     if (!target) return;
     const ok = await askConfirm({
-      title: 'Remove ' + target.name + '?',
+      title: 'Remove ' + recipientDisplayName(target) + '?',
       message: 'Any fields assigned to them are deleted with them.',
       cta: 'Remove',
       danger: true,
@@ -129,7 +131,7 @@ export default function Routing({ documentId, title, recipients, routing, brandi
     // `set_all` refuses an empty list, so the last row goes through DELETE.
     const saved = next.length ? await P.saveRecipients(next) : await P.deleteRecipient(id);
     if (!saved) { set({ recipients: current }); return; }
-    flash(target.name + ' removed');
+    flash(recipientDisplayName(target) + ' removed');
   };
   /* Per-signer link actions.
      Both go through `POST .../resend`, which supersedes that recipient's
@@ -192,8 +194,9 @@ export default function Routing({ documentId, title, recipients, routing, brandi
 
   const routingRows = list.map((r) => ({
     id: r.id,
-    name: r.name,
-    email: r.email,
+    name: recipientDisplayName(r),
+    // An inherited template role has no address to show until somebody fills it.
+    email: r.email || 'No email yet — add a recipient to fill this role',
     role: r.role,
     order: s.routing === 'parallel' ? '=' : String(r.order),
     status: r.status,

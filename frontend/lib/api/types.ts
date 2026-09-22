@@ -765,6 +765,11 @@ export type CatalogCategory =
 export type CatalogTemplateDetail = CatalogTemplateResponse & {
   roles: CatalogRole[];
   fields: CatalogField[];
+  /** Labels of fields the upload just pulled back onto the last page, because
+   *  the PDF that arrived is shorter than the blueprint assumed. Only the file
+   *  upload fills this; every read returns it empty. Optional because a
+   *  response predating the field is absent rather than empty. */
+  fields_moved?: string[];
 };
 
 /** A placeholder recipient: named, but with no address until a sender assigns one. */

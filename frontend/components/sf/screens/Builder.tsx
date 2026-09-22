@@ -20,7 +20,7 @@ import {
 import { useFieldFavorites } from '@/lib/sf/fieldFavorites';
 import { fieldTypeEnabled, useEnabledFieldTypes } from '@/lib/sf/orgFieldTypes';
 import {
-  amountInputFromCents, centsFromAmountInput, fieldChoices, newBuilderRecipient, paymentFieldOptions,
+  addRecipientToList, amountInputFromCents, centsFromAmountInput, fieldChoices, paymentFieldOptions, recipientDisplayName,
   splitEqualCents, toBuilderFields, toBuilderRecipients,
   type BuilderFieldExtras, type BuilderRouting,
 } from '@/lib/sf/adapters';
@@ -271,7 +271,12 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   };
   /* Add: the row is created locally and the whole list is replaced through
      `PUT .../recipients`, which is what mints the real id. `saveRecipients`
-     then re-keys the local id (and any field pointing at it). */
+     then re-keys the local id (and any field pointing at it).
+
+     On a document made from a template the first add fills the blueprint's
+     unassigned role instead of appending — that role already owns the form's
+     fields. Authoring a template is the opposite case: its empty roles are the
+     product, so `claimPlaceholder` is off and a row is appended. */
   const addRecipient = async (name: string, email: string): Promise<boolean> => {
     if (!documentId) { flash('Upload a document first'); return false; }
     const normalized = email.trim().toLowerCase();
@@ -279,8 +284,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
       flash(name + ' is already on this envelope');
       return false;
     }
-    const created = newBuilderRecipient(name, email, R);
-    const next = R.concat([created]);
+    const { next, recipient: created, claimed } = addRecipientToList(R, name, email, { claimPlaceholder: !isTemplate });
     set({ recipients: next, activeRecipient: created.id });
     const saved = await P.saveRecipients(next);
     if (!saved) {
@@ -293,7 +297,8 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
        recipient is already saved, so a failed contact write only downgrades
        the toast — it never fails the add. */
     const remembered = await rememberContact(created.name, created.email);
-    flash(created.name + ' added as signer ' + created.order + (
+    const role = claimed && created.roleName ? created.roleName : 'signer ' + created.order;
+    flash(created.name + (claimed ? ' assigned as ' : ' added as ') + role + (
       remembered === 'created' ? ' · saved to contacts'
         : remembered === 'failed' ? ' · not saved to contacts' : ''
     ));
@@ -306,8 +311,9 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     const target = R.find(r => r.id === id);
     if (!target) return;
     const owned = F.filter(f => f.to === id).length;
+    const label = recipientDisplayName(target);
     const ok = await askConfirm({
-      title: 'Remove ' + target.name + '?',
+      title: 'Remove ' + label + '?',
       message: owned
         ? owned + (owned === 1 ? ' field' : ' fields') + ' assigned to them will be deleted with them.'
         : 'They will no longer receive this envelope.',
@@ -326,7 +332,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     // An empty list cannot go through the full replace — `set_all` refuses it.
     const saved = next.length ? await P.saveRecipients(next) : await P.deleteRecipient(id);
     if (!saved) { set({ recipients: R, fields: F }); return; }
-    flash(target.name + ' removed');
+    flash(label + ' removed');
   };
 
   /* ── pages ───────────────────────────────────────────────────────────────
@@ -571,7 +577,7 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
     const on = s.activeRecipient === r.id;
     return {
       id: r.id,
-      name: r.name, order: String(r.order), fieldCount: String(inputFields.filter(f => f.to === r.id).length), state: r.status,
+      name: recipientDisplayName(r), order: String(r.order), fieldCount: String(inputFields.filter(f => f.to === r.id).length), state: r.status,
       role: ROLE_LABEL[r.role],
       onClick: () => set({ activeRecipient: r.id }),
       style: { display:'flex', alignItems:'center', gap:'9px', padding:'9px', borderRadius:'11px', cursor:'pointer',
@@ -1251,7 +1257,11 @@ export default function Builder({ documentId, hasFile = true, title, pageCount, 
   /* ── step 2: routing / send setup ── */
   const routingRows = R.map(r => ({
     id: r.id,
-    name: r.name, email: r.email, role: r.role, order: s.routing === 'parallel' ? '=' : String(r.order), status: r.status,
+    name: recipientDisplayName(r),
+    // An unassigned role has nothing to put on the second line, so it says so
+    // rather than leaving a gap the sender has to interpret.
+    email: r.email || 'No email yet — add a recipient to fill this role',
+    role: r.role, order: s.routing === 'parallel' ? '=' : String(r.order), status: r.status,
     rowStyle: { display:'flex', alignItems:'center', gap:'11px', padding:'11px', border:'1px solid hsl(var(--color-border-hairline))', borderRadius:'12px', background:'hsl(var(--color-bg-subtle))' } as CSSProperties,
     orderStyle: { width:'26px', height:'26px', borderRadius:'8px', background:r.color, color:'hsl(var(--color-fg-on-solid))', display:'grid', placeItems:'center', fontSize:'.71875rem', fontWeight:700, flex:'0 0 26px' } as CSSProperties,
     selectStyle: Object.assign({}, inputStyle, { width:'160px' }) as CSSProperties,

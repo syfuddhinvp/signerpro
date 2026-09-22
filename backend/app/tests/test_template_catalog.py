@@ -372,20 +372,71 @@ def test_uploading_the_form_is_platform_only(client: TestClient, pdf_bytes: byte
     assert response.status_code == 403
 
 
-def test_a_form_shorter_than_its_field_placement_is_refused(client: TestClient, pdf_bytes: bytes) -> None:
-    """The one-page sample cannot back an entry with a field on page 2 —
-    otherwise the import would place a signature nobody can reach."""
+def test_the_first_pdf_pulls_stranded_fields_onto_its_last_page(client: TestClient, pdf_bytes: bytes) -> None:
+    """A blueprint's page count is a guess until a file backs it.
+
+    The seeded entries declare one (`offer-letter` says two pages and places
+    four fields on page 2) with no PDF behind them, so refusing the curator's
+    one-page form would be refusing the only authority in the exchange — and
+    there would be nowhere to fix it, since the builder has no pages to drag
+    those fields onto either. The file wins; the labels come back so the
+    curator knows what still needs placing.
+    """
     platform, _ = _actors(client)
     entry = _create(client, platform, {
         **W9, "page_count": 2,
-        "fields": [{"role": "signer", "type": "signature", "label": "Page two signature",
-                    "page_number": 2, "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.05}],
+        "fields": [
+            {"role": "signer", "type": "full_name", "label": "Name",
+             "page_number": 1, "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.05},
+            {"role": "signer", "type": "signature", "label": "Page two signature",
+             "page_number": 2, "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.05},
+        ],
     })
     response = client.post(
         f"/api/platform/catalog-templates/{entry['id']}/file",
         files={"upload": ("w9.pdf", pdf_bytes, "application/pdf")},
         headers=platform,
     )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["page_count"] == 1
+    assert body["fields_moved"] == ["Page two signature"]
+    assert [f["page_number"] for f in body["fields"]] == [1, 1]
+    # Only the page moved — the box keeps the coordinates the curator gave it.
+    assert body["fields"][1]["x"] == 0.1
+
+    # The move is persisted, not just reported back on the one response.
+    after = client.get(f"/api/platform/catalog-templates/{entry['id']}", headers=platform).json()
+    assert [f["page_number"] for f in after["fields"]] == [1, 1]
+    assert after["fields_moved"] == []
+
+
+def test_replacing_a_pdf_with_a_shorter_one_is_refused(client: TestClient, pdf_bytes: bytes) -> None:
+    """Once a file backs the entry its placement was built against real pages.
+
+    Silently dragging those fields onto the last page would destroy work the
+    curator did on a page they could see, so a shorter revision is refused and
+    they re-place first."""
+    platform, _ = _actors(client)
+    entry = _create(client, platform, {
+        **W9, "page_count": 1,
+        "fields": [{"role": "signer", "type": "signature", "label": "Signature",
+                    "page_number": 1, "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.05}],
+    })
+    url = f"/api/platform/catalog-templates/{entry['id']}/file"
+    assert client.post(url, files={"upload": ("w9.pdf", pdf_bytes, "application/pdf")}, headers=platform).status_code == 200
+
+    # Now push the placement onto a second page and try the one-page file again.
+    patched = client.patch(
+        f"/api/platform/catalog-templates/{entry['id']}",
+        json={"page_count": 2,
+              "fields": [{"role": "signer", "type": "signature", "label": "Page two signature",
+                          "page_number": 2, "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.05}]},
+        headers=platform,
+    )
+    assert patched.status_code == 200, patched.text
+
+    response = client.post(url, files={"upload": ("w9.pdf", pdf_bytes, "application/pdf")}, headers=platform)
     assert response.status_code == 400
     assert "Page two signature" in response.json()["detail"]
 
@@ -573,3 +624,54 @@ def test_an_entry_resolves_by_slug_as_well_as_by_id(client: TestClient) -> None:
     template_id = _draft(client, platform, entry["id"])
     adopted = client.post(f"/api/platform/catalog-templates/irs-w9/adopt/{template_id}", headers=platform)
     assert adopted.status_code == 200, adopted.text
+
+
+def test_a_document_from_a_catalog_form_can_take_its_first_recipient(client: TestClient) -> None:
+    """The path a sender actually walks: import the form, use it, then put a
+    person on the resulting draft.
+
+    The roles arrive blank, and the builder saves the recipient list as a whole,
+    so the very first add sends an empty address back with it. That used to come
+    back 422 and no recipient could be added to a catalog document at all.
+    """
+    platform, tenant = _actors(client)
+    entry = _create(client, platform, {
+        **W9, "slug": "uscis-i9", "title": "Form I-9",
+        "roles": [
+            {"key": "signer", "name": "Employee", "signing_order": 1},
+            {"key": "employer", "name": "Employer representative", "signing_order": 2, "role": "approve"},
+        ],
+        "fields": [
+            {"role": "signer", "type": "signature", "label": "Employee signature", "page_number": 1,
+             "x": 0.1, "y": 0.6, "width": 0.3, "height": 0.05},
+            {"role": "employer", "type": "signature", "label": "Employer signature", "page_number": 1,
+             "x": 0.1, "y": 0.8, "width": 0.3, "height": 0.05},
+        ],
+    })
+    template_id = client.post(f"/api/templates/catalog/{entry['id']}/import", headers=tenant).json()["id"]
+    document_id = client.post(f"/api/templates/{template_id}/use", headers=tenant).json()["id"]
+
+    rows = sorted(
+        client.get(f"/api/documents/{document_id}/recipients", headers=tenant).json(),
+        key=lambda row: row["signing_order"],
+    )
+    # The role survives being used, so the approver does not quietly become a signer.
+    assert [row["role"] for row in rows] == ["sign", "approve"]
+
+    # Exactly what the builder sends: the row it just filled in, and the other
+    # role handed straight back as it came.
+    saved = client.put(
+        f"/api/documents/{document_id}/recipients",
+        headers=tenant,
+        json={"workflow_type": "sequential", "recipients": [
+            {"id": rows[0]["id"], "name": "Dev Soab", "email": "dev.soab@example.com",
+             "role_name": rows[0]["role_name"], "role": "sign", "signing_order": 1},
+            {"id": rows[1]["id"], "name": "", "email": "",
+             "role_name": rows[1]["role_name"], "role": "approve", "signing_order": 2},
+        ]},
+    )
+    assert saved.status_code == 200, saved.text
+    assert [row["email"] for row in saved.json()] == ["dev.soab@example.com", ""]
+    # Filling a role keeps its id, so the fields already placed on it stay placed.
+    fields = client.get(f"/api/documents/{document_id}/fields", headers=tenant).json()
+    assert {field["recipient_id"] for field in fields} == {rows[0]["id"], rows[1]["id"]}

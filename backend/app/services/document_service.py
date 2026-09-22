@@ -179,6 +179,11 @@ class DocumentService:
                 email=recip.email or "",
                 name=recip.name or "",
                 role_name=recip.role_name,
+                # Carried like `duplicate` does: dropping them turned a
+                # template's approver placeholder into a signer, and the
+                # sender's colour coding for the role into a default.
+                role=recip.role,
+                color=recip.color,
                 signing_order=recip.signing_order,
                 status=RecipientStatus.waiting
             )
@@ -625,6 +630,17 @@ class DocumentService:
         for field in document.fields:
             self._validate_field_page_and_coords(document, field)
         for recipient in document.recipients:
+            # A document made from a template inherits its role placeholders,
+            # which carry no address until the sender assigns somebody. The
+            # recipient list accepts that spelling (see RecipientSetItem) so the
+            # envelope stays editable; this is where it stops, because a signing
+            # link with nowhere to go is the one thing send must never produce.
+            if not (recipient.email or "").strip():
+                label = recipient.role_name or recipient.name or f"#{recipient.signing_order}"
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Recipient '{label}' has no email address — assign a signer before sending",
+                )
             # RTE-3: only a recipient with a signing obligation must own
             # something to do. A `copy` recipient is a CC — requiring them to
             # hold a signature field is what forced counsel to sign a contract

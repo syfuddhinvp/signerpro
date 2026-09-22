@@ -120,7 +120,9 @@ class RecipientService:
         document_service.ensure_editable(document)
         if not payload.recipients:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one recipient is required")
-        emails = [item.email.lower() for item in payload.recipients]
+        # Blanks are excluded on purpose: a template legitimately carries several
+        # unassigned role placeholders, and they are not duplicates of each other.
+        emails = [item.email.lower() for item in payload.recipients if item.email]
         duplicates = {email for email in emails if emails.count(email) > 1}
         if duplicates:
             raise HTTPException(
@@ -137,7 +139,12 @@ class RecipientService:
                 recipient = existing[item.id]
                 recipient.name = item.name
                 recipient.email = item.email.lower()
-                recipient.role_name = item.role_name
+                # Unlike the rest of the row, the role label is only overwritten
+                # when the caller actually sent one. It is the last thing that
+                # identifies an unassigned placeholder, and a client that does
+                # not model role names at all should not silently erase it.
+                if "role_name" in item.model_fields_set:
+                    recipient.role_name = item.role_name
                 recipient.role = item.role
                 recipient.color = item.color
                 recipient.contact_id = contact_id

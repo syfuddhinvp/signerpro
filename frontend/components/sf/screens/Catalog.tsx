@@ -18,7 +18,8 @@ import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiCall, apiDownload } from '@/lib/api/browser';
 import { platformCatalog as catalogApi } from '@/lib/api/resources';
-import type { CatalogCategory, CatalogTemplateResponse } from '@/lib/api/types';
+import type { ApiResult } from '@/lib/api/result';
+import type { CatalogCategory, CatalogTemplateDetail, CatalogTemplateResponse } from '@/lib/api/types';
 import { useSF } from '@/lib/sf/state';
 import { useDialogs } from '@/components/sf/DialogProvider';
 import ApiUnavailable from '@/components/sf/ApiUnavailable';
@@ -63,13 +64,15 @@ export default function Catalog({ items, loadError }: CatalogProps) {
   /* null = closed. `'new'` creates; an entry opens its details for editing. */
   const [dialog, setDialog] = useState<'new' | CatalogTemplateResponse | null>(null);
 
+  /* `done` may read the response: an upload's toast depends on what the
+     server did with the file, not only on the file having been accepted. */
   const run = useCallback(
-    (id: string, optimistic: string, call: () => Promise<{ ok: boolean; error?: { message: string } }>) => {
+    <T,>(id: string, done: string | ((data: T) => string), call: () => Promise<ApiResult<T>>) => {
       setBusy(id);
       void call().then(res => {
         setBusy(null);
-        if (!res.ok) { flash('Could not complete · ' + (res.error?.message ?? 'unknown error')); return; }
-        flash(optimistic);
+        if (!res.ok) { flash('Could not complete · ' + res.error.message); return; }
+        flash(typeof done === 'string' ? done : done(res.data));
         router.refresh();
       });
     },
@@ -100,7 +103,17 @@ export default function Catalog({ items, loadError }: CatalogProps) {
       flash('That file is too large — the limit is 25 MB');
       return;
     }
-    run(id, file.name + ' attached', () => catalogApi.uploadFile(apiCall, id, file));
+    /* A blueprint's page count is a guess until a file backs it, so the first
+       upload wins and the server pulls any field placed past the new last page
+       back onto it. Those boxes now sit at coordinates meant for another page,
+       so the toast names them — an entry that quietly looked finished would
+       ship a signature block in the middle of the text. */
+    run(id, (detail: CatalogTemplateDetail) => {
+      const moved = detail.fields_moved ?? [];
+      if (!moved.length) return file.name + ' attached';
+      return file.name + ' attached · ' + (moved.length === 1 ? '1 field' : moved.length + ' fields')
+        + ' moved to page ' + detail.page_count + ' — re-place ' + moved.join(', ');
+    }, () => catalogApi.uploadFile(apiCall, id, file));
   }, [flash, run]);
 
   const togglePublish = useCallback((entry: CatalogTemplateResponse) => {
